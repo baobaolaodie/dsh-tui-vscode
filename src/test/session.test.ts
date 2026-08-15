@@ -38,6 +38,11 @@ test('buildLaunchEnv exports DSH_HOME only when dshHome is set', () => {
   })
 })
 
+test('buildLaunchEnv dshHome overrides an inherited DSH_HOME', () => {
+  const env = buildLaunchEnv({ base: { DSH_HOME: 'C:\\old' }, dshHome: 'C:\\new', injectEditor: false })
+  assert.deepEqual(env, { DSH_HOME: 'C:\\new' })
+})
+
 test('buildTerminalPlan non-Windows uses the command directly', () => {
   assert.deepEqual(buildTerminalPlan({ resume: false }), { shellPath: 'dsh-tui', shellArgs: [] })
   assert.deepEqual(buildTerminalPlan({ resume: true }), {
@@ -54,6 +59,11 @@ test('buildTerminalPlan non-Windows uses the command directly', () => {
   })
   assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/bin/dsh-tui' }), {
     shellPath: '/opt/bin/dsh-tui',
+    shellArgs: [],
+  })
+  // POSIX spawns through argv, so a spaced path needs no quoting.
+  assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/my tools/dsh-tui' }), {
+    shellPath: '/opt/my tools/dsh-tui',
     shellArgs: [],
   })
 })
@@ -89,4 +99,6 @@ test('quoteCmdArg quotes only when needed', () => {
   assert.equal(quoteCmdArg(''), '""')
   assert.equal(quoteCmdArg('C:\\Program Files\\x.cmd'), '"C:\\Program Files\\x.cmd"')
   assert.equal(quoteCmdArg('a"b'), '"a""b"')
+  assert.equal(quoteCmdArg('a&b'), '"a&b"')
+  assert.equal(quoteCmdArg('a|b'), '"a|b"')
 })

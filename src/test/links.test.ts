@@ -24,6 +24,22 @@ test('no links in plain prose', () => {
   assert.deepEqual(findFileLinks('this is a normal sentence with a / slash and words'), [])
 })
 
+test('empty, whitespace-only and pure-ANSI lines produce no links', () => {
+  assert.deepEqual(findFileLinks(''), [])
+  assert.deepEqual(findFileLinks('   '), [])
+  assert.deepEqual(findFileLinks('\x1b[0m\x1b[2K'), [])
+})
+
+test('multiple links in one line are all reported in order', () => {
+  const links = findFileLinks('see C:\\x\\y.ts:1 then /home/u/z.ts:2 end')
+  assert.equal(links.length, 2)
+  assert.equal(links[0].path, 'C:\\x\\y.ts')
+  assert.equal(links[0].line, 1)
+  assert.equal(links[1].path, '/home/u/z.ts')
+  assert.equal(links[1].line, 2)
+  assert.ok(links[0].end <= links[1].start)
+})
+
 test('Windows absolute path with line and column', () => {
   const links = findFileLinks('error in C:\\src\\a.ts:12:3 here')
   assert.equal(links.length, 1)

@@ -21,6 +21,7 @@ test('~ and ~/ paths expand against the home directory', () => {
   const home = join('home', 'u')
   assert.equal(resolveLocalPath('~/src/x.ts', { home }), join(home, 'src', 'x.ts'))
   assert.equal(resolveLocalPath('~', { home }), home)
+  assert.equal(resolveLocalPath('~/', { home }), home)
 })
 
 test('relative paths resolve against the workspace root', () => {
