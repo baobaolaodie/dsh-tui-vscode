@@ -132,7 +132,7 @@ test('start opens the panel and launches a PTY with env injection', async () => 
     await sleep(2500)
     probe.kill()
     console.log(
-      `[e2e] DIAG plan=${JSON.stringify(plan)} exists=${readFile(plan.shellPath) !== undefined} exit=${exitCode} out=${JSON.stringify(ptyOut.slice(-300))}`,
+      `[e2e] DIAG plan=${JSON.stringify(plan)} exists=${readFile(plan.shellPath) !== undefined} exit=${exitCode} out=${JSON.stringify(ptyOut.slice(-300))} PATH=${JSON.stringify(process.env.PATH)} WS=${JSON.stringify(WS)}`,
     )
   } catch (error) {
     console.log(`[e2e] DIAG threw: ${String(error)}`)
