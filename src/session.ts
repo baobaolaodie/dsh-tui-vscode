@@ -5,7 +5,7 @@
  * exact PTY launch options and environment, so they are unit-testable without
  * the VS Code API host.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, statSync, accessSync, constants } from 'node:fs'
 import { delimiter, join, sep } from 'node:path'
 
 export interface LaunchEnvInput {
@@ -73,6 +73,29 @@ export function resolveWindowsCommand(command: string): string {
   return command
 }
 
+/**
+ * Resolve a bare POSIX command to an absolute executable path on PATH.
+ * node-pty's POSIX backend does NOT PATH-resolve bare names itself (verified
+ * empirically: exec fails with ENOENT), so the extension must.
+ */
+export function resolvePosixCommand(command: string): string {
+  if (command.includes('/')) return command
+  const pathEnv = process.env.PATH ?? ''
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) continue
+    const candidate = join(dir, command)
+    try {
+      if (statSync(candidate).isFile()) {
+        accessSync(candidate, constants.X_OK)
+        return candidate
+      }
+    } catch {
+      // not a usable candidate — keep looking
+    }
+  }
+  return command
+}
+
 export function buildTerminalPlan(input: PlanInput): TerminalPlan {
   const command = input.command?.trim() || 'dsh-tui'
   const args = [...(input.resume ? ['--resume'] : []), ...(input.extraArgs ?? [])]
@@ -84,5 +107,7 @@ export function buildTerminalPlan(input: PlanInput): TerminalPlan {
     // for .cmd shells.
     return { shellPath: resolveWindowsCommand(command), shellArgs: args }
   }
-  return { shellPath: command, shellArgs: args }
+  // node-pty on POSIX does not PATH-resolve bare names (verified on CI:
+  // exec fails with ENOENT), so resolve to an absolute path here.
+  return { shellPath: resolvePosixCommand(command), shellArgs: args }
 }

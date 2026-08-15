@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, existsSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildLaunchEnv, buildTerminalPlan, resolveWindowsCommand } from '../session.js'
+import { buildLaunchEnv, buildTerminalPlan, resolveWindowsCommand, resolvePosixCommand } from '../session.js'
 
 test('buildLaunchEnv sets DSH_TUI_LANG when lang provided', () => {
   // injectEditor is on by default, so VISUAL also appears unless disabled.
@@ -47,28 +47,59 @@ test('buildLaunchEnv dshHome overrides an inherited DSH_HOME', () => {
 })
 
 test('buildTerminalPlan non-Windows uses the command directly', () => {
-  assert.deepEqual(buildTerminalPlan({ resume: false }), { shellPath: 'dsh-tui', shellArgs: [] })
-  assert.deepEqual(buildTerminalPlan({ resume: true }), {
-    shellPath: 'dsh-tui',
-    shellArgs: ['--resume'],
-  })
-  assert.deepEqual(buildTerminalPlan({ resume: true, extraArgs: ['--lang', 'en'] }), {
-    shellPath: 'dsh-tui',
-    shellArgs: ['--resume', '--lang', 'en'],
-  })
-  assert.deepEqual(buildTerminalPlan({ resume: false, command: '  ' }), {
-    shellPath: 'dsh-tui',
-    shellArgs: [],
-  })
-  assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/bin/dsh-tui' }), {
-    shellPath: '/opt/bin/dsh-tui',
-    shellArgs: [],
-  })
-  // POSIX spawns through argv, so a spaced path needs no quoting.
-  assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/my tools/dsh-tui' }), {
-    shellPath: '/opt/my tools/dsh-tui',
-    shellArgs: [],
-  })
+  const originalPath = process.env.PATH
+  const emptyDir = mkdtempSync(join(tmpdir(), 'dsh-tui-empty-path-'))
+  process.env.PATH = emptyDir // ensure no bare name accidentally resolves
+  try {
+    assert.deepEqual(buildTerminalPlan({ resume: false }), { shellPath: 'dsh-tui', shellArgs: [] })
+    assert.deepEqual(buildTerminalPlan({ resume: true }), {
+      shellPath: 'dsh-tui',
+      shellArgs: ['--resume'],
+    })
+    assert.deepEqual(buildTerminalPlan({ resume: true, extraArgs: ['--lang', 'en'] }), {
+      shellPath: 'dsh-tui',
+      shellArgs: ['--resume', '--lang', 'en'],
+    })
+    assert.deepEqual(buildTerminalPlan({ resume: false, command: '  ' }), {
+      shellPath: 'dsh-tui',
+      shellArgs: [],
+    })
+    assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/bin/dsh-tui' }), {
+      shellPath: '/opt/bin/dsh-tui',
+      shellArgs: [],
+    })
+    // POSIX spawns through argv, so a spaced path needs no quoting.
+    assert.deepEqual(buildTerminalPlan({ resume: false, command: '/opt/my tools/dsh-tui' }), {
+      shellPath: '/opt/my tools/dsh-tui',
+      shellArgs: [],
+    })
+  } finally {
+    process.env.PATH = originalPath
+    rmSync(emptyDir, { recursive: true, force: true })
+  }
+})
+
+test('resolvePosixCommand resolves executable commands on PATH', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-posix-'))
+  try {
+    const cmd = join(dir, 'dsh-tui')
+    writeFileSync(cmd, '#!/bin/sh\nexit 0\n')
+    chmodSync(cmd, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = dir
+    try {
+      assert.equal(resolvePosixCommand('dsh-tui'), cmd)
+      // Non-executable or missing names stay unchanged.
+      writeFileSync(join(dir, 'not-exec'), '#!/bin/sh\n')
+      assert.equal(resolvePosixCommand('not-exec'), 'not-exec')
+      assert.equal(resolvePosixCommand('missing-cmd'), 'missing-cmd')
+    } finally {
+      process.env.PATH = originalPath
+    }
+    assert.equal(resolvePosixCommand('/abs/bin/x'), '/abs/bin/x')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('resolveWindowsCommand finds .cmd/.bat shims on PATH', () => {
