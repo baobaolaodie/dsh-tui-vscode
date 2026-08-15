@@ -45,7 +45,19 @@ async function main(): Promise<void> {
     )
   } else {
     const shim = join(ws, 'fake-dsh-tui.sh')
-    writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${launcher}" "$@"\n`)
+    // The shim logs its own run + the child's output, so CI failures show
+    // exactly why the launcher exited.
+    writeFileSync(
+      shim,
+      [
+        '#!/bin/sh',
+        `SHIM_LOG="${launcher}.shim-log"`,
+        'echo "SHIM_RAN pid=$$" > "$SHIM_LOG"',
+        `"${process.execPath}" "${launcher}" "$@" >> "$SHIM_LOG" 2>&1`,
+        'echo "SHIM_EXIT=$?" >> "$SHIM_LOG"',
+        '',
+      ].join('\n'),
+    )
     chmodSync(shim, 0o755)
   }
   for (const file of ['env-out.txt', 'stdin-out.txt', 'exited.txt']) {

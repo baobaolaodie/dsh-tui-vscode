@@ -116,8 +116,9 @@ test('start opens the panel and launches a PTY with env injection', async () => 
   if (!text) {
     const ext0 = vscode.extensions.getExtension(EXT_ID)!
     const state0 = (ext0.exports as Api).getState()
+    const shimLog = readFile(join(WS, 'fake-dsh-tui.js.shim-log'))
     throw new Error(
-      `env-out never written; files=${readdirSync(WS).join(',')} state=${JSON.stringify(state0)} envOut=${JSON.stringify(readFile(ENV_OUT) ?? '<missing>')}`,
+      `env-out never written; files=${readdirSync(WS).join(',')} state=${JSON.stringify(state0)} envOut=${JSON.stringify(readFile(ENV_OUT) ?? '<missing>')} shimLog=${JSON.stringify(shimLog ?? '<none>')}`,
     )
   }
   const lines = text.trim().split(/\r?\n/).map(line => line.trim())
