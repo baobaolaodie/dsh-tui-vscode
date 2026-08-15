@@ -5,7 +5,7 @@
 .e2e-workspace/**
 .vscode-test/**
 node_modules/**
-out/**
+out/test/**
 out-test/**
 src/**
 tsconfig.json
