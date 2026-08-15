@@ -1,5 +1,8 @@
 node_modules/
 out/
+out-test/
 .smoke/
+.e2e-workspace/
+.vscode-test/
 *.vsix
 *.log

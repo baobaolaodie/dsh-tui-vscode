@@ -94,6 +94,7 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 pnpm install
 pnpm typecheck   # tsc --noEmit
 pnpm test        # 编译 + node --test（纯逻辑单测，无需 VS Code/DSH）
+pnpm test:e2e    # 真实 VS Code 扩展宿主测试（@vscode/test-electron，Linux 下用 xvfb-run）
 pnpm package     # 生成 .vsix
 ```
 
@@ -192,6 +193,7 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 pnpm install
 pnpm typecheck
 pnpm test
+pnpm test:e2e   # real VS Code extension-host tests (xvfb-run -a on Linux)
 pnpm package
 ```
 

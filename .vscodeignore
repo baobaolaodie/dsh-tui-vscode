@@ -2,10 +2,14 @@
 .gitignore
 .vscode/**
 .smoke/**
+.e2e-workspace/**
+.vscode-test/**
 node_modules/**
-out/test/**
+out/**
+out-test/**
 src/**
 tsconfig.json
+tsconfig.test.json
 pnpm-lock.yaml
 *.vsix
 *.log

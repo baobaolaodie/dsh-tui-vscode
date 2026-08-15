@@ -1,7 +1,8 @@
 import * as vscode from 'vscode'
 import { buildLaunchEnv, buildTerminalPlan } from './session'
-import { findFileLinks, type FileLink } from './links'
+import { type FileLink } from './links'
 import { resolveLocalPath } from './paths'
+import { createTerminalLinkProvider } from './terminal-links'
 import { SessionStatusBar } from './status'
 
 interface Settings {
@@ -134,27 +135,10 @@ export function activate(context: vscode.ExtensionContext): void {
     void vscode.window.showTextDocument(uri, { preview: true, selection })
   }
 
-  const linkTargets = new WeakMap<vscode.TerminalLink, FileLink>()
-
-  const terminalLinkProvider: vscode.TerminalLinkProvider = {
-    provideTerminalLinks(context: vscode.TerminalLinkContext): vscode.TerminalLink[] | undefined {
-      // Only decorate terminals owned by this extension.
-      if (![...sessions].some(t => t === context.terminal)) return undefined
-      return findFileLinks(context.line).map(link => {
-        const terminalLink = new vscode.TerminalLink(
-          link.start,
-          link.end - link.start,
-          link.path + (link.line !== undefined ? `:${link.line}` : ''),
-        )
-        linkTargets.set(terminalLink, link)
-        return terminalLink
-      })
-    },
-    handleTerminalLink(link: vscode.TerminalLink): void {
-      const target = linkTargets.get(link)
-      if (target) openLink(target)
-    },
-  }
+  const terminalLinkProvider = createTerminalLinkProvider({
+    isOwnTerminal: terminal => [...sessions].some(t => t === terminal),
+    openPath: openLink,
+  })
 
   context.subscriptions.push(
     vscode.commands.registerCommand('dsh-tui-vscode.start', () => launch(false)),

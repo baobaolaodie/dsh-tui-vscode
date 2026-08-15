@@ -10,4 +10,4 @@
   - status-bar item; per-terminal env injection; terminal link provider scoped to owned terminals;
   - session adoption on extension reload (no duplicate terminals after reload);
   - Windows launch via `cmd.exe /d /s /c` (quoting verified against real cmd.exe);
-  - CI: typecheck + unit tests + vsix packaging on GitHub Actions.
+  - CI: typecheck + unit tests + real extension-host e2e (xvfb) + vsix packaging on GitHub Actions.

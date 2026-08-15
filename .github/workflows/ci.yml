@@ -30,4 +30,7 @@ jobs:
 
       - run: pnpm test
 
+      # Real extension-host tests: launches VS Code under xvfb.
+      - run: xvfb-run -a pnpm test:e2e
+
       - run: pnpm package

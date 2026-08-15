@@ -4,7 +4,7 @@
     "moduleResolution": "node",
     "target": "ES2022",
     "lib": ["ES2022"],
-    "outDir": "out",
+    "outDir": "out-test",
     "rootDir": "src",
     "strict": true,
     "noImplicitAny": true,
@@ -13,6 +13,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src"],
-  "exclude": ["src/test-suite"]
+  "include": ["src/test-suite", "src/terminal-links.ts", "src/links.ts", "src/paths.ts"]
 }

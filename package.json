@@ -109,12 +109,14 @@
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run compile && node --test out/test/session.test.js out/test/links.test.js out/test/paths.test.js",
+    "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package --no-dependencies",
     "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.1.0.vsix --force"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.6.0"
   }
