@@ -54,7 +54,7 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 2. 首次启动会自动初始化 `dsh-tui` profile（需要 pnpm，提示与 `dsh-tui` 命令一致）；
 3. 会话跑在名为 `dsh-tui` 的集成终端里；窗口右下角的
    `$(terminal) dsh-tui` 状态项可随时点击聚焦；
-4. 工具输出里的文件路径**按住 Ctrl 点击**即可在编辑器打开；
+4. 工具输出里的文件路径**按住 Ctrl 点击**（macOS 为 Cmd+点击）即可在编辑器打开；
 5. 在 TUI 输入框按 `Ctrl+X` 会用 VS Code 编辑当前输入（`$VISUAL=code -w`）。
 
 ## 配置
@@ -75,8 +75,8 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 - Windows：`dsh-tui` 在 PATH 上是 `dsh-tui.cmd`，扩展经 `cmd.exe /d /s /c` 复合
   命令行启动（VS Code 自身对自定义 shell 的同一套做法）；
 - `registerTerminalLinkProvider` 只对本扩展创建的终端提供路径链接；
-- 环境变量（`DSH_TUI_LANG`、`$VISUAL`）通过 `createTerminal` 的 `env` 注入，不污染
-  全局终端环境。
+- 环境变量（`DSH_TUI_LANG`、`$VISUAL`、可选的 `$DSH_HOME`）通过 `createTerminal`
+  的 `env` 注入，不污染全局终端环境。
 
 ## 已知限制
 
@@ -190,7 +190,9 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 
 ```sh
 pnpm install
-pnpm typecheck || pnpm test || pnpm package
+pnpm typecheck
+pnpm test
+pnpm package
 ```
 
 ## License
