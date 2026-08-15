@@ -9,7 +9,7 @@
  */
 import * as vscode from 'vscode'
 import { strict as assert } from 'node:assert'
-import { readFileSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
@@ -109,13 +109,18 @@ test('start opens the panel and launches a PTY with env injection', async () => 
   }
 
   // Ground truth: the PTY child echoes its own environment.
-  const lines = (await poll(() => {
-    const text = readFile(ENV_OUT)
-    return text?.includes('FAKE_LAUNCHER_RAN') ? text : undefined
-  }, 15000))
-    .trim()
-    .split(/\r?\n/)
-    .map(line => line.trim())
+  const text = await poll(() => {
+    const content = readFile(ENV_OUT)
+    return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
+  }, 15000).catch(() => undefined)
+  if (!text) {
+    const ext0 = vscode.extensions.getExtension(EXT_ID)!
+    const state0 = (ext0.exports as Api).getState()
+    throw new Error(
+      `env-out never written; files=${readdirSync(WS).join(',')} state=${JSON.stringify(state0)} envOut=${JSON.stringify(readFile(ENV_OUT) ?? '<missing>')}`,
+    )
+  }
+  const lines = text.trim().split(/\r?\n/).map(line => line.trim())
   assert.ok(lines.includes('VISUAL=code -w'), `VISUAL missing: ${lines.join(' | ')}`)
   assert.ok(lines.includes('DSH_TUI_LANG=zh'), `DSH_TUI_LANG missing: ${lines.join(' | ')}`)
   assert.ok(lines.includes('DSH_HOME=C:\\e2e-home'), `DSH_HOME missing: ${lines.join(' | ')}`)
