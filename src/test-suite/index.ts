@@ -92,6 +92,52 @@ test('start opens the panel and launches a PTY with env injection', async () => 
   delete process.env.EDITOR
   rmSync(ENV_OUT, { force: true })
 
+  // Diagnostic: what the extension will spawn, and whether a direct spawn in
+  // this host actually executes (captures the pty output / exec error).
+  try {
+    const sessionMod = require('../session.js') as {
+      buildTerminalPlan: (input: { resume: boolean; extraArgs: string[]; command: string; isWindows: boolean }) => {
+        shellPath: string
+        shellArgs: string[]
+      }
+    }
+    const plan = sessionMod.buildTerminalPlan({
+      resume: false,
+      extraArgs: [],
+      command: 'fake-dsh-tui',
+      isWindows: process.platform === 'win32',
+    })
+    const pty = require('@lydell/node-pty') as {
+      spawn: (
+        file: string,
+        args: string[],
+        options: Record<string, unknown>,
+      ) => { onData: (cb: (d: string) => void) => void; onExit: (cb: (r: { exitCode: number }) => void) => void; kill(): void }
+    }
+    let ptyOut = ''
+    let exitCode: number | undefined
+    const probe = pty.spawn(plan.shellPath, plan.shellArgs, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: WS,
+      env: process.env,
+    })
+    probe.onData(d => {
+      ptyOut += d
+    })
+    probe.onExit(r => {
+      exitCode = r.exitCode
+    })
+    await sleep(2500)
+    probe.kill()
+    console.log(
+      `[e2e] DIAG plan=${JSON.stringify(plan)} exists=${readFile(plan.shellPath) !== undefined} exit=${exitCode} out=${JSON.stringify(ptyOut.slice(-300))}`,
+    )
+  } catch (error) {
+    console.log(`[e2e] DIAG threw: ${String(error)}`)
+  }
+
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
 
   // The panel tab must exist (editor area, NOT the integrated terminal).
