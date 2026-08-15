@@ -37,14 +37,16 @@ async function main(): Promise<void> {
     ].join('\n'),
   )
 
-  // A .cmd/.sh shim like the real dsh-tui.cmd: forwards to the node script.
+  // A shim like the real dsh-tui launcher: .cmd on Windows, an extensionless
+  // executable on POSIX (npm bins have no extension, so resolvePosixCommand
+  // looks for the exact name).
   if (process.platform === 'win32') {
     writeFileSync(
       join(ws, 'fake-dsh-tui.cmd'),
       `@echo off\r\n"${process.execPath}" "${launcher}" %*\r\n`,
     )
   } else {
-    const shim = join(ws, 'fake-dsh-tui.sh')
+    const shim = join(ws, 'fake-dsh-tui')
     // The shim logs its own run + the child's output, so CI failures show
     // exactly why the launcher exited.
     writeFileSync(
