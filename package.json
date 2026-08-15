@@ -1,0 +1,116 @@
+{
+  "name": "dsh-tui-vscode",
+  "displayName": "dsh-tui (VS Code)",
+  "description": "Run dsh-TUI inside the VS Code integrated terminal, Claude Code style: start/resume/focus sessions, click file paths in terminal output, and edit input with code -w via $VISUAL/$EDITOR.",
+  "version": "0.1.0",
+  "publisher": "baobaolaodie",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baobaolaodie/dsh-tui-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-tui",
+    "deepseek-harness",
+    "deepseek",
+    "tui",
+    "terminal",
+    "claude-code-style"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dsh-tui-vscode.start",
+        "title": "dsh-tui: Start new session / 启动新会话",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.resume",
+        "title": "dsh-tui: Resume last session / 恢复上次会话",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.focus",
+        "title": "dsh-tui: Focus session terminal / 聚焦会话终端",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.kill",
+        "title": "dsh-tui: Terminate session / 终止会话",
+        "category": "dsh-tui"
+      }
+    ],
+    "configuration": {
+      "title": "dsh-tui (VS Code)",
+      "properties": {
+        "dsh-tui-vscode.command": {
+          "type": "string",
+          "default": "dsh-tui",
+          "description": "Command / executable that launches dsh-TUI. On Windows this is resolved through PATH (dsh-tui.cmd), or set it to an absolute path."
+        },
+        "dsh-tui-vscode.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra CLI arguments appended to every dsh-tui launch, e.g. [\"--lang\", \"en\"]."
+        },
+        "dsh-tui-vscode.terminalName": {
+          "type": "string",
+          "default": "dsh-tui",
+          "description": "Name of the VS Code terminal that hosts the TUI session. Used for deduplication when starting."
+        },
+        "dsh-tui-vscode.lang": {
+          "type": "string",
+          "enum": [
+            "",
+            "zh",
+            "en"
+          ],
+          "enumDescriptions": [
+            "Do not set DSH_TUI_LANG; dsh-tui uses its own default (Chinese).",
+            "Force the Chinese UI.",
+            "Force the English UI."
+          ],
+          "default": "",
+          "description": "Sets DSH_TUI_LANG for the dsh-tui process."
+        },
+        "dsh-tui-vscode.injectEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "When $VISUAL/$EDITOR are unset, export VISUAL=<editorCommand> so the TUI's Ctrl+X external editor opens in VS Code."
+        },
+        "dsh-tui-vscode.editorCommand": {
+          "type": "string",
+          "default": "code -w",
+          "description": "Value exported as $VISUAL when dsh-tui-vscode.injectEditor is on and no VISUAL/EDITOR exists. Use the VS Code CLI with -w to wait for the file to close."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run compile && node --test out/test/",
+    "package": "npm run compile && vsce package --no-dependencies",
+    "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.1.0.vsix --force"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.6.0"
+  }
+}

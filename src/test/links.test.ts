@@ -1,0 +1,77 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { stripAnsiWithMap, findFileLinks } from '../links.js'
+
+test('stripAnsiWithMap removes CSI sequences and keeps the index map', () => {
+  const { text, index } = stripAnsiWithMap('\x1b[31mred\x1b[0m plain')
+  assert.equal(text, 'red plain')
+  assert.deepEqual(index, [5, 6, 7, 12, 13, 14, 15, 16, 17])
+})
+
+test('stripAnsiWithMap strips OSC sequences as well', () => {
+  const { text } = stripAnsiWithMap('\x1b]0;title\x07hello')
+  assert.equal(text, 'hello')
+})
+
+test('no links in plain prose', () => {
+  assert.deepEqual(findFileLinks('this is a normal sentence with a / slash and words'), [])
+})
+
+test('Windows absolute path with line and column', () => {
+  const links = findFileLinks('error in C:\\src\\a.ts:12:3 here')
+  assert.equal(links.length, 1)
+  assert.deepEqual(links[0], {
+    start: 9,
+    end: 9 + 'C:\\src\\a.ts:12:3'.length,
+    path: 'C:\\src\\a.ts',
+    line: 12,
+    column: 3,
+  })
+})
+
+test('POSIX absolute path with line only', () => {
+  const links = findFileLinks('see /home/user/a.ts:42 for details')
+  assert.equal(links.length, 1)
+  assert.deepEqual(links[0], {
+    start: 4,
+    end: 4 + '/home/user/a.ts:42'.length,
+    path: '/home/user/a.ts',
+    line: 42,
+    column: undefined,
+  })
+})
+
+test('relative ./ path without line suffix', () => {
+  const links = findFileLinks('check ./src/x.ts for the impl')
+  assert.equal(links.length, 1)
+  assert.equal(links[0].path, './src/x.ts')
+  assert.equal(links[0].line, undefined)
+})
+
+test('URLs are not treated as file paths', () => {
+  assert.deepEqual(findFileLinks('see https://example.com/x and http://a.b/c'), [])
+})
+
+test('ANSI-colored path is linked with offsets into the raw line', () => {
+  const raw = '\x1b[32m~/src/x.ts:1\x1b[0m done'
+  const links = findFileLinks(raw)
+  assert.equal(links.length, 1)
+  assert.equal(links[0].path, '~/src/x.ts')
+  assert.equal(links[0].line, 1)
+  // '\x1b[32m' is 5 chars: the link must start at raw index 5 and end after
+  // '~/src/x.ts:1' (12 chars) plus the 5-char prefix.
+  assert.equal(links[0].start, 5)
+  assert.equal(links[0].end, 5 + 12)
+})
+
+test('inline code like (a / b) does not produce a link', () => {
+  assert.deepEqual(findFileLinks('if (a / b) then'), [])
+  assert.deepEqual(findFileLinks('if (x/2) then'), [])
+})
+
+test('overlapping candidates collapse to one link', () => {
+  const links = findFileLinks('win C:/a/b.ts:1 end')
+  assert.equal(links.length, 1)
+  assert.equal(links[0].path, 'C:/a/b.ts')
+  assert.equal(links[0].line, 1)
+})

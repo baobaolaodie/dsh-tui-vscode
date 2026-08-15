@@ -1,0 +1,5 @@
+node_modules/
+out/
+.smoke/
+*.vsix
+*.log
