@@ -5,7 +5,7 @@
  * platform, no cmd/sh quoting traps).
  */
 import { runTests } from '@vscode/test-electron'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 
 async function main(): Promise<void> {
