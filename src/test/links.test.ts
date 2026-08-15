@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { stripAnsiWithMap, findFileLinks } from '../links.js'
+import { stripAnsiWithMap, findFileLinks, matchPathToken } from '../links.js'
 
 test('stripAnsiWithMap removes CSI sequences and keeps the index map', () => {
   const { text, index } = stripAnsiWithMap('\x1b[31mred\x1b[0m plain')
@@ -103,4 +103,22 @@ test('overlapping candidates collapse to one link', () => {
   assert.equal(links.length, 1)
   assert.equal(links[0].path, 'C:/a/b.ts')
   assert.equal(links[0].line, 1)
+})
+
+test('matchPathToken matches path candidates with optional line/col', () => {
+  assert.deepEqual(matchPathToken('C:\\src\\a.ts:12:3'), {
+    path: 'C:\\src\\a.ts',
+    line: 12,
+    col: 3,
+  })
+  assert.deepEqual(matchPathToken('/home/u/a.ts:42'), { path: '/home/u/a.ts', line: 42, col: undefined })
+  assert.deepEqual(matchPathToken('~/src/x.ts'), { path: '~/src/x.ts', line: undefined, col: undefined })
+  assert.deepEqual(matchPathToken('./src/x.ts'), { path: './src/x.ts', line: undefined, col: undefined })
+})
+
+test('matchPathToken rejects non-paths', () => {
+  assert.equal(matchPathToken('https://example.com/x'), undefined)
+  assert.equal(matchPathToken('plain word'), undefined)
+  assert.equal(matchPathToken('a.ts:12'), undefined)
+  assert.equal(matchPathToken('C:'), undefined)
 })

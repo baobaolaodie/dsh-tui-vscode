@@ -15,22 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          cache: npm
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
-      - run: pnpm typecheck
+      - run: npm run typecheck
 
-      - run: pnpm test
+      - run: npm test
 
       # Real extension-host tests: launches VS Code under xvfb.
-      - run: xvfb-run -a pnpm test:e2e
+      - run: xvfb-run -a npm run test:e2e
 
-      - run: pnpm package
+      - run: npm run package

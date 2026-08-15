@@ -1,24 +1,30 @@
 /**
- * Real-extension-host test suite (run via @vscode/test-electron).
+ * Real-extension-host test suite for the Path B implementation.
  *
  * Exercises the extension exactly as a user would: activation, command
- * registration, launching a session terminal with env injection, dedupe,
- * --resume, the terminal-link provider (with a REAL Terminal object) and
- * kill/focus. The fake launcher script replaces `dsh-tui` so no DSH
- * installation or credentials are needed.
+ * registration, opening the session panel, real PTY launch with env
+ * injection (proven by the child process itself), webview readiness, input
+ * round-trip webview→PTY, session dedupe, --resume, kill and the
+ * path-open pipeline.
  */
 import * as vscode from 'vscode'
 import { strict as assert } from 'node:assert'
 import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { createTerminalLinkProvider } from '../terminal-links.js'
-import type { FileLink } from '../links.js'
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
-const TERM_NAME = 'dsh-tui'
+const PANEL_VIEW_TYPE = 'dsh-tui-vscode.session'
 // out-test/test-suite -> repo root -> .e2e-workspace
 const WS = join(__dirname, '..', '..', '.e2e-workspace')
 const ENV_OUT = join(WS, 'env-out.txt')
+const STDIN_OUT = join(WS, 'stdin-out.txt')
+const EXITED = join(WS, 'exited.txt')
+
+interface Api {
+  postInput(data: string): void
+  getState(): { running: boolean; pid?: number; exitCode?: number; webviewReady: boolean }
+  postPanelMessage(message: unknown): void
+}
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -32,25 +38,24 @@ async function poll<T>(fn: () => T | undefined, timeoutMs: number, intervalMs = 
   }
 }
 
-function tuiTerminals(): vscode.Terminal[] {
-  return vscode.window.terminals.filter(terminal => {
-    const opts = terminal.creationOptions as Readonly<{ name?: string }> | undefined
-    return !!opts && opts.name === TERM_NAME
-  })
+function readFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return undefined
+  }
 }
 
-/** Wait for the fake launcher to have written its real environment. */
-async function readEnvOut(): Promise<string[]> {
-  const content = await poll(() => {
-    try {
-      const text = readFileSync(ENV_OUT, 'utf8')
-      // Only return once the launcher finished writing (last marker line).
-      return text.includes('FAKE_LAUNCHER_RAN') ? text : undefined
-    } catch {
-      return undefined
-    }
-  }, 15000)
-  return content.trim().split(/\r?\n/).map(line => line.trim())
+function panelTab(): vscode.Tab | undefined {
+  return vscode.window.tabGroups.all
+    .flatMap(group => group.tabs)
+    .find(tab => {
+      if (!(tab.input instanceof vscode.TabInputWebview)) return false
+      const viewType = tab.input.viewType
+      // Newer VS Code versions expose the internal type with a
+      // "mainThreadWebview-" prefix.
+      return viewType === PANEL_VIEW_TYPE || viewType.endsWith(`-${PANEL_VIEW_TYPE}`)
+    })
 }
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -64,6 +69,7 @@ test('extension activates and registers all commands', async () => {
   await ext.activate()
   const cmds = await vscode.commands.getCommands(true)
   for (const id of [
+    'dsh-tui-vscode.open',
     'dsh-tui-vscode.start',
     'dsh-tui-vscode.resume',
     'dsh-tui-vscode.focus',
@@ -73,120 +79,136 @@ test('extension activates and registers all commands', async () => {
   }
 })
 
-test('start launches a session terminal with env injection', async () => {
+test('start opens the panel and launches a PTY with env injection', async () => {
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
-  const launcher = join(WS, process.platform === 'win32' ? 'fake-dsh-tui.cmd' : 'fake-dsh-tui.sh')
-  await cfg.update('command', launcher, vscode.ConfigurationTarget.Global)
+  // Bare command name: exercises the real user path — resolveWindowsCommand
+  // finds the .cmd shim (PATH was injected in run()), node-pty wraps it.
+  await cfg.update('command', 'fake-dsh-tui', vscode.ConfigurationTarget.Global)
+  await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
   await cfg.update('lang', 'zh', vscode.ConfigurationTarget.Global)
   await cfg.update('dshHome', 'C:\\e2e-home', vscode.ConfigurationTarget.Global)
 
-  // The injection logic intentionally respects an EXISTING $VISUAL/$EDITOR.
-  // Simulate a plain user (neither set) so the inject path is exercised.
-  console.log(
-    `[e2e] host env before: VISUAL=${JSON.stringify(process.env.VISUAL)} EDITOR=${JSON.stringify(process.env.EDITOR)}`,
-  )
   delete process.env.VISUAL
   delete process.env.EDITOR
-
   rmSync(ENV_OUT, { force: true })
-  await vscode.commands.executeCommand('dsh-tui-vscode.start')
-  assert.equal(tuiTerminals().length, 1, 'expected exactly one dsh-tui terminal')
 
-  // Ground truth: the fake launcher echoes its OWN process environment.
-  const lines = await readEnvOut()
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+
+  // The panel tab must exist (editor area, NOT the integrated terminal).
+  const tab = await poll(() => (panelTab() ? true : undefined), 10000).catch(() => undefined)
+  if (!tab) {
+    const tabs = vscode.window.tabGroups.all.flatMap(group =>
+      group.tabs.map(t =>
+        t.input instanceof vscode.TabInputWebview
+          ? `webview:${t.input.viewType}`
+          : `other:${String(t.input).slice(0, 40)}`,
+      ),
+    )
+    const api0 = (vscode.extensions.getExtension(EXT_ID)!.exports as Api).getState()
+    throw new Error(`session panel tab missing; tabs=${JSON.stringify(tabs)} state=${JSON.stringify(api0)}`)
+  }
+
+  // Ground truth: the PTY child echoes its own environment.
+  const lines = (await poll(() => {
+    const text = readFile(ENV_OUT)
+    return text?.includes('FAKE_LAUNCHER_RAN') ? text : undefined
+  }, 15000))
+    .trim()
+    .split(/\r?\n/)
+    .map(line => line.trim())
   assert.ok(lines.includes('VISUAL=code -w'), `VISUAL missing: ${lines.join(' | ')}`)
   assert.ok(lines.includes('DSH_TUI_LANG=zh'), `DSH_TUI_LANG missing: ${lines.join(' | ')}`)
   assert.ok(lines.includes('DSH_HOME=C:\\e2e-home'), `DSH_HOME missing: ${lines.join(' | ')}`)
+
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  const state = api.getState()
+  assert.equal(state.running, true, 'session should be running')
+  assert.ok(state.pid !== undefined, 'session pid missing')
 })
 
-test('start dedupes the session terminal', async () => {
+test('webview loads and xterm becomes ready', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  // The webview posts a 'ready' message after xterm initializes; receiving it
+  // proves the full webview→host message channel.
+  await poll(() => (api.getState().webviewReady ? true : undefined), 15000)
+})
+
+test('input round-trips into the PTY child', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  rmSync(STDIN_OUT, { force: true })
+  // CRLF: the fake child runs in COOKED console mode (see DIAG notes).
+  api.postInput('hello from e2e\r\n')
+  await poll(() => {
+    const text = readFile(STDIN_OUT)
+    return text?.includes('hello from e2e') ? true : undefined
+  }, 10000)
+})
+
+test('start dedupes the running session', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  const before = api.getState()
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
-  assert.equal(tuiTerminals().length, 1, 'start must reuse the existing terminal')
+  const after = api.getState()
+  assert.equal(after.pid, before.pid, 'start must reuse the running session')
 })
 
-test('resume relaunches with --resume once the session is gone', async () => {
-  for (const terminal of tuiTerminals()) terminal.dispose()
-  await poll(() => tuiTerminals().length === 0, 5000)
-  await sleep(400) // let onDidCloseTerminal settle inside the extension
+test('open-path message opens the file in the editor', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  const target = join(WS, 'hello.ts')
+  api.postPanelMessage({ type: 'openPath', path: target, line: 2 })
+  await poll(() => {
+    const editor = vscode.window.activeTextEditor
+    return editor && editor.document.uri.fsPath === target ? true : undefined
+  }, 10000)
+})
+
+test('kill terminates the session; resume relaunches with --resume', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  rmSync(EXITED, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.kill')
+  // Ctrl+C reaches the child (SIGINT handler writes the marker)…
+  await poll(() => (readFile(EXITED) ? true : undefined), 15000, 200)
+  // …then the PTY exit event propagates to the extension state.
+  await poll(() => (api.getState().running ? undefined : true), 5000, 100)
+  assert.equal(api.getState().running, false, 'session should be stopped after kill')
+
   rmSync(ENV_OUT, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.resume')
-  assert.equal(tuiTerminals().length, 1)
-  // The fake launcher re-writes its env/args file on every launch.
-  const lines = await readEnvOut()
-  assert.ok(lines.some(l => l.includes('ARGS=') && l.includes('--resume')), `--resume missing: ${lines.join(' | ')}`)
-})
-
-test('link provider works against a real terminal', async () => {
-  const terminal = tuiTerminals()[0]
-  assert.ok(terminal, 'no session terminal to test against')
-  const target = join(WS, 'hello.ts')
-
-  let opened: FileLink | undefined
-  const provider = createTerminalLinkProvider({
-    isOwnTerminal: () => true,
-    openPath: link => {
-      opened = link
-    },
-  })
-  const line = `see ${target}:2 more`
-  const links = (await provider.provideTerminalLinks(
-    { terminal, line } as vscode.TerminalLinkContext,
-    new vscode.CancellationTokenSource().token,
-  )) ?? []
-  assert.equal(links.length, 1, 'expected one link')
-  assert.equal(links[0].startIndex, 4, 'link must start after "see "')
-  assert.equal(links[0].length, (target + ':2').length)
-  assert.ok(links[0].tooltip?.startsWith(target))
-  provider.handleTerminalLink(links[0])
-  assert.equal(opened?.path, target)
-  assert.equal(opened?.line, 2)
-
-  // Non-owned terminals get no links at all.
-  const stranger = createTerminalLinkProvider({ isOwnTerminal: () => false, openPath: () => {} })
-  assert.equal(
-    await stranger.provideTerminalLinks(
-      { terminal, line } as vscode.TerminalLinkContext,
-      new vscode.CancellationTokenSource().token,
-    ),
-    undefined,
-  )
-  // Plain prose yields an empty list.
-  assert.deepEqual(
-    await provider.provideTerminalLinks(
-      { terminal, line: 'nothing to see here' } as vscode.TerminalLinkContext,
-      new vscode.CancellationTokenSource().token,
-    ),
-    [],
+  await poll(() => {
+    const text = readFile(ENV_OUT)
+    return text?.includes('FAKE_LAUNCHER_RAN') ? text : undefined
+  }, 15000)
+  const lines = readFile(ENV_OUT)!
+    .trim()
+    .split(/\r?\n/)
+    .map(line => line.trim())
+  assert.ok(
+    lines.some(line => line.startsWith('ARGS=') && line.includes('--resume')),
+    `--resume missing: ${lines.join(' | ')}`,
   )
 })
 
-test('kill terminates the running session terminal', async () => {
-  // Ensure a live session (fake launcher sleeps ~60s).
-  await vscode.commands.executeCommand('dsh-tui-vscode.start')
-  const terms = tuiTerminals()
-  assert.equal(terms.length, 1)
-  const target = terms[0]
-  await vscode.commands.executeCommand('dsh-tui-vscode.kill')
-  await poll(
-    () => {
-      const still = tuiTerminals().find(t => t === target)
-      return still === undefined || still.exitStatus !== undefined ? true : undefined
-    },
-    8000,
-    200,
-  )
-})
-
-test('focus starts a session when none is running', async () => {
-  const alive = tuiTerminals().filter(t => t.exitStatus === undefined)
-  if (alive.length === 0) {
-    await vscode.commands.executeCommand('dsh-tui-vscode.focus')
-    assert.equal(tuiTerminals().length, 1, 'focus must start a session')
-  }
+test('focus reveals the panel without restarting', async () => {
+  const ext = vscode.extensions.getExtension(EXT_ID)!
+  const api = ext.exports as Api
+  const before = api.getState()
+  await vscode.commands.executeCommand('dsh-tui-vscode.focus')
+  const after = api.getState()
+  assert.equal(after.pid, before.pid, 'focus must not restart the session')
 })
 
 export async function run(): Promise<void> {
   console.log(`[e2e] running ${tests.length} tests`)
+  // Inject the fake launcher dir into PATH so the bare command
+  // 'fake-dsh-tui' resolves to the shim for every session launch.
+  const originalPath = process.env.PATH ?? ''
+  process.env.PATH = WS + (process.platform === 'win32' ? ';' : ':') + originalPath
   try {
     for (const [name, fn] of tests) {
       await fn()
@@ -194,11 +216,12 @@ export async function run(): Promise<void> {
     }
     console.log(`[e2e] all ${tests.length} tests passed`)
   } finally {
-    // Restore settings and clean up terminals so the run is idempotent.
+    process.env.PATH = originalPath
     const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
     await cfg.update('command', 'dsh-tui', vscode.ConfigurationTarget.Global)
+    await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
     await cfg.update('lang', '', vscode.ConfigurationTarget.Global)
     await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
-    for (const terminal of tuiTerminals()) terminal.dispose()
+    await vscode.commands.executeCommand('dsh-tui-vscode.kill')
   }
 }

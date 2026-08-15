@@ -4,5 +4,6 @@ out-test/
 .smoke/
 .e2e-workspace/
 .vscode-test/
+npm-cache/
 *.vsix
 *.log

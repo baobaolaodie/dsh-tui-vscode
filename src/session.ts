@@ -1,10 +1,12 @@
 /**
  * Launch-plan helpers for the dsh-tui VS Code companion.
  *
- * Pure functions with no `vscode` import on purpose: they compute the exact
- * terminal launch options and environment, so they are unit-testable without
+ * Pure-ish functions with no `vscode` import on purpose: they compute the
+ * exact PTY launch options and environment, so they are unit-testable without
  * the VS Code API host.
  */
+import { existsSync } from 'node:fs'
+import { delimiter, join, sep } from 'node:path'
 
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
@@ -47,35 +49,40 @@ export interface PlanInput {
   extraArgs?: string[]
   /** Command name or absolute path that launches dsh-tui. Default 'dsh-tui'. */
   command?: string
-  /** cmd.exe for the Windows composite launch; defaults to $ComSpec. */
-  cmdExe?: string
   isWindows?: boolean
 }
 
-/** Quote one argument for a cmd.exe "/c <command line>" launch. */
-export function quoteCmdArg(arg: string): string {
-  if (arg.length === 0) return '""'
-  if (/^[^\s"&|<>^()%!]*$/.test(arg)) return arg
-  return '"' + arg.replace(/"/g, '""') + '"'
+/**
+ * Resolve a bare Windows command to an absolute .cmd/.bat path when such a
+ * shim exists on PATH (e.g. `dsh-tui` → `…\dsh-tui.cmd`). Anything already
+ * path-like or with an explicit extension is returned unchanged (bare .exe
+ * names are found by CreateProcess itself).
+ */
+export function resolveWindowsCommand(command: string): string {
+  if (command.includes(sep) || command.includes('/') || /\.(exe|cmd|bat)$/i.test(command)) {
+    return command
+  }
+  const pathEnv = process.env.PATH ?? ''
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) continue
+    for (const ext of ['.cmd', '.bat']) {
+      const candidate = join(dir, command + ext)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return command
 }
 
 export function buildTerminalPlan(input: PlanInput): TerminalPlan {
   const command = input.command?.trim() || 'dsh-tui'
   const args = [...(input.resume ? ['--resume'] : []), ...(input.extraArgs ?? [])]
   if (input.isWindows) {
-    // A bare 'dsh-tui' resolves to dsh-tui.cmd on PATH, and createTerminal
-    // cannot spawn a .cmd directly — route through cmd.exe with one composite
-    // command line (the same trick VS Code itself uses for custom shells).
-    const cmdExe = input.cmdExe ?? process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe'
-    const cmdName = quoteCmdArg(command)
-    const cmdline = [cmdName, ...args.map(quoteCmdArg)].join(' ')
-    // Unquoted command (no spaces): pass the line verbatim to cmd /d /s /c.
-    // Quoted command (spaces): the classic cmd pattern is to brace the whole
-    // line in one extra pair of quotes so /s strips them and the inner quoted
-    // executable is re-parsed:  cmd /s /c ""C:\Program Files\app.cmd" args"
-    // (empirically verified through cmd.exe itself, see session.test.ts).
-    const composite = cmdName === command ? cmdline : `"${cmdline}"`
-    return { shellPath: cmdExe, shellArgs: ['/d', '/s', '/c', composite] }
+    // Windows cannot CreateProcess a .cmd/.bat shim directly, and wrapping
+    // cmd.exe ourselves breaks child stdin through ConPTY (verified
+    // empirically). Instead resolve shims to absolute paths and let node-pty
+    // wrap them internally — the same battle-tested path VS Code itself uses
+    // for .cmd shells.
+    return { shellPath: resolveWindowsCommand(command), shellArgs: args }
   }
   return { shellPath: command, shellArgs: args }
 }

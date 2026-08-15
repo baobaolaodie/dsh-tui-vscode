@@ -1,8 +1,8 @@
 {
   "name": "dsh-tui-vscode",
   "displayName": "dsh-tui (VS Code)",
-  "description": "Run dsh-TUI inside the VS Code integrated terminal, Claude Code style: start/resume/focus sessions, click file paths in terminal output, and edit input with code -w via $VISUAL/$EDITOR.",
-  "version": "0.1.0",
+  "description": "Run dsh-TUI in a dedicated VS Code panel with a real PTY (Claude Code style): activity-bar entry, xterm.js rendering, file links, $VISUAL/$EDITOR via code -w.",
+  "version": "0.2.0",
   "publisher": "baobaolaodie",
   "license": "MIT",
   "repository": {
@@ -26,10 +26,34 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:dsh-tui-vscode.control"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh-tui-vscode",
+          "title": "dsh-tui",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh-tui-vscode": [
+        {
+          "type": "webview",
+          "id": "dsh-tui-vscode.control",
+          "name": "会话控制"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "dsh-tui-vscode.open",
+        "title": "dsh-tui: Open panel / 打开会话面板",
+        "category": "dsh-tui"
+      },
       {
         "command": "dsh-tui-vscode.start",
         "title": "dsh-tui: Start new session / 启动新会话",
@@ -42,7 +66,7 @@
       },
       {
         "command": "dsh-tui-vscode.focus",
-        "title": "dsh-tui: Focus session terminal / 聚焦会话终端",
+        "title": "dsh-tui: Focus session panel / 聚焦会话面板",
         "category": "dsh-tui"
       },
       {
@@ -66,11 +90,6 @@
           },
           "default": [],
           "description": "Extra CLI arguments appended to every dsh-tui launch, e.g. [\"--lang\", \"en\"]."
-        },
-        "dsh-tui-vscode.terminalName": {
-          "type": "string",
-          "default": "dsh-tui",
-          "description": "Name of the VS Code terminal that hosts the TUI session. Used for deduplication when starting."
         },
         "dsh-tui-vscode.lang": {
           "type": "string",
@@ -106,18 +125,26 @@
     }
   },
   "scripts": {
+    "build:webview": "esbuild src/webview/index.ts --bundle --format=iife --outfile=media/webview.js --minify && esbuild src/webview/style.css --bundle --outfile=media/webview.css --minify",
     "compile": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/links.test.js out/test/paths.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/links.test.js out/test/paths.test.js out/test/osc.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
-    "package": "npm run compile && vsce package --no-dependencies",
-    "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.1.0.vsix --force"
+    "package": "npm run build:webview && npm run compile && vsce package",
+    "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.2.0.vsix --force"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.0.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
   }
 }

@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/test-suite", "src/terminal-links.ts", "src/links.ts", "src/paths.ts"]
+  "include": ["src/test-suite", "src/links.ts", "src/paths.ts", "src/session.ts"]
 }

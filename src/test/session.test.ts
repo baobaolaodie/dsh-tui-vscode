@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildLaunchEnv, buildTerminalPlan, quoteCmdArg } from '../session.js'
+import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { buildLaunchEnv, buildTerminalPlan, resolveWindowsCommand } from '../session.js'
 
 test('buildLaunchEnv sets DSH_TUI_LANG when lang provided', () => {
   // injectEditor is on by default, so VISUAL also appears unless disabled.
@@ -68,37 +71,63 @@ test('buildTerminalPlan non-Windows uses the command directly', () => {
   })
 })
 
-test('buildTerminalPlan Windows routes .cmd shims through cmd.exe', () => {
-  const plan = buildTerminalPlan({
-    resume: true,
-    extraArgs: ['--lang', 'en'],
-    isWindows: true,
-    cmdExe: 'C:\\Windows\\System32\\cmd.exe',
-  })
-  assert.equal(plan.shellPath, 'C:\\Windows\\System32\\cmd.exe')
-  assert.deepEqual(plan.shellArgs, ['/d', '/s', '/c', 'dsh-tui --resume --lang en'])
+test('resolveWindowsCommand finds .cmd/.bat shims on PATH', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-resolve-'))
+  try {
+    const shim = join(dir, 'dsh-tui.cmd')
+    writeFileSync(shim, '@echo off\r\n')
+    const originalPath = process.env.PATH
+    process.env.PATH = dir
+    try {
+      const resolved = resolveWindowsCommand('dsh-tui')
+      assert.equal(resolved, shim)
+      // Bare .exe names without a shim stay unchanged (CreateProcess finds them).
+      assert.equal(resolveWindowsCommand('node'), 'node')
+    } finally {
+      process.env.PATH = originalPath
+    }
+    // Path-like and explicit-extension commands pass through.
+    assert.equal(resolveWindowsCommand('C:\\tools\\dsh-tui.cmd'), 'C:\\tools\\dsh-tui.cmd')
+    assert.equal(resolveWindowsCommand('dsh-tui.exe'), 'dsh-tui.exe')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
-test('buildTerminalPlan Windows quotes a command path with spaces', () => {
-  const plan = buildTerminalPlan({
-    resume: false,
-    command: 'C:\\Program Files\\dsh-tui.cmd',
-    isWindows: true,
-    cmdExe: 'cmd.exe',
-  })
-  // The classic cmd pattern: brace the quoted executable in an extra pair of
-  // quotes so `cmd /d /s /c` strips the outer pair and re-parses the inner
-  // one. Empirically verified by spawning cmd.exe directly with verbatim
-  // (node-pty/ConPTY-style) argument joining — the same semantics VS Code's
-  // terminal backend uses on Windows.
-  assert.deepEqual(plan.shellArgs, ['/d', '/s', '/c', '""C:\\Program Files\\dsh-tui.cmd""'])
+test('buildTerminalPlan Windows resolves shims and passes args through', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-plan-'))
+  try {
+    const shim = join(dir, 'dsh-tui.cmd')
+    writeFileSync(shim, '@echo off\r\n')
+    const originalPath = process.env.PATH
+    process.env.PATH = dir
+    try {
+      assert.deepEqual(buildTerminalPlan({ resume: true, extraArgs: ['--lang', 'en'], isWindows: true }), {
+        shellPath: shim,
+        shellArgs: ['--resume', '--lang', 'en'],
+      })
+      // Absolute path commands pass through untouched.
+      assert.deepEqual(
+        buildTerminalPlan({ resume: false, command: 'C:\\Program Files\\dsh-tui.cmd', isWindows: true }),
+        { shellPath: 'C:\\Program Files\\dsh-tui.cmd', shellArgs: [] },
+      )
+    } finally {
+      process.env.PATH = originalPath
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
-test('quoteCmdArg quotes only when needed', () => {
-  assert.equal(quoteCmdArg('dsh-tui'), 'dsh-tui')
-  assert.equal(quoteCmdArg(''), '""')
-  assert.equal(quoteCmdArg('C:\\Program Files\\x.cmd'), '"C:\\Program Files\\x.cmd"')
-  assert.equal(quoteCmdArg('a"b'), '"a""b"')
-  assert.equal(quoteCmdArg('a&b'), '"a&b"')
-  assert.equal(quoteCmdArg('a|b'), '"a|b"')
+test('resolveWindowsCommand fallback keeps bare names when nothing matches', () => {
+  const originalPath = process.env.PATH
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-empty-'))
+  process.env.PATH = dir
+  try {
+    assert.equal(resolveWindowsCommand('dsh-tui'), 'dsh-tui')
+    assert.ok(!existsSync(join(dir, 'dsh-tui.cmd')))
+  } finally {
+    process.env.PATH = originalPath
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

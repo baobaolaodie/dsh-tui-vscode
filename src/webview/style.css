@@ -1,0 +1,14 @@
+@import '@xterm/xterm/css/xterm.css';
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#terminal {
+  height: 100%;
+  padding: 6px;
+  box-sizing: border-box;
+}

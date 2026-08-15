@@ -48,6 +48,31 @@ export interface FileLink {
 }
 
 /**
+ * Match a single path-candidate token (used by the webview link addon).
+ * Covers Windows absolute, POSIX absolute / ~, and ./ ../ relative paths,
+ * each with an optional :line[:col] suffix.
+ */
+const PATH_TOKEN_RE = new RegExp(
+  String.raw`^([A-Za-z]:[\\/][^\s:;'"<>|*?]+|[~/][^\s:;'"<>|*?]+|\.{1,2}/[^\s:;'"<>|*?]+)(?::(\d+))?(?::(\d+))?$`,
+)
+
+export interface PathToken {
+  path: string
+  line?: number
+  col?: number
+}
+
+export function matchPathToken(uri: string): PathToken | undefined {
+  const m = PATH_TOKEN_RE.exec(uri)
+  if (!m) return undefined
+  return {
+    path: m[1],
+    line: m[2] !== undefined ? Number(m[2]) : undefined,
+    col: m[3] !== undefined ? Number(m[3]) : undefined,
+  }
+}
+
+/**
  * Two distinct exclusion sets are needed because greedy interior matching
  * must allow '.' (file extensions) and ASCII punctuation that a trailing
  * class then trims, while CJK sentence punctuation must stop the interior

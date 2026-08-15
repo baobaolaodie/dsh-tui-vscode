@@ -1,11 +1,11 @@
 /**
- * E2E launcher: downloads/uses a real VS Code, opens it with the extension
- * under test and runs src/test-suite/index.ts inside the extension host.
- *
- * Run via `pnpm test:e2e`.
+ * E2E launcher for the Path B implementation: downloads/uses a real VS Code,
+ * opens it with the extension under test and runs src/test-suite/index.ts
+ * inside the extension host. The fake dsh-tui is a Node script (cross
+ * platform, no cmd/sh quoting traps).
  */
 import { runTests } from '@vscode/test-electron'
-import { mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 async function main(): Promise<void> {
@@ -14,39 +14,44 @@ async function main(): Promise<void> {
   const ws = join(root, '.e2e-workspace')
   mkdirSync(ws, { recursive: true })
   writeFileSync(join(ws, 'hello.ts'), 'export const answer = 42\n')
-  rmSync(join(ws, 'env-out.txt'), { force: true })
 
-  const isWin = process.platform === 'win32'
-  const launcher = join(ws, isWin ? 'fake-dsh-tui.cmd' : 'fake-dsh-tui.sh')
+  const launcher = join(ws, 'fake-dsh-tui.js')
   writeFileSync(
     launcher,
-    isWin
-      ? [
-          '@echo off',
-          'setlocal',
-          'echo VISUAL=%VISUAL% > "%~dp0env-out.txt"',
-          'echo DSH_TUI_LANG=%DSH_TUI_LANG% >> "%~dp0env-out.txt"',
-          'echo DSH_HOME=%DSH_HOME% >> "%~dp0env-out.txt"',
-          'echo ARGS=%* >> "%~dp0env-out.txt"',
-          'echo FAKE_LAUNCHER_RAN >> "%~dp0env-out.txt"',
-          'ping -n 60 127.0.0.1 > nul',
-          'endlocal',
-          '',
-        ].join('\r\n')
-      : [
-          '#!/bin/sh',
-          // printf '%s' prints the value verbatim — `echo` would interpret
-          // backslash escapes (e.g. C:\\e2e-home → C:<ESC>2e-home).
-          'printf \'%s\\n\' "VISUAL=$VISUAL" > "$(dirname "$0")/env-out.txt"',
-          'printf \'%s\\n\' "DSH_TUI_LANG=$DSH_TUI_LANG" >> "$(dirname "$0")/env-out.txt"',
-          'printf \'%s\\n\' "DSH_HOME=$DSH_HOME" >> "$(dirname "$0")/env-out.txt"',
-          'printf \'%s\\n\' "ARGS=$*" >> "$(dirname "$0")/env-out.txt"',
-          'printf \'%s\\n\' FAKE_LAUNCHER_RAN >> "$(dirname "$0")/env-out.txt"',
-          'sleep 60',
-          '',
-        ].join('\n'),
+    [
+      'const fs = require("fs")',
+      'const path = require("path")',
+      'const out = path.join(__dirname, "env-out.txt")',
+      'const stdinOut = path.join(__dirname, "stdin-out.txt")',
+      'fs.writeFileSync(out, [',
+      '  `VISUAL=${process.env.VISUAL ?? ""}`,',
+      '  `DSH_TUI_LANG=${process.env.DSH_TUI_LANG ?? ""}`,',
+      '  `DSH_HOME=${process.env.DSH_HOME ?? ""}`,',
+      '  `ARGS=${process.argv.slice(2).join(" ")}`,',
+      '  "FAKE_LAUNCHER_RAN",',
+      '].join("\\n") + "\\n")',
+      'process.stdin.on("data", d => fs.appendFileSync(stdinOut, d))',
+      'process.on("SIGINT", () => { fs.writeFileSync(path.join(__dirname, "exited.txt"), "1"); process.exit(0) })',
+      'setInterval(() => {}, 1000)',
+      '',
+    ].join('\n'),
   )
-  chmodSync(launcher, 0o755)
+
+  // A .cmd/.sh shim like the real dsh-tui.cmd: forwards to the node script.
+  if (process.platform === 'win32') {
+    writeFileSync(
+      join(ws, 'fake-dsh-tui.cmd'),
+      `@echo off\r\n"${process.execPath}" "${launcher}" %*\r\n`,
+    )
+  } else {
+    writeFileSync(
+      join(ws, 'fake-dsh-tui.sh'),
+      `#!/bin/sh\nexec "${process.execPath}" "${launcher}" "$@"\n`,
+    )
+  }
+  for (const file of ['env-out.txt', 'stdin-out.txt', 'exited.txt']) {
+    rmSync(join(ws, file), { force: true })
+  }
 
   await runTests({
     extensionDevelopmentPath: root,

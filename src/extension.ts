@@ -1,14 +1,13 @@
 import * as vscode from 'vscode'
-import { buildLaunchEnv, buildTerminalPlan } from './session'
-import { type FileLink } from './links'
-import { resolveLocalPath } from './paths'
-import { createTerminalLinkProvider } from './terminal-links'
+import { homedir } from 'node:os'
+import { TuiPanel } from './panel'
+import { ControlViewProvider } from './control'
 import { SessionStatusBar } from './status'
+import type { PtyLaunchOptions } from './pty'
 
 interface Settings {
   command: string
   extraArgs: string[]
-  terminalName: string
   lang: string
   injectEditor: boolean
   editorCommand: string
@@ -20,7 +19,6 @@ function readSettings(): Settings {
   return {
     command: cfg.get<string>('command', 'dsh-tui'),
     extraArgs: cfg.get<string[]>('extraArgs', []),
-    terminalName: cfg.get<string>('terminalName', 'dsh-tui'),
     lang: cfg.get<string>('lang', ''),
     injectEditor: cfg.get<boolean>('injectEditor', true),
     editorCommand: cfg.get<string>('editorCommand', 'code -w'),
@@ -28,130 +26,79 @@ function readSettings(): Settings {
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  const sessions = new Set<vscode.Terminal>()
+export interface ExtensionApi {
+  /** Write raw input into the running session's PTY (used by tests/scripts). */
+  postInput(data: string): void
+  getState(): { running: boolean; pid?: number; exitCode?: number; webviewReady: boolean }
+  /** Deliver a webview-style message to the session panel (used by tests). */
+  postPanelMessage(message: unknown): void
+}
+
+export function activate(context: vscode.ExtensionContext): ExtensionApi {
+  const mediaUri = vscode.Uri.joinPath(context.extensionUri, 'media')
+  const panel = new TuiPanel(mediaUri, refreshState)
   const status = new SessionStatusBar()
   context.subscriptions.push(status)
 
-  const refresh = (): void => {
-    const active = [...sessions].some(t => !t.exitStatus)
-    status.update(active)
-  }
-
-  // Adopt terminals this extension created in a previous session (e.g. after
-  // a window/extension reload): otherwise start/focus/kill would lose track of
-  // the still-running TUI and `start` would spawn a duplicate.
-  const adopt = (terminal: vscode.Terminal): void => {
-    if (terminal.exitStatus) return
-    const opts = terminal.creationOptions as
-      | Readonly<{ name?: string; shellPath?: string; shellArgs?: string[] }>
-      | undefined
-    if (!opts) return
+  const launchOptions = (resume: boolean): PtyLaunchOptions => {
     const cfg = readSettings()
-    const nameMatch = 'name' in opts && opts.name === cfg.terminalName
-    const signatureMatch =
-      nameMatch ||
-      ('shellPath' in opts &&
-        (opts.shellPath?.includes(cfg.command) ||
-          opts.shellArgs?.some(arg => arg.includes(cfg.command))))
-    if (signatureMatch) sessions.add(terminal)
-  }
-  for (const terminal of vscode.window.terminals) adopt(terminal)
-  refresh()
-
-  const launch = (resume: boolean): void => {
-    const existing = [...sessions].find(t => !t.exitStatus)
-    if (existing) {
-      existing.show()
-      refresh()
-      return
-    }
-    const cfg = readSettings()
-    const env = buildLaunchEnv({
-      base: process.env,
+    return {
+      resume,
+      cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? homedir(),
+      command: cfg.command,
+      extraArgs: cfg.extraArgs,
       lang: cfg.lang,
       injectEditor: cfg.injectEditor,
       editorCommand: cfg.editorCommand,
       dshHome: cfg.dshHome,
-    })
-    const plan = buildTerminalPlan({
-      resume,
-      extraArgs: cfg.extraArgs,
-      command: cfg.command,
-      isWindows: process.platform === 'win32',
-    })
-    const terminal = vscode.window.createTerminal({
-      name: cfg.terminalName,
-      shellPath: plan.shellPath,
-      shellArgs: plan.shellArgs,
-      ...(Object.keys(env).length > 0 ? { env } : {}),
-    })
-    sessions.add(terminal)
-    terminal.show()
-    refresh()
-  }
-
-  const focusSession = (): void => {
-    const existing = [...sessions].find(t => !t.exitStatus)
-    if (existing) {
-      existing.show()
-      return
     }
-    launch(false)
   }
 
-  const killSession = (): void => {
-    const terminal = [...sessions].find(t => !t.exitStatus)
-    if (!terminal) return
-    // First Ctrl+C interrupts the running turn; a second one (idle) exits the
-    // TUI. Falling back to dispose() keeps the session from lingering.
-    try {
-      terminal.sendText('\u0003')
-    } catch {
-      // terminal already gone — onDidCloseTerminal will clean up
+  const control = new ControlViewProvider()
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(ControlViewProvider.viewType, control),
+  )
+
+  function refreshState(): void {
+    const state = panel.getState()
+    control.updateState(state)
+    status.update(state.running)
+  }
+
+  const register = (id: string, fn: () => void): void => {
+    context.subscriptions.push(vscode.commands.registerCommand(id, fn))
+  }
+  register('dsh-tui-vscode.open', () => {
+    panel.open(false, launchOptions(false))
+  })
+  register('dsh-tui-vscode.start', () => {
+    panel.open(false, launchOptions(false))
+  })
+  register('dsh-tui-vscode.resume', () => {
+    panel.open(true, launchOptions(true))
+  })
+  register('dsh-tui-vscode.focus', () => {
+    if (panel.isRunning()) {
+      panel.reveal()
+    } else {
+      panel.open(false, launchOptions(false))
     }
-    setTimeout(() => {
-      if (!terminal.exitStatus) {
-        try {
-          terminal.dispose()
-        } catch {
-          // ignore: already closed
-        }
-      }
-    }, 600)
-  }
-
-  const openLink = (link: FileLink): void => {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
-    const uri = vscode.Uri.file(resolveLocalPath(link.path, { root }))
-    const selection = link.line !== undefined
-      ? new vscode.Range(
-          Math.max(0, link.line - 1),
-          Math.max(0, (link.column ?? 1) - 1),
-          Math.max(0, link.line - 1),
-          Math.max(0, (link.column ?? 1) - 1),
-        )
-      : undefined
-    void vscode.window.showTextDocument(uri, { preview: true, selection })
-  }
-
-  const terminalLinkProvider = createTerminalLinkProvider({
-    isOwnTerminal: terminal => [...sessions].some(t => t === terminal),
-    openPath: openLink,
+    refreshState()
+  })
+  register('dsh-tui-vscode.kill', () => {
+    panel.kill()
+    refreshState()
   })
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('dsh-tui-vscode.start', () => launch(false)),
-    vscode.commands.registerCommand('dsh-tui-vscode.resume', () => launch(true)),
-    vscode.commands.registerCommand('dsh-tui-vscode.focus', focusSession),
-    vscode.commands.registerCommand('dsh-tui-vscode.kill', killSession),
-    vscode.window.registerTerminalLinkProvider(terminalLinkProvider),
-    vscode.window.onDidCloseTerminal(terminal => {
-      if (sessions.delete(terminal)) refresh()
-    }),
-  )
+  refreshState()
+
+  return {
+    postInput: data => panel.postInput(data),
+    getState: () => panel.getState(),
+    postPanelMessage: message => panel.handleMessage(message),
+  }
 }
 
 export function deactivate(): void {
-  // Terminal processes outlive the extension; nothing to tear down.
+  // The PTY child dies with the extension host; nothing else to tear down.
 }
