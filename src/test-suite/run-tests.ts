@@ -44,10 +44,9 @@ async function main(): Promise<void> {
       `@echo off\r\n"${process.execPath}" "${launcher}" %*\r\n`,
     )
   } else {
-    writeFileSync(
-      join(ws, 'fake-dsh-tui.sh'),
-      `#!/bin/sh\nexec "${process.execPath}" "${launcher}" "$@"\n`,
-    )
+    const shim = join(ws, 'fake-dsh-tui.sh')
+    writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${launcher}" "$@"\n`)
+    chmodSync(shim, 0o755)
   }
   for (const file of ['env-out.txt', 'stdin-out.txt', 'exited.txt']) {
     rmSync(join(ws, file), { force: true })
