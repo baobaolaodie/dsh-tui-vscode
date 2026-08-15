@@ -13,6 +13,13 @@ test('stripAnsiWithMap strips OSC sequences as well', () => {
   assert.equal(text, 'hello')
 })
 
+test('stripAnsiWithMap strips OSC 8 hyperlink wrappers', () => {
+  // '\x1b]8;;http://x\x07' is 14 chars; the link text starts at raw index 14.
+  const { text, index } = stripAnsiWithMap('\x1b]8;;http://x\x07~/a.ts\x1b]8;;\x07')
+  assert.equal(text, '~/a.ts')
+  assert.deepEqual(index, [14, 15, 16, 17, 18, 19])
+})
+
 test('no links in plain prose', () => {
   assert.deepEqual(findFileLinks('this is a normal sentence with a / slash and words'), [])
 })
@@ -67,6 +74,12 @@ test('ANSI-colored path is linked with offsets into the raw line', () => {
 test('inline code like (a / b) does not produce a link', () => {
   assert.deepEqual(findFileLinks('if (a / b) then'), [])
   assert.deepEqual(findFileLinks('if (x/2) then'), [])
+})
+
+test('CJK sentence punctuation is not included in the path', () => {
+  const links = findFileLinks('看 /home/u/a.ts，然后')
+  assert.equal(links.length, 1)
+  assert.equal(links[0].path, '/home/u/a.ts')
 })
 
 test('overlapping candidates collapse to one link', () => {

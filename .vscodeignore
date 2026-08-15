@@ -1,6 +1,7 @@
 .git/**
 .gitignore
 .vscode/**
+.smoke/**
 node_modules/**
 out/test/**
 src/**

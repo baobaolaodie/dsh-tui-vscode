@@ -48,25 +48,40 @@ export interface FileLink {
 }
 
 /**
+ * Two distinct exclusion sets are needed because greedy interior matching
+ * must allow '.' (file extensions) and ASCII punctuation that a trailing
+ * class then trims, while CJK sentence punctuation must stop the interior
+ * itself (CJK prose follows paths directly, e.g. "看 /home/u/a.ts，然后").
+ */
+/** Characters that may never appear inside a path candidate. */
+const INTERIOR_EXCL = String.raw`\s:;'"<>|*?，。！？；：、"”’）】》`
+/** Characters that terminate a path candidate (interior exclusions + ASCII trailing punctuation). */
+const TERMINATORS = INTERIOR_EXCL + String.raw`.,)`
+
+/**
  * Absolute Windows path (C:\... or C:/...) with optional :line[:col].
  * The (?![/\\]) guard after the drive slash rejects scheme-like tokens
  * (`s://…` is a drive letter `s` followed by `://`).
  */
 const WINDOWS_PATH_RE = new RegExp(
-  String.raw`([A-Za-z]:[\\/](?![/\\])[^\s:;'"<>|*?]*[^\s:;'"<>|*?.,)])(?::(\d+))?(?::(\d+))?`,
+  String.raw`([A-Za-z]:[\\/](?![/\\])[^${INTERIOR_EXCL}]*[^${TERMINATORS}])(?::(\d+))?(?::(\d+))?`,
   'g',
 )
+
 /**
  * Absolute POSIX path (/... or ~/...) with optional :line[:col].
  * The (?<![\w:/]) guard stops `https://…`, `C:/…` and inline `x/2` from
  * matching a pseudo-path that starts mid-token or mid-scheme.
  */
 const POSIX_PATH_RE = new RegExp(
-  String.raw`(?<![\w:/])(~?/(?:[^\s:;'"<>|*?]|:(?!\d))*[^\s:;'"<>|*?.,)])(?::(\d+))?(?::(\d+))?`,
+  String.raw`(?<![\w:/])(~?/(?:[^${INTERIOR_EXCL}]|:(?!\d))*[^${TERMINATORS}])(?::(\d+))?(?::(\d+))?`,
   'g',
 )
 /** Relative path explicitly starting with ./ or ../; no line suffix support to avoid matching prose. */
-const RELATIVE_PATH_RE = new RegExp(String.raw`(\.{1,2}/[^\s:;'"<>|*?]+[^\s:;'"<>|*?.,)])`, 'g')
+const RELATIVE_PATH_RE = new RegExp(
+  String.raw`(\.{1,2}/[^${INTERIOR_EXCL}]+[^${TERMINATORS}])`,
+  'g',
+)
 
 export function findFileLinks(rawLine: string): FileLink[] {
   const { text, index } = stripAnsiWithMap(rawLine)

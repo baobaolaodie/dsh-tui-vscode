@@ -96,6 +96,11 @@
           "type": "string",
           "default": "code -w",
           "description": "Value exported as $VISUAL when dsh-tui-vscode.injectEditor is on and no VISUAL/EDITOR exists. Use the VS Code CLI with -w to wait for the file to close."
+        },
+        "dsh-tui-vscode.dshHome": {
+          "type": "string",
+          "default": "",
+          "description": "Optional $DSH_HOME override for the dsh-tui session ('' keeps the value inherited from the VS Code process)."
         }
       }
     }

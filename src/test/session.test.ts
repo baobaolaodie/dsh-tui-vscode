@@ -26,6 +26,18 @@ test('buildLaunchEnv merges with lang and respects base language var', () => {
   assert.deepEqual(env, { DSH_TUI_LANG: 'en', VISUAL: 'code -w' })
 })
 
+test('buildLaunchEnv exports DSH_HOME only when dshHome is set', () => {
+  assert.deepEqual(buildLaunchEnv({ dshHome: '', injectEditor: false }), {})
+  assert.deepEqual(buildLaunchEnv({ dshHome: 'C:\\my-dsh', injectEditor: false }), {
+    DSH_HOME: 'C:\\my-dsh',
+  })
+  assert.deepEqual(buildLaunchEnv({ dshHome: ' /data/dsh ', lang: 'en' }), {
+    DSH_HOME: '/data/dsh',
+    DSH_TUI_LANG: 'en',
+    VISUAL: 'code -w',
+  })
+})
+
 test('buildTerminalPlan non-Windows uses the command directly', () => {
   assert.deepEqual(buildTerminalPlan({ resume: false }), { shellPath: 'dsh-tui', shellArgs: [] })
   assert.deepEqual(buildTerminalPlan({ resume: true }), {
@@ -64,7 +76,12 @@ test('buildTerminalPlan Windows quotes a command path with spaces', () => {
     isWindows: true,
     cmdExe: 'cmd.exe',
   })
-  assert.deepEqual(plan.shellArgs, ['/d', '/s', '/c', '"C:\\Program Files\\dsh-tui.cmd"'])
+  // The classic cmd pattern: brace the quoted executable in an extra pair of
+  // quotes so `cmd /d /s /c` strips the outer pair and re-parses the inner
+  // one. Empirically verified by spawning cmd.exe directly with verbatim
+  // (node-pty/ConPTY-style) argument joining — the same semantics VS Code's
+  // terminal backend uses on Windows.
+  assert.deepEqual(plan.shellArgs, ['/d', '/s', '/c', '""C:\\Program Files\\dsh-tui.cmd""'])
 })
 
 test('quoteCmdArg quotes only when needed', () => {

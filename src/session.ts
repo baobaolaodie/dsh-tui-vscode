@@ -15,6 +15,8 @@ export interface LaunchEnvInput {
   injectEditor?: boolean
   /** Value exported as $VISUAL, default 'code -w'. */
   editorCommand?: string
+  /** Override $DSH_HOME for the session ('' keeps the inherited value). */
+  dshHome?: string
 }
 
 export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
@@ -23,6 +25,10 @@ export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
   const lang = input.lang?.trim() ?? ''
   if (lang) {
     env.DSH_TUI_LANG = lang
+  }
+  const dshHome = input.dshHome?.trim() ?? ''
+  if (dshHome) {
+    env.DSH_HOME = dshHome
   }
   const wantsEditor = input.injectEditor !== false
   if (wantsEditor && !base.VISUAL && !base.EDITOR) {
@@ -61,8 +67,15 @@ export function buildTerminalPlan(input: PlanInput): TerminalPlan {
     // cannot spawn a .cmd directly — route through cmd.exe with one composite
     // command line (the same trick VS Code itself uses for custom shells).
     const cmdExe = input.cmdExe ?? process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe'
-    const cmdline = [quoteCmdArg(command), ...args.map(quoteCmdArg)].join(' ')
-    return { shellPath: cmdExe, shellArgs: ['/d', '/s', '/c', cmdline] }
+    const cmdName = quoteCmdArg(command)
+    const cmdline = [cmdName, ...args.map(quoteCmdArg)].join(' ')
+    // Unquoted command (no spaces): pass the line verbatim to cmd /d /s /c.
+    // Quoted command (spaces): the classic cmd pattern is to brace the whole
+    // line in one extra pair of quotes so /s strips them and the inner quoted
+    // executable is re-parsed:  cmd /s /c ""C:\Program Files\app.cmd" args"
+    // (empirically verified through cmd.exe itself, see session.test.ts).
+    const composite = cmdName === command ? cmdline : `"${cmdline}"`
+    return { shellPath: cmdExe, shellArgs: ['/d', '/s', '/c', composite] }
   }
   return { shellPath: command, shellArgs: args }
 }

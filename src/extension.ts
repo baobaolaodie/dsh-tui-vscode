@@ -1,8 +1,7 @@
 import * as vscode from 'vscode'
-import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
 import { buildLaunchEnv, buildTerminalPlan } from './session'
 import { findFileLinks, type FileLink } from './links'
+import { resolveLocalPath } from './paths'
 import { SessionStatusBar } from './status'
 
 interface Settings {
@@ -12,6 +11,7 @@ interface Settings {
   lang: string
   injectEditor: boolean
   editorCommand: string
+  dshHome: string
 }
 
 function readSettings(): Settings {
@@ -23,6 +23,7 @@ function readSettings(): Settings {
     lang: cfg.get<string>('lang', ''),
     injectEditor: cfg.get<boolean>('injectEditor', true),
     editorCommand: cfg.get<string>('editorCommand', 'code -w'),
+    dshHome: cfg.get<string>('dshHome', ''),
   }
 }
 
@@ -35,6 +36,27 @@ export function activate(context: vscode.ExtensionContext): void {
     const active = [...sessions].some(t => !t.exitStatus)
     status.update(active)
   }
+
+  // Adopt terminals this extension created in a previous session (e.g. after
+  // a window/extension reload): otherwise start/focus/kill would lose track of
+  // the still-running TUI and `start` would spawn a duplicate.
+  const adopt = (terminal: vscode.Terminal): void => {
+    if (terminal.exitStatus) return
+    const opts = terminal.creationOptions as
+      | Readonly<{ name?: string; shellPath?: string; shellArgs?: string[] }>
+      | undefined
+    if (!opts) return
+    const cfg = readSettings()
+    const nameMatch = 'name' in opts && opts.name === cfg.terminalName
+    const signatureMatch =
+      nameMatch ||
+      ('shellPath' in opts &&
+        (opts.shellPath?.includes(cfg.command) ||
+          opts.shellArgs?.some(arg => arg.includes(cfg.command))))
+    if (signatureMatch) sessions.add(terminal)
+  }
+  for (const terminal of vscode.window.terminals) adopt(terminal)
+  refresh()
 
   const launch = (resume: boolean): void => {
     const existing = [...sessions].find(t => !t.exitStatus)
@@ -49,6 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
       lang: cfg.lang,
       injectEditor: cfg.injectEditor,
       editorCommand: cfg.editorCommand,
+      dshHome: cfg.dshHome,
     })
     const plan = buildTerminalPlan({
       resume,
@@ -98,8 +121,8 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   const openLink = (link: FileLink): void => {
-    const uri = resolveFileUri(link.path)
-    if (!uri) return
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
+    const uri = vscode.Uri.file(resolveLocalPath(link.path, { root }))
     const selection = link.line !== undefined
       ? new vscode.Range(
           Math.max(0, link.line - 1),
@@ -147,21 +170,4 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // Terminal processes outlive the extension; nothing to tear down.
-}
-
-function resolveFileUri(path: string): vscode.Uri | undefined {
-  try {
-    let abs: string
-    if (/^[A-Za-z]:[\\/]/.test(path) || path.startsWith('/')) {
-      abs = path
-    } else if (path === '~' || path.startsWith('~/')) {
-      abs = join(homedir(), path.slice(path === '~' ? 1 : 2))
-    } else {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-      abs = root ? resolve(root, path) : path
-    }
-    return vscode.Uri.file(abs)
-  } catch {
-    return undefined
-  }
 }

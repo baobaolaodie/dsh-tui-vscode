@@ -62,11 +62,12 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `dsh-tui-vscode.command` | `dsh-tui` | 启动命令/可执行文件，可改为绝对路径 |
-| `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
-| `dsh-tui-vscode.terminalName` | `dsh-tui` | 承载会话的终端名（用于去重） |
+| `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]`（每项一个参数） |
+| `dsh-tui-vscode.terminalName` | `dsh-tui` | 承载会话的终端名（用于去重；扩展重载后也会按此名收养既有会话） |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
+| `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承 VS Code 进程的值，默认与 `dsh` 共享同一 home） |
 
 ## 工作原理
 
@@ -152,19 +153,26 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
 | Key | Default | Description |
 | --- | --- | --- |
 | `dsh-tui-vscode.command` | `dsh-tui` | Launch command/executable, absolute paths allowed |
-| `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
-| `dsh-tui-vscode.terminalName` | `dsh-tui` | Hosting terminal name (dedupe key) |
+| `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` (one argument per item) |
+| `dsh-tui-vscode.terminalName` | `dsh-tui` | Hosting terminal name (dedupe key; existing sessions are adopted on reload) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
+| `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override for the session (empty = inherit, sharing the same home as `dsh`) |
 
 ## How it works
 
 - POSIX: `createTerminal({ shellPath: 'dsh-tui', shellArgs })` spawns directly.
 - Windows: `dsh-tui` is a `.cmd` shim, so the extension launches it through
-  `cmd.exe /d /s /c "<command> <args>"` (the same trick VS Code uses for custom shells).
+  `cmd.exe /d /s /c "<command> <args>"` (the same trick VS Code uses for custom
+  shells; the quoted form for paths with spaces is verified against real
+  `cmd.exe` with verbatim/ConPTY-style argument joining).
+- On activation the extension adopts still-running sessions it created earlier
+  (matched by terminal name or launch signature), so reloading VS Code keeps
+  start/focus/kill consistent instead of spawning duplicates.
 - `registerTerminalLinkProvider` only decorates terminals this extension created.
-- Env vars (`DSH_TUI_LANG`, `$VISUAL`) are injected per-terminal via `createTerminal`.
+- Env vars (`DSH_TUI_LANG`, `$VISUAL`, optional `$DSH_HOME`) are injected
+  per-terminal via `createTerminal`.
 
 ## Known limitations
 
@@ -174,7 +182,9 @@ code --install-extension dsh-tui-vscode-0.1.0.vsix --force
   which this repo does not implement.
 - Exit your session with the usual double `Ctrl+C`; `Terminate session` sends
   one Ctrl+C and force-disposes if still alive.
-- Path detection is heuristic (see `src/links.ts` and its tests).
+- Path detection is heuristic (see `src/links.ts` and its tests): Windows/POSIX
+  absolute paths, `~/` and `./`/`../` prefixes, `path:line[:col]` suffixes,
+  ANSI-stripped offsets, CJK sentence punctuation.
 
 ## Development
 
