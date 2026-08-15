@@ -41,13 +41,16 @@ function tuiTerminals(): vscode.Terminal[] {
 
 /** Wait for the fake launcher to have written its real environment. */
 async function readEnvOut(): Promise<string[]> {
-  return (await poll(() => {
+  const content = await poll(() => {
     try {
-      return readFileSync(ENV_OUT, 'utf8')
+      const text = readFileSync(ENV_OUT, 'utf8')
+      // Only return once the launcher finished writing (last marker line).
+      return text.includes('FAKE_LAUNCHER_RAN') ? text : undefined
     } catch {
       return undefined
     }
-  }, 15000)).trim().split(/\r?\n/).map(line => line.trim())
+  }, 15000)
+  return content.trim().split(/\r?\n/).map(line => line.trim())
 }
 
 const tests: Array<[string, () => Promise<void>]> = []

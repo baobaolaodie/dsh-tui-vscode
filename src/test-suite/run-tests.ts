@@ -35,11 +35,13 @@ async function main(): Promise<void> {
         ].join('\r\n')
       : [
           '#!/bin/sh',
-          'echo "VISUAL=$VISUAL" > "$(dirname "$0")/env-out.txt"',
-          'echo "DSH_TUI_LANG=$DSH_TUI_LANG" >> "$(dirname "$0")/env-out.txt"',
-          'echo "DSH_HOME=$DSH_HOME" >> "$(dirname "$0")/env-out.txt"',
-          'echo "ARGS=$*" >> "$(dirname "$0")/env-out.txt"',
-          'echo FAKE_LAUNCHER_RAN >> "$(dirname "$0")/env-out.txt"',
+          // printf '%s' prints the value verbatim — `echo` would interpret
+          // backslash escapes (e.g. C:\\e2e-home → C:<ESC>2e-home).
+          'printf \'%s\\n\' "VISUAL=$VISUAL" > "$(dirname "$0")/env-out.txt"',
+          'printf \'%s\\n\' "DSH_TUI_LANG=$DSH_TUI_LANG" >> "$(dirname "$0")/env-out.txt"',
+          'printf \'%s\\n\' "DSH_HOME=$DSH_HOME" >> "$(dirname "$0")/env-out.txt"',
+          'printf \'%s\\n\' "ARGS=$*" >> "$(dirname "$0")/env-out.txt"',
+          'printf \'%s\\n\' FAKE_LAUNCHER_RAN >> "$(dirname "$0")/env-out.txt"',
           'sleep 60',
           '',
         ].join('\n'),
