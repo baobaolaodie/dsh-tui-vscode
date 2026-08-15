@@ -108,7 +108,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/links.test.js out/test/paths.test.js",
     "package": "npm run compile && vsce package --no-dependencies",
     "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.1.0.vsix --force"
   },
