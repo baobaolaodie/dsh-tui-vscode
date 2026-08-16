@@ -55,7 +55,7 @@ Prerequisites: install the DSH CLI and dsh-tui globally (the first run bootstrap
 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 ```
 
-Build from source and install (not yet on the Marketplace):
+Install from the **VS Code extension marketplace** (recommended): press `Ctrl+Shift+X`, search for **`dsh-tui`** and install with one click; or build from source:
 
 ```sh
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git

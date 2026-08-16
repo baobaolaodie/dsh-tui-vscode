@@ -55,7 +55,7 @@
 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 ```
 
-从源码构建并安装（暂未上架 Marketplace）：
+从 **VS Code 扩展面板**安装（推荐）：`Ctrl+Shift+X` 搜索 **`dsh-tui`** 一键安装；或从源码构建：
 
 ```sh
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git

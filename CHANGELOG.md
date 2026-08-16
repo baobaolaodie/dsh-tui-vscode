@@ -6,6 +6,8 @@
 
 ### Added
 
+- **上架 VS Code Marketplace**：v0.5.0 经网页上传正式发布（官方"手动发布"路径），扩展面板可直接搜索安装。
+
 ### Changed
 
 ### Fixed

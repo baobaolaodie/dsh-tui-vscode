@@ -51,3 +51,10 @@ npm run package          # compile + build the .vsix
 4. Open a Pull Request (title with a Conventional Commits prefix, same as commits).
 
 Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.mjs`); CI covers the rest server-side.
+
+## Publishing
+
+- Current publishing flow: `npm run package` to build the vsix, then upload it at https://marketplace.visualstudio.com/manage (the official "manual publish" path — no PAT required).
+- Version flow: bump `package.json` version → sync the README badges and CHANGELOG (the release-consistency CI enforces the five-point match) → create the `v*` tag → upload the new version via the web.
+- Note: Azure DevOps global PATs are retired on 2026-12-01; for future CLI/CI automation, switch to Entra ID (`vsce publish --azure-credential`, vsce >= 2.26.1).
+- Never use "Remove": an extension name is permanently reserved after removal and cannot be reused; use "Unpublish" to take it down.

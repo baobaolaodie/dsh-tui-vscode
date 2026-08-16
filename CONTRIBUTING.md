@@ -51,3 +51,10 @@ npm run package          # 编译 + 生成 .vsix
 4. 发起 Pull Request（标题同样遵循 Conventional Commits 前缀）。
 
 本地预检：安装 pre-commit 钩子（`node scripts/install-commit-hook.mjs`），CI 服务端兜底其余检查。
+
+## 发布 / Publishing
+
+- 当前发布方式：`npm run package` 生成 vsix → https://marketplace.visualstudio.com/manage 网页上传（官方"手动发布"路径，无需 PAT）。
+- 版本流程：改 `package.json` version → 同步 README 徽章与 CHANGELOG（release-consistency CI 强制五处一致）→ 打 `v*` tag → 网页上传新版本。
+- 注意：Azure DevOps 全局 PAT 将于 2026-12-01 退休；届时如需 CLI/CI 自动化发布，改用 Entra ID（`vsce publish --azure-credential`，vsce ≥ 2.26.1）。
+- 切勿使用"移除（Remove）"：扩展名移除后**永久保留不可复用**；下架请用"Unpublish"。
