@@ -92,11 +92,11 @@ test('readSessionRecord tolerates missing/garbage events; undecodable logs still
 })
 
 test('decodeGroupDir and projectNameOf derive project short names', () => {
-  // Hyphen-free paths decode exactly.
-  assert.equal(decodeGroupDir('--C-Users-user--'), 'C:\\Users\\user')
-  assert.equal(decodeGroupDir('--D-user-VSCode-deepsharness--'), 'D:\\user\\VSCode\\deepsharness')
+  // Hyphen-free paths decode exactly (separator follows the host OS).
+  assert.equal(decodeGroupDir('--C-Users-user--'), join('C:', 'Users', 'user'))
+  assert.equal(decodeGroupDir('--D-user-VSCode-deepsharness--'), join('D:', 'user', 'VSCode', 'deepsharness'))
   // The cwd-encoding is lossy for hyphenated names — documented limitation.
-  assert.equal(decodeGroupDir('--D-user-VSCode-flow-comet--'), 'D:\\user\\VSCode\\flow\\comet')
+  assert.equal(decodeGroupDir('--D-user-VSCode-flow-comet--'), join('D:', 'user', 'VSCode', 'flow', 'comet'))
   assert.equal(decodeGroupDir('not-encoded'), undefined)
   // cwd wins over the group dir.
   assert.equal(projectNameOf('d:\\repo\\my-app', '--D-x--'), 'my-app')
