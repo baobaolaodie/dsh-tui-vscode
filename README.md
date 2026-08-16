@@ -67,7 +67,7 @@ npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
 
 ## 使用
 
-- **启动 / 多开**：点活动栏鲸鱼图标、编辑器标签栏右侧鲸鱼按钮，或命令 `dsh-tui: Start new session / 启动新会话`——每次都在编辑器区另一侧新开一个 **DeepSeek** 终端并自动运行 dsh-tui；再次点击 = 再开一个，多会话并行。
+- **启动 / 多开**：点**编辑器标签栏右侧鲸鱼按钮**，或命令 `dsh-tui: Start new session / 启动新会话`——每次都在编辑器区另一侧新开一个 **DeepSeek** 终端并自动运行 dsh-tui；再次点击 = 再开一个，多会话并行。**活动栏鲸鱼图标**打开侧边栏「会话历史」（欢迎页含启动/恢复按钮）。
 - **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`（`--resume`，读 `~/.dsh-tui/resume.txt`）。
 - **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
 - **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
