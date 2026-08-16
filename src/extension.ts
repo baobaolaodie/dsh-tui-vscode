@@ -53,8 +53,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   function hasTerminal(): boolean {
     return vscode.window.terminals.some(t => t.name === TERMINAL_NAME)
   }
+  /** The most recently created DeepSeek terminal, if any. */
   const findTerminal = (): vscode.Terminal | undefined =>
-    vscode.window.terminals.find(t => t.name === TERMINAL_NAME)
+    [...vscode.window.terminals].reverse().find(t => t.name === TERMINAL_NAME)
 
   const refreshState = (): void => status.update(hasTerminal())
   context.subscriptions.push(
@@ -129,7 +130,6 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         DSH_TUI_RESUME_SESSION: resumeSession,
         DSH_CC_RESUME_SESSION: resumeSession,
       })
-      if (existing) existing.dispose()
       const terminal = createTerminal(env)
       terminal.show()
       sendTextWhenReady(terminal, parts.join(' '))
@@ -138,17 +138,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (resume) {
       // Resume the LAST session: --resume reads ~/.dsh-tui/resume.txt.
       parts.push('--resume')
-      if (existing) existing.dispose()
       const terminal = createTerminal(buildEnv())
       terminal.show()
       sendTextWhenReady(terminal, parts.join(' '))
       return
     }
-    if (existing) {
-      // Dedupe: a dsh-tui terminal is already open — just focus it.
-      existing.show()
-      return
-    }
+    // Multiple concurrent sessions (like Claude Code): every click opens a
+    // NEW terminal+session; existing sessions keep running in their own
+    // terminals. `existing` is intentionally unused here.
+    void existing
     const terminal = createTerminal(buildEnv())
     terminal.show()
     sendTextWhenReady(terminal, parts.join(' '))
@@ -161,8 +159,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.start', () => runCommand(false))
   register('dsh-tui-vscode.resume', () => runCommand(true))
   register('dsh-tui-vscode.focus', () => {
-    if (hasTerminal()) {
-      findTerminal()?.show()
+    const terminal = findTerminal()
+    if (terminal) {
+      terminal.show()
     } else {
       runCommand(false)
     }

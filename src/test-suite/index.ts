@@ -116,13 +116,18 @@ test('terminal input reaches the child', async () => {
   }, 10000)
 })
 
-test('start dedupes the running terminal', async () => {
-  const before = statSync(ENV_OUT).mtimeMs
+test('start opens multiple concurrent sessions', async () => {
+  await configureFakeLauncher()
+  rmSync(ENV_OUT, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
-  await sleep(2500)
-  // Same terminal, same child — env-out must not be rewritten.
-  assert.equal(vscode.window.terminals.filter(t => t.name === TERMINAL_NAME).length, 1)
-  assert.equal(statSync(ENV_OUT).mtimeMs, before, 'start must not relaunch the CLI')
+  await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+  const firstMtime = statSync(ENV_OUT).mtimeMs
+  // A second click opens ANOTHER terminal+session (Claude Code behavior);
+  // the new child writes env-out again.
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  await poll(() => (statSync(ENV_OUT).mtimeMs > firstMtime ? true : undefined), 20000)
+  const count = vscode.window.terminals.filter(t => t.name === TERMINAL_NAME).length
+  assert.ok(count >= 2, `expected >=2 DeepSeek terminals, got ${count}`)
 })
 
 test('kill sends Ctrl+C to the child', async () => {
