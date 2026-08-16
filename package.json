@@ -43,7 +43,7 @@
       "dsh-tui-vscode": [
         {
           "id": "dsh-tui-vscode.sessions",
-          "name": "会话"
+          "name": "会话历史"
         }
       ]
     },

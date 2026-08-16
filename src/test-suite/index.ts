@@ -16,7 +16,7 @@ const WS = join(__dirname, '..', '..', '.e2e-workspace')
 const ENV_OUT = join(WS, 'env-out.txt')
 const STDIN_OUT = join(WS, 'stdin-out.txt')
 const EXITED = join(WS, 'exited.txt')
-const TERMINAL_NAME = 'dsh-tui'
+const TERMINAL_NAME = 'dsh-TUI'
 
 interface Api {
   sendInput(text: string): void
@@ -148,7 +148,7 @@ test('resume relaunches with --resume', async () => {
   )
 })
 
-test('resumeSession recreates the terminal with the session env', async () => {
+test('resumeSession recreates the terminal with the session env (no --resume)', async () => {
   await configureFakeLauncher()
   rmSync(ENV_OUT, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.resumeSession', 'sess-42')
@@ -161,9 +161,69 @@ test('resumeSession recreates the terminal with the session env', async () => {
     lines.includes('RESUME_SESSION=sess-42'),
     `RESUME_SESSION missing: ${lines.join(' | ')}`,
   )
+  // The env IS the resume channel; --resume would make the launcher
+  // overwrite it from ~/.dsh-tui/resume.txt (verified in bin/dsh-tui.js).
   assert.ok(
-    lines.some(line => line.startsWith('ARGS=') && line.includes('--resume')),
-    `--resume missing: ${lines.join(' | ')}`,
+    !lines.some(line => line.startsWith('ARGS=') && line.includes('--resume')),
+    `--resume must NOT be passed for a specific session: ${lines.join(' | ')}`,
+  )
+})
+
+test('resumeSession resumes a REAL session (guarded)', async () => {
+  // Only meaningful where the real dsh-tui/dsh are installed and DSH
+  // session data exists (the user's machine); skipped elsewhere.
+  const { homedir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { existsSync, readdirSync, statSync } = await import('node:fs')
+  const sessionsRoot = join(homedir(), '.dsh', 'sessions')
+  let realId: string | undefined
+  try {
+    for (const group of readdirSync(sessionsRoot)) {
+      for (const entry of readdirSync(join(sessionsRoot, group))) {
+        const dir = join(sessionsRoot, group, entry)
+        if (statSync(dir).isDirectory() && existsSync(join(dir, 'session.jsonl.zstd'))) {
+          realId = entry
+          break
+        }
+      }
+      if (realId) break
+    }
+  } catch {
+    realId = undefined
+  }
+  if (!realId) {
+    console.log('[e2e] SKIP real-resume: no DSH sessions found')
+    return
+  }
+  const countSessions = (): number => {
+    let n = 0
+    for (const group of readdirSync(sessionsRoot)) {
+      const g = join(sessionsRoot, group)
+      if (!statSync(g).isDirectory()) continue
+      for (const e of readdirSync(g)) if (statSync(join(g, e)).isDirectory()) n++
+    }
+    return n
+  }
+
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  await cfg.update('command', 'dsh-tui', vscode.ConfigurationTarget.Global)
+  await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
+  await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+
+  // Observable (verified against the real launcher): a SUCCESSFUL resume
+  // does NOT create a new session; a failed resume falls through to a fresh
+  // session (randomUUID) → a new session dir appears.
+  const before = countSessions()
+  await vscode.commands.executeCommand('dsh-tui-vscode.resumeSession', realId)
+  await sleep(35000)
+  const after = countSessions()
+  // Stop the real session in the terminal (best effort).
+  await vscode.commands.executeCommand('dsh-tui-vscode.kill')
+  assert.equal(
+    after,
+    before,
+    `resume of ${realId} failed: a fresh session was created (${before} -> ${after})`,
   )
 })
 

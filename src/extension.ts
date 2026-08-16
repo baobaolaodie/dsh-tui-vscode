@@ -4,7 +4,7 @@ import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
 import { buildLaunchEnv } from './session'
 
-const TERMINAL_NAME = 'dsh-tui'
+const TERMINAL_NAME = 'dsh-TUI'
 
 interface Settings {
   command: string
@@ -80,9 +80,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       name: TERMINAL_NAME,
       cwd,
       env,
-      // Editor-area terminal, matching the official extension's location for
-      // terminal sessions.
-      location: vscode.TerminalLocation.Editor,
+      iconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg'),
+      // A NEW column beside the active one — like the official extension
+      // (ViewColumn.Beside) — never taking over the user's current column.
+      location: { viewColumn: vscode.ViewColumn.Beside },
       isTransient: true,
     })
   }
@@ -114,13 +115,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
     const parts = [cfg.command.trim() || 'dsh-tui']
-    if (resume) parts.push('--resume')
     for (const arg of cfg.extraArgs) parts.push(arg)
 
     const existing = findTerminal()
     if (resumeSession) {
-      // A specific session needs DSH_TUI_RESUME_SESSION at terminal creation
-      // time — recreate the terminal with the id in its environment.
+      // Resume a SPECIFIC session: the profile's cordis.patch.yml reads
+      // DSH_TUI_RESUME_SESSION at boot — feed it through the terminal env
+      // and run WITHOUT --resume (the launcher's --resume handler would
+      // overwrite the env from ~/.dsh-tui/resume.txt).
       const env = buildEnv({
         DSH_TUI_RESUME_SESSION: resumeSession,
         DSH_CC_RESUME_SESSION: resumeSession,
@@ -132,7 +134,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       return
     }
     if (resume) {
-      // Resume is an explicit launch intent: always start fresh.
+      // Resume the LAST session: --resume reads ~/.dsh-tui/resume.txt.
+      parts.push('--resume')
       if (existing) existing.dispose()
       const terminal = createTerminal(buildEnv())
       terminal.show()
