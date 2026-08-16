@@ -265,9 +265,19 @@ export function projectNameOf(
   return undefined
 }
 
+/**
+ * Resolve the DSH home directory: the explicit override wins when it is a
+ * NON-EMPTY string (the config default is '' — an empty override must fall
+ * back to the environment, exactly like an absent one), then `$DSH_HOME`,
+ * then `~/.dsh`.
+ */
+function resolveDshHome(dshHome?: string): string {
+  return dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh')
+}
+
 /** Walk the DSH sessions tree and return every session log file. */
 export function findSessionFiles(dshHome?: string): SessionFile[] {
-  const root = join(dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'sessions')
+  const root = join(resolveDshHome(dshHome), 'sessions')
   const out: SessionFile[] = []
   let dirs: string[]
   try {
@@ -754,7 +764,7 @@ export function readStorageMeta(dshHome?: string): StorageMeta {
   const out: StorageMeta = { titles: {}, cwds: {}, blanks: {} }
   try {
     const file = join(
-      dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'),
+      resolveDshHome(dshHome),
       'storages',
       'session_projcache.json',
     )
@@ -910,10 +920,7 @@ export function appendSessionTitle(
  */
 export function deleteSessionLog(file: string, dshHome?: string): 'deleted' | 'unavailable' {
   try {
-    const root = join(
-      dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'),
-      'sessions',
-    )
+    const root = join(resolveDshHome(dshHome), 'sessions')
     const dir = dirname(file)
     const realDir = realpathSync(dir)
     const realRoot = realpathSync(root)

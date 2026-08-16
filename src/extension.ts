@@ -189,27 +189,31 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (typeof sessionId !== 'string' || !sessionId) return
     runCommand(true, sessionId)
   })
-  register('dsh-tui-vscode.renameSession', async (sessionId: unknown, file: unknown) => {
-    if (typeof sessionId !== 'string' || !sessionId || typeof file !== 'string' || !file) return
+  register('dsh-tui-vscode.renameSession', async (item: unknown) => {
+    // view/item/context passes the selected TreeItem (session identity rides
+    // on it via SessionTreeItem.sessionId/sessionFile).
+    const it = item as { sessionId?: unknown; sessionFile?: unknown } | undefined
+    if (!it || typeof it.sessionId !== 'string' || typeof it.sessionFile !== 'string') return
     const title = await vscode.window.showInputBox({
-      prompt: `重命名会话 ${sessionId.slice(0, 8)}…`,
+      prompt: `重命名会话 ${it.sessionId.slice(0, 8)}…`,
       placeHolder: '输入新标题',
       ignoreFocusOut: true,
     })
     if (title === undefined) return // cancelled
     const trimmed = title.trim()
     if (!trimmed) return
-    if (appendSessionTitle(file, trimmed) === 'appended') sessionsTree.refresh()
+    if (appendSessionTitle(it.sessionFile, trimmed) === 'appended') sessionsTree.refresh()
   })
-  register('dsh-tui-vscode.deleteSession', async (sessionId: unknown, file: unknown) => {
-    if (typeof sessionId !== 'string' || !sessionId || typeof file !== 'string' || !file) return
+  register('dsh-tui-vscode.deleteSession', async (item: unknown) => {
+    const it = item as { sessionId?: unknown; sessionFile?: unknown } | undefined
+    if (!it || typeof it.sessionId !== 'string' || typeof it.sessionFile !== 'string') return
     const answer = await vscode.window.showWarningMessage(
-      `删除会话 ${sessionId.slice(0, 8)}…？其日志目录将被永久移除，此操作不可撤销。`,
+      `删除会话 ${it.sessionId.slice(0, 8)}…？其日志目录将被永久移除，此操作不可撤销。`,
       { modal: true },
       '删除',
     )
     if (answer !== '删除') return
-    if (deleteSessionLog(file) === 'deleted') sessionsTree.refresh()
+    if (deleteSessionLog(it.sessionFile) === 'deleted') sessionsTree.refresh()
   })
 
   sessionsTree.refresh()

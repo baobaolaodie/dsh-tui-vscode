@@ -14,6 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **Fixed empty sidebar session list**: the `dshHome` config default `""` was passed into the data layer and not treated as absent (`??` does not handle empty strings), so the sessions root resolved to the relative path `sessions` and the list was always empty — root resolution now treats empty and unset identically, with a regression test.
+- **Fixed unresponsive right-click rename/delete**: `view/item/context` menu commands receive the selected TreeItem as their first argument, not command arguments — the session id/log path now ride on the TreeItem and are read back by the commands.
+- **Watch newly created group directories**: a group directory that appears after activation (first session in a brand-new working directory) was not in the fs.watch list, so the list did not auto-refresh while the session ran — watchers are now synced idempotently after every reload.
+
 - **Fixed multi-frame zstd session-log decoding**: persisted logs are chains of zstd frames (one per durable flush); the previous whole-buffer decompress failed on large (multi-frame) logs (code -70), so CONDUCTED sessions showed as "untitled" in the sidebar and lost their working-directory grouping. Frames are now walked structurally (RFC 8878) and decompressed one by one, tolerantly skipping torn frames (with tail re-sync) — titles and cwd are fully recovered.
 - **Sidebar now shows only the current VS Code workspace's sessions**: reuses dsh-TUI's `sessionCwdMatches` ownership semantics (exact + workspace subdirectories; HOME / drive-root / UNC-root container boundaries match exactly only; parent-directory sessions never leak in), union over multi-root workspaces, empty list when no workspace is open.
 - **Boot-only sessions and sub-agent runs are hidden**: sessions with no human prompt (`hasPrompt=false`, same as the dsh browser) and delegated runs with header `origin: 'subagent'` no longer appear; the title fallback chain now ends at first human prompt → working-directory basename.

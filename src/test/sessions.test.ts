@@ -639,6 +639,30 @@ test('listSessions title precedence: event > storage > first user message', asyn
   }
 })
 
+test('empty-string dshHome falls back to $DSH_HOME (config default is "")', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-emptyhome-'))
+  try {
+    makeSession(root, 'e-1', [
+      JSON.stringify({ type: 'session', version: 0, id: 'e-1', cwd: '/w', createdAt: 1 }),
+      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '回退会话' }] } }),
+    ])
+    const saved = process.env.DSH_HOME
+    process.env.DSH_HOME = root
+    try {
+      // The extension passes the configured dshHome ('' when unset) — it
+      // must resolve like an absent override, never as the relative path
+      // 'sessions' (which does not exist and would hide every session).
+      const list = await listSessions('')
+      assert.ok(list.some(s => s.id === 'e-1'), 'empty-string dshHome must fall back to $DSH_HOME')
+    } finally {
+      if (saved === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = saved
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('appendSessionTitle appends a zstd frame; last title wins on read', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-rename-'))
   try {

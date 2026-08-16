@@ -26,6 +26,17 @@ interface ProjectNode {
   sessions: SessionRecord[]
 }
 
+/**
+ * A session row as the tree hands it to view/item/context menu commands.
+ * VS Code passes the SELECTED TreeItem as the command's first argument —
+ * it carries no session fields of its own, so the record's id and log path
+ * ride along as extra properties (read back by renameSession/deleteSession).
+ */
+export interface SessionTreeItem extends vscode.TreeItem {
+  sessionId?: string
+  sessionFile?: string
+}
+
 export class SessionsTreeProvider
   implements vscode.TreeDataProvider<SessionRecord | ProjectNode>
 {
@@ -35,38 +46,55 @@ export class SessionsTreeProvider
   readonly onDidChangeTreeData = this.onChange.event
   private sessions: SessionRecord[] = []
   private watchers: FSWatcher[] = []
+  private watchedDirs = new Set<string>()
   private refreshTimer: NodeJS.Timeout | undefined
   private dshHome: string | undefined
+  private sessionsRoot: string | undefined
 
   refresh(): void {
     void this.reload()
   }
 
+  /** Debounced reload, shared by every fs.watch callback. */
+  private scheduleRefresh(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    this.refreshTimer = setTimeout(() => this.refresh(), 500)
+  }
+
   /** Watch the DSH sessions tree so new sessions appear automatically. */
   startWatching(dshHome?: string): void {
     this.dshHome = dshHome
-    const root = join(
+    this.sessionsRoot = join(
       dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh'),
       'sessions',
     )
-    const schedule = (): void => {
-      if (this.refreshTimer) clearTimeout(this.refreshTimer)
-      this.refreshTimer = setTimeout(() => this.refresh(), 500)
-    }
+    this.syncWatchers()
+  }
+
+  /**
+   * Idempotently watch the sessions root and every group directory under it.
+   * Called at startup AND after every reload: a group directory created
+   * after activation (a session launched in a brand-new working directory)
+   * is not covered by the root watcher (fs.watch is not recursive), so each
+   * reload picks up newly appeared groups.
+   */
+  private syncWatchers(): void {
+    if (this.sessionsRoot === undefined) return
     const addWatcher = (dir: string): void => {
+      if (this.watchedDirs.has(dir)) return
       try {
-        const w = watch(dir, { persistent: false }, schedule)
+        const w = watch(dir, { persistent: false }, () => this.scheduleRefresh())
         this.watchers.push(w)
+        this.watchedDirs.add(dir)
       } catch {
         // dir vanished — ignore
       }
     }
-    addWatcher(root)
-    // Watch group dirs too (Linux fs.watch is not recursive).
+    addWatcher(this.sessionsRoot)
     try {
       const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
-      for (const group of readdirSync(root)) {
-        const p = join(root, group)
+      for (const group of readdirSync(this.sessionsRoot)) {
+        const p = join(this.sessionsRoot, group)
         try {
           if (statSync(p).isDirectory()) addWatcher(p)
         } catch {
@@ -87,6 +115,7 @@ export class SessionsTreeProvider
       }
     }
     this.watchers = []
+    this.watchedDirs.clear()
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
   }
 
@@ -104,6 +133,9 @@ export class SessionsTreeProvider
         hideEmpty: true,
         hideSubagents: true,
       })
+      // Pick up group directories created since the last pass (fs.watch on
+      // the root is not recursive) so their log writes keep refreshing.
+      this.syncWatchers()
     } catch (error) {
       this.sessions = []
       console.error('dsh-tui: failed to list sessions', error)
@@ -125,7 +157,11 @@ export class SessionsTreeProvider
     // working-directory basename → generic placeholder — a titled list
     // beats one full of 未命名会话.
     const label = sessionLabel(element)
-    const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None)
+    const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None) as SessionTreeItem
+    // Context-menu commands receive this TreeItem, not command.arguments —
+    // carry the record identity on the item itself.
+    item.sessionId = element.id
+    item.sessionFile = element.file
     const when = element.lastUsed ?? element.createdAt
     if (when !== undefined) {
       item.description = relativeTime(when)
