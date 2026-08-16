@@ -1,13 +1,9 @@
 /**
- * The TUI panel — a SIDEBAR webview view (activity-bar container), matching
- * the official Claude Code extension's placement (claudeVSCodeSidebar).
- * Renders the PTY stream with xterm.js.
- *
- * Lifecycle mirrors dsh-tui's native foreground-process model: the session
- * runs as long as the panel holds it; it ends when you stop it (the ■ button,
- * double Ctrl+C inside the TUI, or the kill command) or when VS Code exits.
- * Hiding the view keeps the session alive; reopening reconnects to the live
- * stream (scrollback is not preserved across a full dispose).
+ * The TUI panel — an EDITOR-AREA webview panel (ViewColumn.Beside), the
+ * position the user confirmed ("之前的位置是对的"). Renders the PTY stream
+ * with xterm.js. The sidebar holds the session list instead (like Claude
+ * Code); opening a session here auto-starts it. Stop via double Ctrl+C in
+ * the TUI, the kill command, or closing VS Code.
  */
 import * as vscode from 'vscode'
 import { OscScanner } from './osc'
@@ -24,10 +20,8 @@ export interface SessionState {
   webviewReady: boolean
 }
 
-export class TuiPanel implements vscode.WebviewViewProvider {
-  static readonly viewType = PANEL_VIEW_TYPE
-
-  private view: vscode.WebviewView | undefined
+export class TuiPanel {
+  private panel: vscode.WebviewPanel | undefined
   private session: PtySession | undefined
   private scanner = new OscScanner()
   private ready = false
@@ -37,7 +31,6 @@ export class TuiPanel implements vscode.WebviewViewProvider {
 
   constructor(
     private readonly mediaUri: vscode.Uri,
-    private readonly launchOptions: () => PtyLaunchOptions,
     private readonly onChange: () => void,
   ) {}
 
@@ -54,40 +47,16 @@ export class TuiPanel implements vscode.WebviewViewProvider {
     return this.session !== undefined && this.exitCode === undefined
   }
 
-  resolveWebviewView(webviewView: vscode.WebviewView): void {
-    this.view = webviewView
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this.mediaUri],
-    }
-    webviewView.webview.html = this.renderHtml(webviewView.webview)
-    webviewView.webview.onDidReceiveMessage(message => this.onMessage(message))
-    webviewView.onDidDispose(() => {
-      this.view = undefined
-      this.ready = false
-      this.pending.length = 0
-    })
-    // Auto-start a session when the panel opens (like Claude Code: open =
-    // start talking). No buttons anywhere — stop via Ctrl+C in the TUI, the
-    // kill command, or closing VS Code.
-    this.ensureSession(false, this.launchOptions())
-    this.postState()
-  }
-
-  /** Open the sidebar view and start a session (if none is running). */
+  /** Open the editor-area panel, starting the session when none is running. */
   open(resume: boolean, options: PtyLaunchOptions): void {
-    if (!this.view) {
-      void vscode.commands.executeCommand(`${PANEL_VIEW_TYPE}.focus`)
-    }
+    this.ensurePanel()
     this.ensureSession(resume, options)
-    this.view?.show?.(true)
+    this.panel?.reveal(vscode.ViewColumn.Beside)
     this.onChange()
   }
+
   reveal(): void {
-    if (!this.view) {
-      void vscode.commands.executeCommand(`${PANEL_VIEW_TYPE}.focus`)
-    }
-    this.view?.show?.(true)
+    this.panel?.reveal(vscode.ViewColumn.Beside)
   }
 
   kill(): void {
@@ -127,6 +96,30 @@ export class TuiPanel implements vscode.WebviewViewProvider {
     this.session = undefined
   }
 
+  private ensurePanel(): void {
+    if (this.panel) return
+    const panel = vscode.window.createWebviewPanel(
+      PANEL_VIEW_TYPE,
+      'dsh-tui',
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.mediaUri],
+      },
+    )
+    panel.webview.html = this.renderHtml(panel.webview)
+    panel.webview.onDidReceiveMessage(message => this.onMessage(message))
+    panel.onDidDispose(() => {
+      // The session keeps running in the background; reopening reconnects to
+      // the live stream.
+      this.panel = undefined
+      this.ready = false
+      this.pending.length = 0
+    })
+    this.panel = panel
+  }
+
   private ensureSession(resume: boolean, options: PtyLaunchOptions): void {
     if (this.isRunning()) return
     this.exitCode = undefined
@@ -164,7 +157,7 @@ export class TuiPanel implements vscode.WebviewViewProvider {
           break
       }
     }
-    if (this.ready && this.view) {
+    if (this.ready && this.panel) {
       this.post({ type: 'data', data: clean })
     } else {
       this.pending.push(clean)
@@ -177,7 +170,6 @@ export class TuiPanel implements vscode.WebviewViewProvider {
       | { type: 'input'; data: string }
       | { type: 'resize'; cols: number; rows: number }
       | { type: 'openPath'; path: string; line?: number; col?: number }
-      | { type: 'command'; command: string }
       | undefined
     if (!msg) return
     switch (msg.type) {
@@ -194,11 +186,6 @@ export class TuiPanel implements vscode.WebviewViewProvider {
         break
       case 'resize':
         this.session?.resize(msg.cols, msg.rows)
-        break
-      case 'command':
-        if (msg.command.startsWith('dsh-tui-vscode.')) {
-          void vscode.commands.executeCommand(msg.command)
-        }
         break
       case 'openPath': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
@@ -224,7 +211,7 @@ export class TuiPanel implements vscode.WebviewViewProvider {
   }
 
   private post(message: unknown): void {
-    this.view?.webview.postMessage(message)
+    this.panel?.webview.postMessage(message)
   }
 
   private renderHtml(webview: vscode.Webview): string {

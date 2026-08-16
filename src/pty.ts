@@ -17,6 +17,8 @@ export interface PtyLaunchOptions {
   injectEditor: boolean
   editorCommand: string
   dshHome: string
+  /** Resume a SPECIFIC session id (exported as DSH_TUI_RESUME_SESSION). */
+  resumeSession?: string
 }
 
 export interface PtySession {
@@ -44,6 +46,10 @@ export function startPtySession(
     editorCommand: opts.editorCommand,
     dshHome: opts.dshHome,
   })
+  if (opts.resumeSession) {
+    env.DSH_TUI_RESUME_SESSION = opts.resumeSession
+    env.DSH_CC_RESUME_SESSION = opts.resumeSession
+  }
   const plan = buildTerminalPlan({
     resume: opts.resume,
     extraArgs: opts.extraArgs,

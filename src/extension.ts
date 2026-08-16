@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { TuiPanel } from './panel'
+import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
 import type { PtyLaunchOptions } from './pty'
 
@@ -35,8 +36,17 @@ export interface ExtensionApi {
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const mediaUri = vscode.Uri.joinPath(context.extensionUri, 'media')
+  const panel = new TuiPanel(mediaUri, refreshState)
   const status = new SessionStatusBar()
   context.subscriptions.push(status)
+
+  // The sidebar (activity bar) hosts the SESSION LIST — shaped like the
+  // official Claude Code sessions sidebar. The session itself opens in the
+  // editor-area panel ("之前的位置是对的").
+  const sessionsTree = new SessionsTreeProvider()
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('dsh-tui-vscode.sessions', sessionsTree),
+  )
 
   const launchOptions = (resume: boolean): PtyLaunchOptions => {
     const cfg = readSettings()
@@ -52,17 +62,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   }
 
-  // The session panel is a SIDEBAR webview view (activity-bar container),
-  // mirroring the official Claude Code extension's placement. Opening the
-  // view auto-starts the session (no buttons in the panel).
-  const panel = new TuiPanel(mediaUri, () => launchOptions(false), refreshState)
-  context.subscriptions.push(vscode.window.registerWebviewViewProvider(TuiPanel.viewType, panel))
-
   function refreshState(): void {
     status.update(panel.getState().running)
   }
 
-  const register = (id: string, fn: () => void): void => {
+  const register = (id: string, fn: (...args: unknown[]) => void): void => {
     context.subscriptions.push(vscode.commands.registerCommand(id, fn))
   }
   register('dsh-tui-vscode.open', () => {
@@ -86,7 +90,20 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     panel.kill()
     refreshState()
   })
+  register('dsh-tui-vscode.refreshSessions', () => {
+    sessionsTree.refresh()
+  })
+  register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId) return
+    const options: PtyLaunchOptions = {
+      ...launchOptions(true),
+      resume: true,
+      resumeSession: sessionId,
+    }
+    panel.open(true, options)
+  })
 
+  sessionsTree.refresh()
   refreshState()
 
   return {
