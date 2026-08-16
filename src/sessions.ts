@@ -63,9 +63,12 @@ export function projectNameOf(
   cwd: string | undefined,
   group: string | undefined,
 ): string | undefined {
+  // Split on BOTH separators: session headers may carry Windows-style paths
+  // even when this extension runs on POSIX (path.basename would not split
+  // backslashes there).
   const base = (p: string): string | undefined => {
-    const trimmed = p.replace(/[\\/]+$/, '')
-    const b = basename(trimmed)
+    const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean)
+    const b = parts[parts.length - 1]
     return b && b.length > 0 ? b : undefined
   }
   if (cwd && cwd.trim()) {
