@@ -17,7 +17,7 @@
 **请不要在公开 issue 中披露安全漏洞。** 请通过以下方式私下报告：
 
 - **推荐**：使用 GitHub Security Advisories（仓库页面 → Security → Report a vulnerability）——官方私有报告通道，报告者匿名、修复前不公开；
-- 或通过 GitHub 联系维护者（https://github.com/baobaolaodie）。
+- 或通过 GitHub 联系维护者（<https://github.com/baobaolaodie>）。
 
 项目维护者会在一周内响应。
 

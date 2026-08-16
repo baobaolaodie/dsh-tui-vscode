@@ -10,19 +10,19 @@
 
 ### Fixed
 
-## 0.5.0 (2026)
+## [0.5.0] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
 - **多会话并存（对齐 Claude Code）**：每次点击「启动新会话」/鲸鱼按钮都**新开一个 DeepSeek 终端 + 会话**，不再聚焦旧会话；旧会话在自己的终端里继续运行；「聚焦」与「终止」作用于最近创建的终端；关闭任一终端只结束该会话。
 
-## 0.4.1 (2026)
+## [0.4.1] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
 - **会话标题对齐 Web**：读取 dsh-storage 账本（`~/.dsh/storages/session_projcache.json` 的 `rows.title.val`，Web 会话列表的标题来源）——Web 有标题而扩展显示 "未命名会话"的问题修复；标题优先级：日志 `session/title` 事件 → storage 标题 → 首条用户消息。
 
-## 0.4.0 (2026)
+## [0.4.0] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
@@ -34,7 +34,7 @@
   - **自动刷新**：监听 `~/.dsh/sessions` 变化（含各项目组目录），新会话出现即刷新；终端开/关与手动刷新保留；
   - 修复组目录解码：驱动器冒号也被编码为 `-`，解码补回（`--C-Users-...--` → `C:\Users\...`）；连字符项目名解码有损为已知限制。
 
-## 0.3.0 (2026)
+## [0.3.0] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
@@ -48,7 +48,7 @@
 - 会话列表 zstd 初始化修复（此前列表恒为空）；
 - 自动启停：关终端 = 停进程；重复打开只聚焦。
 
-## 0.2.0 (2026)
+## [0.2.0] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
@@ -62,7 +62,7 @@
   - e2e 重写为面板/PTY 形态：8 用例在真实扩展宿主通过（Windows 本地 + Linux CI xvfb），含 .cmd shim 输入回环、--resume、kill、open-path。
   - **注**：0.2.0 的面板形态经用户实测后被 0.3.0 的真实终端形态取代。
 
-## 0.1.0 (2026)
+## [0.1.0] - 2026-08-16
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 

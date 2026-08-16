@@ -17,7 +17,7 @@ English · [中文](SECURITY.md)
 **Please do not disclose vulnerabilities in public issues.** Report them privately instead:
 
 - **Recommended**: use GitHub Security Advisories (repository page → Security → Report a vulnerability) — the official private reporting channel; reporters stay anonymous and the issue stays private until fixed;
-- Or contact the maintainer via GitHub (https://github.com/baobaolaodie).
+- Or contact the maintainer via GitHub (<https://github.com/baobaolaodie>).
 
 The maintainer will respond within one week.
 

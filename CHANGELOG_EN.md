@@ -12,19 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
-## 0.5.0 (2026)
+## [0.5.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
 - **Multiple concurrent sessions (aligned with Claude Code)**: every "Start new session" / whale-button click opens a NEW DeepSeek terminal + session instead of focusing the old one; older sessions keep running in their own terminals; "Focus" and "Terminate" act on the most recently created terminal; closing a terminal ends only that session.
 
-## 0.4.1 (2026)
+## [0.4.1] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
 - **Session titles aligned with the web**: reads the dsh-storage ledger (`~/.dsh/storages/session_projcache.json` `rows.title.val` — the web session list's title source) — sessions titled in the web no longer show as "未命名会话"; title precedence: log `session/title` event → storage title → first user message.
 
-## 0.4.0 (2026)
+## [0.4.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
@@ -36,7 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   - **Auto-refresh**: watches `~/.dsh/sessions` changes (including each project group dir); new sessions appear immediately; terminal open/close and the manual refresh button also trigger a refresh;
   - Fixed group-dir decoding: the drive colon is also encoded as `-` and is now restored (`--C-Users-...--` → `C:\Users\...`); hyphenated project names decode lossily — a known limitation.
 
-## 0.3.0 (2026)
+## [0.3.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
@@ -50,7 +50,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Fixed session-list zstd initialization (the list used to be always empty);
 - Auto start/stop: closing the terminal stops the process; repeated opens just focus.
 
-## 0.2.0 (2026)
+## [0.2.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
@@ -64,7 +64,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   - e2e rewritten for the panel/PTY shape: 8 cases pass in a real extension host (Windows locally + Linux CI xvfb), incl. .cmd shim input round-trip, --resume, kill, open-path.
   - **Note**: the 0.2.0 panel shape was superseded by 0.3.0's real-terminal shape after user testing.
 
-## 0.1.0 (2026)
+## [0.1.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
