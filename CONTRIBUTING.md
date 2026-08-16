@@ -58,3 +58,12 @@ npm run package          # 编译 + 生成 .vsix
 - 版本流程：改 `package.json` version → 同步 README 徽章与 CHANGELOG（release-consistency CI 强制五处一致）→ 打 `v*` tag → 网页上传新版本。
 - 注意：Azure DevOps 全局 PAT 将于 2026-12-01 退休；届时如需 CLI/CI 自动化发布，改用 Entra ID（`vsce publish --azure-credential`，vsce ≥ 2.26.1）。
 - 切勿使用"移除（Remove）"：扩展名移除后**永久保留不可复用**；下架请用"Unpublish"。
+
+### 更新发布（新版本）清单 / Publishing an update (new version)
+
+1. **新版本号强制**：Marketplace 的版本**不可覆盖、删除后不可复用**——每次发布必须用**递增的新版本号**（同版本号网页上传会被拒绝）。
+2. **CHANGELOG**：把 `Unreleased` 内容转为新版本段 `## [x.y.z] - 日期`，段内**链接本批已合并的 PR**（release-consistency CI 强制每版本段含 PR 链接或 direct-push 标记）。
+3. **五处一致**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英），CI 验证。
+4. `npm run package` → 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
+5. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与商店版本保持一致。
+6. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。

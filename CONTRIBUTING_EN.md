@@ -58,3 +58,12 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 - Version flow: bump `package.json` version → sync the README badges and CHANGELOG (the release-consistency CI enforces the five-point match) → create the `v*` tag → upload the new version via the web.
 - Note: Azure DevOps global PATs are retired on 2026-12-01; for future CLI/CI automation, switch to Entra ID (`vsce publish --azure-credential`, vsce >= 2.26.1).
 - Never use "Remove": an extension name is permanently reserved after removal and cannot be reused; use "Unpublish" to take it down.
+
+### Publishing an update (new version)
+
+1. **A new version number is mandatory**: Marketplace versions cannot be overwritten or reused after deletion — every release must use an incremented version number (uploading the same version is rejected).
+2. **CHANGELOG**: move the `Unreleased` content into a version section `## [x.y.z] - date`, linking the PRs merged in this batch (the release-consistency CI requires a PR link or a direct-push marker in every version section).
+3. **Five-point sync**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) — verified by CI.
+4. `npm run package`, then upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
+5. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
+6. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
