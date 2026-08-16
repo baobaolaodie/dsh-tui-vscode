@@ -27,6 +27,7 @@ async function main(): Promise<void> {
       '  `VISUAL=${process.env.VISUAL ?? ""}`,',
       '  `DSH_TUI_LANG=${process.env.DSH_TUI_LANG ?? ""}`,',
       '  `DSH_HOME=${process.env.DSH_HOME ?? ""}`,',
+      '  `RESUME_SESSION=${process.env.DSH_TUI_RESUME_SESSION ?? ""}`,',
       '  `ARGS=${process.argv.slice(2).join(" ")}`,',
       '  "FAKE_LAUNCHER_RAN",',
       '].join("\\n") + "\\n")',

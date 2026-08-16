@@ -54,10 +54,9 @@
       }
     ],
     "menus": {
-      "view/title": [
+      "editor/title": [
         {
-          "command": "dsh-tui-vscode.refreshSessions",
-          "when": "view == dsh-tui-vscode.sessions",
+          "command": "dsh-tui-vscode.open",
           "group": "navigation"
         }
       ]
@@ -101,14 +100,6 @@
         "category": "dsh-tui"
       }
     ],
-    "menus": {
-      "editor/title": [
-        {
-          "command": "dsh-tui-vscode.open",
-          "group": "navigation"
-        }
-      ]
-    },
     "configuration": {
       "title": "dsh-tui (VS Code)",
       "properties": {
@@ -159,27 +150,21 @@
     }
   },
   "scripts": {
-    "build:webview": "esbuild src/webview/index.ts --bundle --format=iife --outfile=media/webview.js --minify && esbuild src/webview/style.css --bundle --outfile=media/webview.css --minify",
     "compile": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/links.test.js out/test/paths.test.js out/test/osc.test.js out/test/sessions.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run compile && node --test out/test/sessions.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
-    "package": "npm run build:webview && npm run compile && vsce package",
+    "package": "npm run compile && vsce package",
     "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.2.0.vsix --force"
   },
   "dependencies": {
-    "@bokuweb/zstd-wasm": "^0.0.27",
-    "@lydell/node-pty": "1.2.0-beta.15"
+    "@bokuweb/zstd-wasm": "^0.0.27"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.0.0",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-web-links": "^0.12.0",
-    "@xterm/xterm": "^6.0.0",
-    "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
   }
 }
