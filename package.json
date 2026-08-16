@@ -52,7 +52,8 @@
       {
         "command": "dsh-tui-vscode.open",
         "title": "dsh-tui: Open panel / 打开会话面板",
-        "category": "dsh-tui"
+        "category": "dsh-tui",
+        "icon": "media/icon.svg"
       },
       {
         "command": "dsh-tui-vscode.start",
@@ -75,6 +76,15 @@
         "category": "dsh-tui"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dsh-tui-vscode.open",
+          "group": "navigation",
+          "when": "resourceScheme == file || resourceScheme == untitled"
+        }
+      ]
+    },
     "configuration": {
       "title": "dsh-tui (VS Code)",
       "properties": {

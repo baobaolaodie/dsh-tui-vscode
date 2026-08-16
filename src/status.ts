@@ -1,6 +1,7 @@
 /**
- * Status-bar item for the dsh-tui session. Always visible while the extension
- * is active; clicking it opens the session panel.
+ * Status-bar item for the dsh-tui session. Hidden when no session is running
+ * so the extension adds no permanent global UI clutter; clicking it opens the
+ * session panel.
  */
 import * as vscode from 'vscode'
 
@@ -12,13 +13,15 @@ export class SessionStatusBar {
     this.item.text = '$(terminal) dsh-tui'
     this.item.command = 'dsh-tui-vscode.open'
     this.item.tooltip = 'dsh-tui — click to open the session panel'
-    this.item.show()
   }
 
   update(running: boolean): void {
-    this.item.tooltip = running
-      ? 'dsh-tui session is running — click to open the panel'
-      : 'No dsh-tui session — click to open the panel'
+    if (running) {
+      this.item.tooltip = 'dsh-tui session is running — click to open the panel'
+      this.item.show()
+    } else {
+      this.item.hide()
+    }
   }
 
   dispose(): void {

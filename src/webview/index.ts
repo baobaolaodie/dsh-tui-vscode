@@ -18,6 +18,8 @@ const term = new Terminal({
   fontSize: 13,
   scrollback: 10000,
   convertEol: false,
+  // Follow the user's editor font settings via VS Code CSS variables.
+  fontFamily: 'var(--vscode-editor-font-family)',
 })
 const fit = new FitAddon()
 term.loadAddon(fit)
