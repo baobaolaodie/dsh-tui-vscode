@@ -43,7 +43,7 @@
 - **真实终端，非模拟**：会话运行在 VS Code 集成终端（你的默认 shell），拥有终端的一切原生能力：shell 集成、原生 Ctrl+C、复制粘贴、字体主题跟随。
 - **打开位置 = 另一侧**：`ViewColumn.Beside`——在编辑器区**旁边新开一列**，绝不占你正在看的列（同 Claude Code）。
 - **多会话并存**：每次点击「启动新会话」都新开一个终端 + 会话，旧会话继续运行（同 Claude Code）。
-- **侧边栏会话历史**：按项目分组的树形列表（标题 + 紧凑相对时间，与 Web 会话列表同源标题），点击条目**恢复该指定会话**；目录变化自动刷新。
+- **侧边栏会话历史**：只展示**当前 VS Code 工作区**下的会话（含工作区子目录里启动的会话；多根工作区取并集；未打开工作区时为空列表），隐藏只有启动记录、没有任何对话的空会话与子代理派遣运行——与 dsh 浏览器默认视图一致；标题 + 紧凑相对时间（与 Web 会话列表同源），点击条目**恢复该指定会话**；目录变化自动刷新。
 - **一键启动/恢复**：`Start new session`、`Resume last session`、侧边栏指定会话恢复——恢复指定会话走 `DSH_TUI_RESUME_SESSION` 环境变量通道（profile 的 `cordis.patch.yml` 启动时读取），与 `--resume` 互不干扰。
 - **自动启停 + 环境注入**：打开 = 启动，关闭终端 = 进程结束；`$VISUAL` / `DSH_TUI_LANG` / `$DSH_HOME` 自动注入终端环境。
 
@@ -102,7 +102,7 @@ flowchart LR
 
 - **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
 - **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
-- **会话历史数据源**：会话日志（zstd）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条用户消息 → "未命名会话"；组内按 last-used 排序。
+- **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行，组内按 last-used 排序。
 
 ## 配置
 
@@ -122,8 +122,8 @@ dsh-tui-vscode/
 ├── src/
 │   ├── extension.ts        # 激活入口：命令注册、createTerminal、视图注册
 │   ├── session.ts          # 环境注入与启动命令解析（宿主 PATH）
-│   ├── sessions.ts         # 会话数据层（zstd 日志 + storage 账本 + MRU 排序）
-│   ├── sessions-view.ts    # 侧边栏会话历史（项目分组树 + fs.watch 自动刷新）
+│   ├── sessions.ts         # 会话数据层（多帧 zstd 拆帧解码 + storage 账本 + 工作区过滤 + MRU 排序）
+│   ├── sessions-view.ts    # 侧边栏会话历史（当前工作区 + 隐藏空会话/子代理 + fs.watch 自动刷新）
 │   ├── status.ts           # 状态栏项
 │   ├── test/               # 数据层单元测试（node:test）
 │   └── test-suite/         # 真实扩展宿主 e2e（@vscode/test-electron）

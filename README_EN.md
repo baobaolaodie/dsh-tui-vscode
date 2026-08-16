@@ -43,7 +43,7 @@ Click the whale button and a **DeepSeek** terminal opens on the Beside column, r
 - **Real terminal, not an emulation**: sessions run in the VS Code integrated terminal (your default shell) with everything native — shell integration, real Ctrl+C, copy/paste, fonts and theme.
 - **Beside placement**: `ViewColumn.Beside` — a NEW column beside the active one, never taking over the column you are looking at (same as Claude Code).
 - **Multiple concurrent sessions**: every "Start new session" click opens a new terminal + session; older sessions keep running (same as Claude Code).
-- **Sidebar session history**: a tree grouped by project (title + compact relative time, titles shared with the web session list); clicking an entry resumes THAT session; auto-refreshes on directory changes.
+- **Sidebar session history**: shows only sessions of the **current VS Code workspace** (including sessions launched from its subdirectories; union over multi-root workspaces; empty list when no workspace is open), hiding boot-only sessions with no conversation and delegated sub-agent runs — matching the dsh browser's default view; title + compact relative time (shared with the web session list); clicking an entry resumes THAT session; auto-refreshes on directory changes.
 - **One-click start / resume**: `Start new session`, `Resume last session`, and specific-session resume from the sidebar — the latter goes through the `DSH_TUI_RESUME_SESSION` environment channel (read at boot by the profile's `cordis.patch.yml`), which does not interfere with `--resume`.
 - **Auto start/stop + env injection**: open = start, closing the terminal ends the process; `$VISUAL` / `DSH_TUI_LANG` / `$DSH_HOME` are injected into the terminal environment.
 
@@ -102,7 +102,7 @@ Key points:
 
 - **Session = real terminal**: the extension only calls `createTerminal` and sends the launch command — process, signals, scrollback, copy/paste are all handled by the VS Code terminal (the same architecture as the official extension).
 - **Specific-session resume**: the profile's `cordis.patch.yml` reads `DSH_TUI_RESUME_SESSION` at boot; `--resume` is deliberately NOT passed (the launcher would overwrite the env from `~/.dsh-tui/resume.txt` — verified in `bin/dsh-tui.js`).
-- **Session-history data sources**: session logs (zstd) → title from log `session/title` event → dsh-storage ledger (the web list's own source) → first user message → "未命名会话"; within a group, sorted by last-used.
+- **Session-history data sources**: session logs (concatenated multi-frame zstd, **bounded window reads**: 64 KB head + 128 KB tail, decoded frame by frame, tolerantly) → title from log `session/title` event → dsh-storage ledger (the web list's own source) → first human prompt (incl. `agent/inbox/spliced`) → working-directory basename; the view is filtered to the current workspace with empty sessions and sub-agent runs hidden; within a group, sorted by last-used.
 
 ## Configuration
 
@@ -122,8 +122,8 @@ dsh-tui-vscode/
 ├── src/
 │   ├── extension.ts        # Activation: command registration, createTerminal, views
 │   ├── session.ts          # Env injection + launch-command resolution (host PATH)
-│   ├── sessions.ts         # Session data layer (zstd logs + storage ledger + MRU sort)
-│   ├── sessions-view.ts    # Sidebar session history (project tree + fs.watch refresh)
+│   ├── sessions.ts         # Session data layer (multi-frame zstd decode + storage ledger + workspace filter + MRU sort)
+│   ├── sessions-view.ts    # Sidebar session history (current workspace, empty/subagent hidden + fs.watch refresh)
 │   ├── status.ts           # Status-bar item
 │   ├── test/               # Data-layer unit tests (node:test)
 │   └── test-suite/         # Real extension-host e2e (@vscode/test-electron)

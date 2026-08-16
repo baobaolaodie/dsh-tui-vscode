@@ -61,6 +61,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   context.subscriptions.push(
     vscode.window.onDidOpenTerminal(() => refreshState()),
     vscode.window.onDidCloseTerminal(() => refreshState()),
+    // The sidebar shows only the CURRENT workspace's sessions — re-filter
+    // when the user opens/closes/switches workspace folders.
+    vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsTree.refresh()),
   )
 
   function buildEnv(extra: Record<string, string> = {}): Record<string, string> {

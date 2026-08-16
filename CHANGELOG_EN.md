@@ -12,6 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **Fixed multi-frame zstd session-log decoding**: persisted logs are chains of zstd frames (one per durable flush); the previous whole-buffer decompress failed on large (multi-frame) logs (code -70), so CONDUCTED sessions showed as "untitled" in the sidebar and lost their working-directory grouping. Frames are now walked structurally (RFC 8878) and decompressed one by one, tolerantly skipping torn frames (with tail re-sync) — titles and cwd are fully recovered.
+- **Sidebar now shows only the current VS Code workspace's sessions**: reuses dsh-TUI's `sessionCwdMatches` ownership semantics (exact + workspace subdirectories; HOME / drive-root / UNC-root container boundaries match exactly only; parent-directory sessions never leak in), union over multi-root workspaces, empty list when no workspace is open.
+- **Boot-only sessions and sub-agent runs are hidden**: sessions with no human prompt (`hasPrompt=false`, same as the dsh browser) and delegated runs with header `origin: 'subagent'` no longer appear; the title fallback chain now ends at first human prompt → working-directory basename.
+- **Performance: session listing now uses bounded window reads** (64 KB head + 128 KB tail, modeled on dsh-TUI's frames.ts) — only the two ends of each log are read; sessions filtered out by workspace/empty/subagent never pay for the tail read. On this machine's 101-session corpus the full refresh dropped from 1714 ms to 524 ms (233 ms filtered).
+
 ## [0.5.1] - 2026-08-16
 
 > direct-push, no PR / 直推提交，无关联 PR

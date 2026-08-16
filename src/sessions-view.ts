@@ -8,7 +8,7 @@ import * as vscode from 'vscode'
 import { watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { listSessions, type SessionRecord } from './sessions'
+import { listSessions, sessionLabel, type SessionRecord } from './sessions'
 
 /** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
 function relativeTime(epochMs: number): string {
@@ -36,6 +36,7 @@ export class SessionsTreeProvider
   private sessions: SessionRecord[] = []
   private watchers: FSWatcher[] = []
   private refreshTimer: NodeJS.Timeout | undefined
+  private dshHome: string | undefined
 
   refresh(): void {
     void this.reload()
@@ -43,6 +44,7 @@ export class SessionsTreeProvider
 
   /** Watch the DSH sessions tree so new sessions appear automatically. */
   startWatching(dshHome?: string): void {
+    this.dshHome = dshHome
     const root = join(
       dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh'),
       'sessions',
@@ -90,7 +92,18 @@ export class SessionsTreeProvider
 
   private async reload(): Promise<void> {
     try {
-      this.sessions = await listSessions()
+      // The sidebar mirrors the dsh browser's default view: sessions of the
+      // CURRENT workspace(s) only, boot-only sessions (no human prompt) and
+      // delegated sub-agent runs folded away. No workspace open → no sessions
+      // to attribute, so the welcome view greets instead.
+      const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map(
+        f => f.uri.fsPath,
+      )
+      this.sessions = await listSessions(this.dshHome, {
+        workspaceDirs,
+        hideEmpty: true,
+        hideSubagents: true,
+      })
     } catch (error) {
       this.sessions = []
       console.error('dsh-tui: failed to list sessions', error)
@@ -108,16 +121,16 @@ export class SessionsTreeProvider
       item.contextValue = 'dshProject'
       return item
     }
-    const title = element.title?.trim()
-    const item = new vscode.TreeItem(
-      title && title.length > 0 ? title : '未命名会话',
-      vscode.TreeItemCollapsibleState.None,
-    )
+    // Label chain (pure, tested in sessions.test.ts): display title →
+    // working-directory basename → generic placeholder — a titled list
+    // beats one full of 未命名会话.
+    const label = sessionLabel(element)
+    const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None)
     const when = element.lastUsed ?? element.createdAt
     if (when !== undefined) {
       item.description = relativeTime(when)
     }
-    item.tooltip = [title ?? '未命名会话', element.cwd ?? '', element.id].join('\n')
+    item.tooltip = [element.title?.trim() ?? label, element.cwd ?? '', element.id].join('\n')
     item.command = {
       command: 'dsh-tui-vscode.resumeSession',
       title: '恢复会话',
