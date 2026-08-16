@@ -46,7 +46,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const sessionsTree = new SessionsTreeProvider()
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('dsh-tui-vscode.sessions', sessionsTree),
+    sessionsTree,
   )
+  sessionsTree.startWatching(readSettings().dshHome)
 
   function hasTerminal(): boolean {
     return vscode.window.terminals.some(t => t.name === TERMINAL_NAME)

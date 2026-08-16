@@ -4,11 +4,13 @@
  * Sessions persist under `$DSH_HOME/sessions/<cwd-encoded>/<sessionId>/session.jsonl.zstd`
  * (dsh-session-persistence-jsonl). Titles follow the TUI's contract
  * (src/dsh-adapter/compat/sessionLog.ts): the LAST `session/title` event wins,
- * falling back to the first `user/message` text.
+ * falling back to the first `user/message` text. Last-used comes from the
+ * TUI's own MRU file (`~/.dsh-tui/last-used.json`, the same map the TUI's
+ * `/resume` picker sorts by).
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import * as zstd from '@bokuweb/zstd-wasm'
 import { gunzipSync } from 'node:zlib'
 
@@ -21,16 +23,61 @@ export function ensureZstd(): Promise<void> {
 
 export interface SessionRecord {
   id: string
-  /** Display title, or undefined when the log has none. */
+  /** Display title (last session/title event, else first user message). */
   title?: string
   cwd?: string
+  /** Short project name derived from cwd (or the cwd-encoded group dir). */
+  project?: string
   createdAt?: number
+  /** Epoch ms from the TUI's last-used MRU map, when present. */
+  lastUsed?: number
   file: string
 }
 
 export interface SessionFile {
   id: string
+  /** The cwd-encoded group dir name (e.g. `--D-x--`). */
+  group: string
   file: string
+}
+
+/**
+ * Decode a cwd-encoded group dir: `--D-a-b--` → `D:\a\b` (best effort).
+ * The encoding maps `:` (drive) and `\` both to `-`; hyphenated path segments
+ * are inherently lossy (`flow-comet` → `flow\comet`).
+ */
+export function decodeGroupDir(name: string): string | undefined {
+  const m = /^--(.+)--$/.exec(name)
+  if (!m) return undefined
+  const parts = m[1].split('-')
+  if (parts.length > 0 && /^[A-Za-z]$/.test(parts[0])) {
+    return parts[0] + ':' + sep + parts.slice(1).join(sep)
+  }
+  return m[1].replace(/-/g, sep)
+}
+
+/** Short project name from the session cwd, falling back to the group dir. */
+export function projectNameOf(
+  cwd: string | undefined,
+  group: string | undefined,
+): string | undefined {
+  const base = (p: string): string | undefined => {
+    const trimmed = p.replace(/[\\/]+$/, '')
+    const b = basename(trimmed)
+    return b && b.length > 0 ? b : undefined
+  }
+  if (cwd && cwd.trim()) {
+    const fromCwd = base(cwd.trim())
+    if (fromCwd) return fromCwd
+  }
+  if (group) {
+    const decoded = decodeGroupDir(group)
+    if (decoded) {
+      const fromGroup = base(decoded)
+      if (fromGroup) return fromGroup
+    }
+  }
+  return undefined
 }
 
 /** Walk the DSH sessions tree and return every session log file. */
@@ -62,7 +109,7 @@ export function findSessionFiles(dshHome?: string): SessionFile[] {
         const file = join(sessionDir, name)
         try {
           if (statSync(file).isFile()) {
-            out.push({ id: entry, file })
+            out.push({ id: entry, group, file })
             break
           }
         } catch {
@@ -108,18 +155,29 @@ function firstTextOfContent(content: unknown): string | undefined {
 /**
  * Read one session's display record from its log: header + title (last
  * `session/title` event, falling back to the first `user/message` text).
+ * Tolerant: a log without a session header still yields a record (id from
+ * the session dir, cwd from the group dir, createdAt from the file mtime) so
+ * every persisted session is listable.
  */
-export function readSessionRecord(file: string): SessionRecord | undefined {
+export function readSessionRecord(
+  file: string,
+  group?: string,
+): SessionRecord | undefined {
+  let text: string | undefined
   try {
-    const text = decodeSessionLog(file).toString('utf8')
-    const header: {
-      id?: string
-      cwd?: string
-      createdAt?: number
-    } = {}
-    let titled: string | undefined
-    let firstUser: string | undefined
+    text = decodeSessionLog(file).toString('utf8')
+  } catch {
+    text = undefined
+  }
+  const header: {
+    id?: string
+    cwd?: string
+    createdAt?: number
+  } = {}
+  let titled: string | undefined
+  let firstUser: string | undefined
 
+  if (text !== undefined) {
     for (const rawLine of text.split('\n')) {
       const line = rawLine.trim()
       if (!line) continue
@@ -150,24 +208,61 @@ export function readSessionRecord(file: string): SessionRecord | undefined {
         }
       }
     }
-    if (!header.id) return undefined
-    return {
-      id: header.id,
-      title: titled ?? firstUser,
-      cwd: header.cwd,
-      createdAt: header.createdAt,
-      file,
+  }
+  let createdAt = header.createdAt
+  if (createdAt === undefined) {
+    try {
+      createdAt = statSync(file).mtimeMs
+    } catch {
+      // keep undefined
     }
-  } catch {
-    return undefined
+  }
+  const sessionDir = file.slice(0, file.lastIndexOf(sep))
+  return {
+    id: header.id ?? basename(sessionDir),
+    title: titled ?? firstUser,
+    cwd: header.cwd,
+    project: projectNameOf(header.cwd, group),
+    createdAt,
+    file,
   }
 }
 
-/** All sessions across DSH_HOME, most recently created first. */
+/** The TUI's last-used MRU map (session id → epoch ms). */
+export function readLastUsed(): Record<string, number> {
+  try {
+    const file = join(homedir(), '.dsh-tui', 'last-used.json')
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, number> = {}
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value)) out[id] = value
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * All sessions across DSH_HOME, each annotated with lastUsed; ordered by
+ * last-used desc, then created desc (the TUI's /resume MRU convention).
+ */
 export async function listSessions(dshHome?: string): Promise<SessionRecord[]> {
   await ensureZstd()
+  const lastUsed = readLastUsed()
   return findSessionFiles(dshHome)
-    .map(sf => readSessionRecord(sf.file))
-    .filter((s): s is SessionRecord => s !== undefined && s.id.length > 0)
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .map(sf => {
+      const rec = readSessionRecord(sf.file, sf.group)
+      if (!rec) return undefined
+      const used = lastUsed[rec.id]
+      if (typeof used === 'number') rec.lastUsed = used
+      return rec
+    })
+    .filter((s): s is SessionRecord => s !== undefined)
+    .sort(
+      (a, b) =>
+        (b.lastUsed ?? -Infinity) - (a.lastUsed ?? -Infinity) ||
+        (b.createdAt ?? 0) - (a.createdAt ?? 0),
+    )
 }

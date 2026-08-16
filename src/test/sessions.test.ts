@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { findSessionFiles, readSessionRecord, listSessions, ensureZstd } from '../sessions.js'
+import {
+  findSessionFiles,
+  readSessionRecord,
+  listSessions,
+  ensureZstd,
+  decodeGroupDir,
+  projectNameOf,
+} from '../sessions.js'
 
 before(async () => {
   await ensureZstd()
@@ -58,7 +65,7 @@ test('readSessionRecord falls back to first user message text', () => {
   }
 })
 
-test('readSessionRecord tolerates missing/garbage events', () => {
+test('readSessionRecord tolerates missing/garbage events; undecodable logs still list', () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-sess-'))
   try {
     const id = 'ghi-789'
@@ -70,12 +77,32 @@ test('readSessionRecord tolerates missing/garbage events', () => {
     const rec = readSessionRecord(file)
     assert.equal(rec?.id, id)
     assert.equal(rec?.title, undefined)
-    // Undecodable file → undefined
+    assert.equal(rec?.project, 'x') // project derived from cwd '/x'
+    // Undecodable content → tolerant fallback: id from the session dir,
+    // project from the group dir, createdAt from the file mtime.
     writeFileSync(file, '\x00\x01\x02broken')
-    assert.equal(readSessionRecord(file), undefined)
+    const tolerant = readSessionRecord(file, '--D-LongYinHaHa-VSCode-deepsharness--')
+    assert.equal(tolerant?.id, 'ghi-789')
+    assert.equal(tolerant?.project, 'deepsharness')
+    assert.ok(typeof tolerant?.createdAt === 'number')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('decodeGroupDir and projectNameOf derive project short names', () => {
+  // Hyphen-free paths decode exactly.
+  assert.equal(decodeGroupDir('--C-Users-LongYinHaHa--'), 'C:\\Users\\LongYinHaHa')
+  assert.equal(decodeGroupDir('--D-LongYinHaHa-VSCode-deepsharness--'), 'D:\\LongYinHaHa\\VSCode\\deepsharness')
+  // The cwd-encoding is lossy for hyphenated names — documented limitation.
+  assert.equal(decodeGroupDir('--D-LongYinHaHa-VSCode-flow-comet--'), 'D:\\LongYinHaHa\\VSCode\\flow\\comet')
+  assert.equal(decodeGroupDir('not-encoded'), undefined)
+  // cwd wins over the group dir.
+  assert.equal(projectNameOf('d:\\repo\\my-app', '--D-x--'), 'my-app')
+  // group-dir fallback when cwd is missing.
+  assert.equal(projectNameOf(undefined, '--D-LongYinHaHa-VSCode-deepsharness--'), 'deepsharness')
+  assert.equal(projectNameOf(undefined, '--C-Users-LongYinHaHa--'), 'LongYinHaHa')
+  assert.equal(projectNameOf(undefined, undefined), undefined)
 })
 
 test('findSessionFiles and listSessions walk the DSH tree', async () => {
