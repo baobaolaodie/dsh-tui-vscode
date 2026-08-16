@@ -158,8 +158,11 @@ export class SessionsTreeProvider
     // beats one full of 未命名会话.
     const label = sessionLabel(element)
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None) as SessionTreeItem
-    // Context-menu commands receive this TreeItem, not command.arguments —
-    // carry the record identity on the item itself.
+    // Context-menu commands receive this TreeItem. Identity rides on the
+    // STANDARD fields (id, resourceUri) — guaranteed to survive whatever
+    // round-trip VS Code performs — with the custom properties as backup.
+    item.id = element.id
+    item.resourceUri = vscode.Uri.file(element.file)
     item.sessionId = element.id
     item.sessionFile = element.file
     const when = element.lastUsed ?? element.createdAt

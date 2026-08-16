@@ -8,8 +8,19 @@
  */
 import * as vscode from 'vscode'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as zstd from '@bokuweb/zstd-wasm'
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
 const WS = join(__dirname, '..', '..', '.e2e-workspace')
@@ -74,6 +85,8 @@ test('extension activates and registers all commands', async () => {
     'dsh-tui-vscode.focus',
     'dsh-tui-vscode.kill',
     'dsh-tui-vscode.resumeSession',
+    'dsh-tui-vscode.renameSession',
+    'dsh-tui-vscode.deleteSession',
     'dsh-tui-vscode.refreshSessions',
   ]) {
     assert.ok(cmds.includes(id), `command ${id} not registered`)
@@ -250,6 +263,224 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
     before,
     `resume of ${realId} failed: a fresh session was created (${before} -> ${after})`,
   )
+})
+
+/**
+ * Write one real (zstd-compressed) session log under a temporary DSH home.
+ * The wasm compress module can corrupt in the Electron host (outputs
+ * non-frame bytes) — a fresh module load + init recovers, so a failed
+ * frame is retried exactly like the product's rename path does.
+ */
+async function makeE2eSession(
+  home: string,
+  group: string,
+  id: string,
+  events: Record<string, unknown>[],
+): Promise<string> {
+  const dir = join(home, 'sessions', group, id)
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'session.jsonl.zstd')
+  const payload = Buffer.from(events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8')
+  // Round-trip verification: a corrupt module can emit a frame with a valid
+  // magic whose content does not decompress — only frames that decompress
+  // back to the exact payload are usable.
+  const frameOf = (mod: typeof zstd): Buffer | undefined => {
+    try {
+      const out = Buffer.from(mod.compress(payload, 3))
+      if (out.length < 4 || out.readUInt32LE(0) !== 0xfd2fb528) return undefined
+      return Buffer.from(mod.decompress(out)).equals(payload) ? out : undefined
+    } catch {
+      return undefined
+    }
+  }
+  let frame = frameOf(zstd)
+  if (frame === undefined) {
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('@bokuweb') && key.includes('zstd-wasm')) delete require.cache[key]
+    }
+    const fresh = require('@bokuweb/zstd-wasm') as typeof zstd
+    await fresh.init()
+    frame = frameOf(fresh)
+  }
+  if (frame === undefined) throw new Error('cannot produce a zstd frame in this host')
+  writeFileSync(file, frame)
+  return file
+}
+
+const headerEvent = (id: string, cwd: string, createdAt: number): Record<string, unknown> => ({
+  type: 'session', version: 0, id, cwd, createdAt,
+})
+const userEvent = (text: string): Record<string, unknown> => ({
+  type: 'user/message', seq: 0, data: { content: [{ type: 'text', text }] },
+})
+
+test('renameSession/deleteSession act on the TreeItem-provided session (full command chain)', async () => {
+  const sessionsMod = await import('../sessions.js') as typeof import('../sessions.js')
+  await sessionsMod.ensureZstd()
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-cmd-'))
+  try {
+    const logFile = await makeE2eSession(home, '--g--', 'cmd-1', [
+      headerEvent('cmd-1', '/w', 1),
+      userEvent('命令链路会话'),
+    ])
+    // VS Code passes the SELECTED TreeItem to view/item/context commands.
+    // The identity must survive via STANDARD fields (id / resourceUri) —
+    // build the item exactly like SessionsTreeProvider.getTreeItem does.
+    const fakeItem = new vscode.TreeItem('cmd-1 会话')
+    fakeItem.id = 'cmd-1'
+    fakeItem.resourceUri = vscode.Uri.file(logFile)
+    fakeItem.contextValue = 'dshSession'
+
+    // Patch dialogs so the command chain runs headless (restored below).
+    const origInput = vscode.window.showInputBox
+    const origWarn = vscode.window.showWarningMessage
+    let inputShown = false
+    let warnShown = false
+    vscode.window.showInputBox = (async () => {
+      inputShown = true
+      return 'e2e-新标题'
+    }) as typeof vscode.window.showInputBox
+    vscode.window.showWarningMessage = (async () => {
+      warnShown = true
+      return '删除'
+    }) as typeof vscode.window.showWarningMessage
+
+    // deleteSessionLog resolves the sessions root from $DSH_HOME — point it
+    // at the temp home for this test (restored below).
+    const savedHome = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', fakeItem)
+      assert.equal(inputShown, true, 'rename must prompt for a title')
+      const rec = sessionsMod.readSessionRecord(logFile)
+      assert.equal(rec?.title, 'e2e-新标题', 'rename must append the title frame (last wins)')
+
+      // A SECOND item carrying identity only on the CUSTOM properties must
+      // still work (the fallback path of sessionIdentity).
+      const customItem = new vscode.TreeItem('x')
+      ;(customItem as unknown as { sessionId: string; sessionFile: string }).sessionId = 'cmd-1'
+      ;(customItem as unknown as { sessionId: string; sessionFile: string }).sessionFile = logFile
+      vscode.window.showInputBox = (async () => {
+        inputShown = true
+        return 'e2e-自定义字段标题'
+      }) as typeof vscode.window.showInputBox
+      await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', customItem)
+      assert.equal(sessionsMod.readSessionRecord(logFile)?.title, 'e2e-自定义字段标题')
+
+      await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', fakeItem)
+      assert.equal(warnShown, true, 'delete must ask for confirmation')
+      assert.ok(!existsSync(join(home, 'sessions', '--g--', 'cmd-1')), 'delete must remove the session dir')
+    } finally {
+      vscode.window.showInputBox = origInput
+      vscode.window.showWarningMessage = origWarn
+      if (savedHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = savedHome
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('SessionsTreeProvider shows only current-workspace, non-empty, non-subagent sessions (full view chain)', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-tree-'))
+  try {
+    const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+    await makeE2eSession(home, '--g1--', 'a', [headerEvent('a', ws, 300), userEvent('工作区内')])
+    await makeE2eSession(home, '--g1--', 'b', [headerEvent('b', join(ws, 'sub'), 200), userEvent('工作区子目录')])
+    await makeE2eSession(home, '--g2--', 'c', [headerEvent('c', join(ws, '..', 'elsewhere'), 400), userEvent('别处')])
+    await makeE2eSession(home, '--g1--', 'd', [headerEvent('d', ws, 100)])
+    await makeE2eSession(home, '--g1--', 'e', [
+      { ...headerEvent('e', ws, 50), origin: 'subagent', parentSession: 'a' },
+      userEvent('派遣消息'),
+    ])
+
+    const provider = new SessionsTreeProvider()
+    provider.startWatching(home)
+    provider.refresh()
+    try {
+      // reload() is async — poll the tree until it settles.
+      const children = await poll(() => {
+        const c = provider.getChildren(undefined)
+        return c.length > 0 ? c : undefined
+      }, 8000)
+      const ids = children.flatMap(n => (n as { sessions: { id: string }[] }).sessions.map(s => s.id))
+      assert.deepEqual(ids, ['a', 'b'], 'only in-workspace, non-empty, non-subagent sessions, newest first')
+    } finally {
+      provider.dispose()
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group dir', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-watch-'))
+  try {
+    const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+    await makeE2eSession(home, '--g1--', 'a', [headerEvent('a', ws, 300), userEvent('先有会话')])
+    const provider = new SessionsTreeProvider()
+    provider.startWatching(home)
+    provider.refresh()
+    try {
+      const seenA = await poll(() => {
+        const c = provider.getChildren(undefined)
+        const ids = c.flatMap(n => (n as { sessions: { id: string }[] }).sessions.map(s => s.id))
+        return ids.includes('a') ? true : undefined
+      }, 8000)
+      assert.equal(seenA, true, 'initial session must appear')
+
+      // A brand-new group directory + session appears AFTER activation —
+      // fs.watch on the root is not recursive; the provider must pick the
+      // new group up and refresh WITHOUT any manual command.
+      await makeE2eSession(home, '--g-new--', 'b', [headerEvent('b', ws, 200), userEvent('新组新会话')])
+      const seenB = await poll(() => {
+        const c = provider.getChildren(undefined)
+        const ids = c.flatMap(n => (n as { sessions: { id: string }[] }).sessions.map(s => s.id))
+        return ids.includes('b') ? true : undefined
+      }, 10000)
+      assert.equal(seenB, true, 'new-group session must appear without manual refresh')
+    } finally {
+      provider.dispose()
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('renameSession recovers from a corrupt wasm compress state (reset + retry)', async () => {
+  // By this point in the suite the Electron host has usually corrupted the
+  // wasm compress module (observed: compress emits non-frame bytes). If it
+  // is still healthy this test has nothing to exercise and skips honestly;
+  // when corrupted, the command's resetZstd + retry must still rename.
+  const sessionsMod = await import('../sessions.js') as typeof import('../sessions.js')
+  const probe = Buffer.from(zstd.compress(Buffer.from('probe', 'utf8'), 3))
+  if (probe.length >= 4 && probe.readUInt32LE(0) === 0xfd2fb528) {
+    console.log('[e2e] SKIP recover test: wasm compress still healthy in this host')
+    return
+  }
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-recover-'))
+  try {
+    const logFile = await makeE2eSession(home, '--g--', 'r-1', [
+      headerEvent('r-1', '/w', 1),
+      userEvent('重试会话'),
+    ])
+    const origInput = vscode.window.showInputBox
+    vscode.window.showInputBox = (async () => '重试后的标题') as typeof vscode.window.showInputBox
+    try {
+      const item = new vscode.TreeItem('r-1')
+      item.id = 'r-1'
+      item.resourceUri = vscode.Uri.file(logFile)
+      await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', item)
+      const rec = sessionsMod.readSessionRecord(logFile)
+      assert.equal(rec?.title, '重试后的标题', 'reset + retry must still append the title frame')
+    } finally {
+      vscode.window.showInputBox = origInput
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
 })
 
 export async function run(): Promise<void> {

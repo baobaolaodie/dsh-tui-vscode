@@ -28,12 +28,37 @@ import { basename, dirname, join, sep } from 'node:path'
 import * as zstd from '@bokuweb/zstd-wasm'
 import { gunzipSync } from 'node:zlib'
 
+/**
+ * The CURRENT @bokuweb/zstd-wasm module instance. Never captured at import
+ * time: the library's instance can corrupt in a long-lived Electron host
+ * (compress/decompress then emit non-frame results) and resetZstd() swaps
+ * it for a fresh one — every call site must resolve through getZstd() so a
+ * reload actually takes effect.
+ */
+let zstdModule: typeof zstd | null = null
+function getZstd(): typeof zstd {
+  if (zstdModule === null) {
+    // require() (not the import binding) so a cleared require cache yields
+    // a genuinely new module instance.
+    zstdModule = require('@bokuweb/zstd-wasm') as typeof zstd
+  }
+  return zstdModule
+}
+
 /** zstd WASM must be initialized once before decompression (async). */
 let zstdInit: Promise<void> | null = null
 export function ensureZstd(): Promise<void> {
-  if (!zstdInit) zstdInit = zstd.init()
+  if (!zstdInit) zstdInit = getZstd().init()
   return zstdInit
 }
+
+/**
+ * Set when the wasm module behaves corruptly (observed in long-lived
+ * Electron extension hosts: compress/decompress emit non-frame results).
+ * listSessions() checks this after building the list and reloads the module
+ * once before rebuilding. Never exposed to callers.
+ */
+let zstdSuspected = false
 
 /**
  * Zstandard frame magic, little-endian (RFC 8878 §3.1.1.1).
@@ -336,7 +361,7 @@ export function decodeSessionLog(file: string): Buffer {
       const parts: Buffer[] = []
       for (const frame of frames) {
         try {
-          parts.push(Buffer.from(zstd.decompress(buf.subarray(frame.start, frame.end))))
+          parts.push(Buffer.from(getZstd().decompress(buf.subarray(frame.start, frame.end))))
         } catch {
           // torn/incomplete frame — keep decoding the rest
         }
@@ -345,11 +370,17 @@ export function decodeSessionLog(file: string): Buffer {
       // effectively unreadable. Throw (like the no-frame path below) so
       // callers treat it as unknown rather than as a read-to-the-end empty
       // log: a real conversation must not be hidden as a boot artifact.
-      if (parts.length === 0) throw new Error('no zstd frame decodes')
+      // This is also the signature of a corrupt wasm module (Electron host),
+      // which listSessions() recovers from by reloading the module.
+      if (parts.length === 0) {
+        zstdSuspected = true
+        throw new Error('no zstd frame decodes')
+      }
       return Buffer.concat(parts)
     }
     // No structurally complete frame — best-effort single decompress.
-    return Buffer.from(zstd.decompress(buf))
+    zstdSuspected = true
+    return Buffer.from(getZstd().decompress(buf))
   }
   if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
     return gunzipSync(buf)
@@ -424,11 +455,15 @@ function readWindow(
 /** Decode frames to JSON event envelopes, tolerantly (skip bad frames/lines). */
 function decodeFrames(buffer: Buffer, frames: FrameRange[]): Record<string, unknown>[] {
   const events: Record<string, unknown>[] = []
+  let decodedFrames = 0
+  let failedFrames = 0
   for (const frame of frames) {
     let text: string
     try {
-      text = Buffer.from(zstd.decompress(buffer.subarray(frame.start, frame.end))).toString('utf8')
+      text = Buffer.from(getZstd().decompress(buffer.subarray(frame.start, frame.end))).toString('utf8')
+      decodedFrames += 1
     } catch {
+      failedFrames += 1
       continue // incomplete flush or torn frame — the rest of the log stands
     }
     for (const line of text.split('\n')) {
@@ -444,6 +479,10 @@ function decodeFrames(buffer: Buffer, frames: FrameRange[]): Record<string, unkn
       }
     }
   }
+  // Every structurally complete frame failed to decompress — the signature
+  // of a corrupt wasm module in a long-lived Electron host (a torn tail
+  // only ever fails SOME frames). listSessions() reloads the module then.
+  if (failedFrames > 0 && decodedFrames === 0) zstdSuspected = true
   return events
 }
 
@@ -856,6 +895,39 @@ export function sessionCwdMatches(
 }
 
 /**
+ * Compress one log frame with the wasm zstd and VERIFY it: the library's
+ * module instance can corrupt in a long-lived Electron host — compress then
+ * emits non-frame bytes, or a frame whose magic is right but whose content
+ * does not decompress (observed). Only a frame that round-trips (decompresses
+ * back to the exact input) is ever written — a corrupt append would poison
+ * the shared log.
+ */
+export function compressFrame(text: string): Buffer | undefined {
+  try {
+    const mod = getZstd()
+    const out = Buffer.from(mod.compress(Buffer.from(text, 'utf8'), 3))
+    if (out.length < 4 || out.readUInt32LE(0) !== ZSTD_MAGIC) return undefined
+    const back = Buffer.from(mod.decompress(out))
+    return back.toString('utf8') === text ? out : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Drop every cached @bokuweb/zstd-wasm module and forget the init promise,
+ * so the next ensureZstd()/compressFrame() builds a fresh wasm instance.
+ * Recovery path for the corrupt-module state observed in the Electron host.
+ */
+export function resetZstd(): void {
+  for (const key of Object.keys(require.cache)) {
+    if (key.includes(`${sep}@bokuweb${sep}zstd-wasm${sep}`)) delete require.cache[key]
+  }
+  zstdModule = null
+  zstdInit = null
+}
+
+/**
  * Append a `session/title` event to a session log — the rename contract of
  * the dsh-TUI `/resume` picker (`appendSessionTitle` in compat/sessionLog.
  * ts): one more zstd frame appended at EOF, `seq = maxSeq + 1`, and
@@ -863,10 +935,12 @@ export function sessionCwdMatches(
  * existing bytes are never rewritten, so a concurrently writing TUI/web
  * session is safe. The live session's own TUI does not see the new title
  * until it re-reads the log — the sidebar rename is meant for stored
- * sessions.
+ * sessions. The compressed frame is verified before writing; a corrupt wasm
+ * state yields 'unavailable' (callers may resetZstd + retry).
  * @param file - Absolute path of the session log (session.jsonl.zstd).
  * @param title - New display title (already trimmed by the caller).
- * @returns 'appended', or 'unavailable' when the log is absent/undecodable.
+ * @returns 'appended', or 'unavailable' when the log is absent/undecodable
+ *   or a valid frame could not be produced.
  */
 export function appendSessionTitle(
   file: string,
@@ -898,7 +972,8 @@ export function appendSessionTitle(
       time: Date.now(),
       data: { title },
     }
-    const frame = Buffer.from(zstd.compress(Buffer.from(JSON.stringify(event) + '\n', 'utf8'), 3))
+    const frame = compressFrame(JSON.stringify(event) + '\n')
+    if (frame === undefined) return 'unavailable'
     appendFileSync(file, frame)
     return 'appended'
   } catch {
@@ -924,7 +999,12 @@ export function deleteSessionLog(file: string, dshHome?: string): 'deleted' | 'u
     const dir = dirname(file)
     const realDir = realpathSync(dir)
     const realRoot = realpathSync(root)
-    if (!realDir.startsWith(realRoot + sep)) return 'unavailable'
+    // Case-insensitive containment on Windows: the file argument arrives
+    // from vscode.Uri.file(...).fsPath, which normalizes the drive letter
+    // to LOWER case (c:\...) while $DSH_HOME keeps its original case
+    // (C:\...) — a case-sensitive prefix test would refuse every delete.
+    const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
+    if (!norm(realDir).startsWith(norm(realRoot) + sep)) return 'unavailable'
     rmSync(dir, { recursive: true, force: true })
     return 'deleted'
   } catch {
@@ -952,13 +1032,17 @@ export interface ListSessionsOptions {
  * treated as true — hiding a real session is a defect, showing a boot
  * artifact is a nuisance.
  */
-export async function listSessions(
-  dshHome?: string,
-  options: ListSessionsOptions = {},
-): Promise<SessionRecord[]> {
-  await ensureZstd()
-  const lastUsed = readLastUsed()
-  const storage = readStorageMeta(dshHome)
+/**
+ * Build the filtered, sorted session list with the CURRENT wasm module.
+ * Synchronous body (zstd reads are sync) so listSessions can rebuild it
+ * after reloading a corrupt module.
+ */
+function buildSessionList(
+  dshHome: string | undefined,
+  options: ListSessionsOptions,
+  lastUsed: Record<string, number>,
+  storage: StorageMeta,
+): SessionRecord[] {
   return findSessionFiles(dshHome)
     .map(sf => {
       // Bounded head read only (64 KB): header fields, first human prompt,
@@ -1013,4 +1097,25 @@ export async function listSessions(
         (b.lastUsed ?? -Infinity) - (a.lastUsed ?? -Infinity) ||
         (b.createdAt ?? 0) - (a.createdAt ?? 0),
     )
+}
+
+export async function listSessions(
+  dshHome?: string,
+  options: ListSessionsOptions = {},
+): Promise<SessionRecord[]> {
+  await ensureZstd()
+  const lastUsed = readLastUsed()
+  const storage = readStorageMeta(dshHome)
+  let result = buildSessionList(dshHome, options, lastUsed, storage)
+  if (zstdSuspected) {
+    // The wasm module corrupted during the build (observed in long-lived
+    // Electron hosts — every frame "fails to decompress"). Reload the
+    // module and rebuild ONCE; never loop (a genuinely broken log stays
+    // broken either way).
+    zstdSuspected = false
+    resetZstd()
+    await ensureZstd()
+    result = buildSessionList(dshHome, options, lastUsed, storage)
+  }
+  return result
 }

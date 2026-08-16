@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
-import { appendSessionTitle, deleteSessionLog } from './sessions'
+import { appendSessionTitle, deleteSessionLog, ensureZstd, resetZstd } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, quoteLaunchPath } from './session'
 
 const TERMINAL_NAME = 'DeepSeek'
@@ -189,31 +189,67 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (typeof sessionId !== 'string' || !sessionId) return
     runCommand(true, sessionId)
   })
+  /**
+   * Session identity from a view/item/context command argument: the selected
+   * TreeItem. VS Code hands over the TreeItem it rendered — standard fields
+   * (id, resourceUri) are guaranteed to survive; the custom sessionId/
+   * sessionFile properties ride along on the original instance and are kept
+   * as a fallback.
+   */
+  const sessionIdentity = (item: unknown): { id: string; file: string } | undefined => {
+    const it = item as
+      | { id?: unknown; resourceUri?: { fsPath?: unknown }; sessionId?: unknown; sessionFile?: unknown }
+      | undefined
+    if (!it) return undefined
+    const id =
+      typeof it.sessionId === 'string' ? it.sessionId : typeof it.id === 'string' ? it.id : undefined
+    const file =
+      typeof it.sessionFile === 'string'
+        ? it.sessionFile
+        : typeof it.resourceUri?.fsPath === 'string'
+          ? it.resourceUri.fsPath
+          : undefined
+    return id !== undefined && file !== undefined ? { id, file } : undefined
+  }
+
   register('dsh-tui-vscode.renameSession', async (item: unknown) => {
-    // view/item/context passes the selected TreeItem (session identity rides
-    // on it via SessionTreeItem.sessionId/sessionFile).
-    const it = item as { sessionId?: unknown; sessionFile?: unknown } | undefined
-    if (!it || typeof it.sessionId !== 'string' || typeof it.sessionFile !== 'string') return
+    const session = sessionIdentity(item)
+    if (!session) return
+    // The command may run before any list refresh initialized the wasm.
+    await ensureZstd()
     const title = await vscode.window.showInputBox({
-      prompt: `重命名会话 ${it.sessionId.slice(0, 8)}…`,
+      prompt: `重命名会话 ${session.id.slice(0, 8)}…`,
       placeHolder: '输入新标题',
       ignoreFocusOut: true,
     })
     if (title === undefined) return // cancelled
     const trimmed = title.trim()
     if (!trimmed) return
-    if (appendSessionTitle(it.sessionFile, trimmed) === 'appended') sessionsTree.refresh()
+    let result = appendSessionTitle(session.file, trimmed)
+    if (result === 'unavailable') {
+      // The wasm module instance can corrupt in a long-lived Electron host
+      // (compress then emits non-frames). Reload it and retry once — the
+      // first attempt verified its output and wrote nothing.
+      resetZstd()
+      await ensureZstd()
+      result = appendSessionTitle(session.file, trimmed)
+    }
+    if (result === 'appended') {
+      sessionsTree.refresh()
+    } else {
+      void vscode.window.showErrorMessage('重命名失败：会话日志不可写')
+    }
   })
   register('dsh-tui-vscode.deleteSession', async (item: unknown) => {
-    const it = item as { sessionId?: unknown; sessionFile?: unknown } | undefined
-    if (!it || typeof it.sessionId !== 'string' || typeof it.sessionFile !== 'string') return
+    const session = sessionIdentity(item)
+    if (!session) return
     const answer = await vscode.window.showWarningMessage(
-      `删除会话 ${it.sessionId.slice(0, 8)}…？其日志目录将被永久移除，此操作不可撤销。`,
+      `删除会话 ${session.id.slice(0, 8)}…？其日志目录将被永久移除，此操作不可撤销。`,
       { modal: true },
       '删除',
     )
     if (answer !== '删除') return
-    if (deleteSessionLog(it.sessionFile) === 'deleted') sessionsTree.refresh()
+    if (deleteSessionLog(session.file) === 'deleted') sessionsTree.refresh()
   })
 
   sessionsTree.refresh()

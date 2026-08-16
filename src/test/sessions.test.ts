@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync, mkdirSync, statSync } from 'node:fs'
+import { writeFileSync, mkdtempSync, rmSync, mkdirSync, statSync, existsSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
@@ -714,6 +714,29 @@ test('deleteSessionLog removes the session dir and refuses out-of-root paths', a
     writeFileSync(outside, 'not a session')
     assert.equal(deleteSessionLog(outside, root), 'unavailable')
     assert.ok(statSync(outside).isFile())
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deleteSessionLog containment is case-insensitive on Windows (vscode.Uri fsPath lowercases the drive)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-delcase-'))
+  try {
+    const id = 'delc-1'
+    const file = makeSession(root, id, [
+      JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 }),
+      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '大小写会话' }] } }),
+    ])
+    // vscode.Uri.file(...).fsPath on Windows normalizes the drive letter to
+    // lower case while $DSH_HOME keeps its original case — the containment
+    // test must treat them as the same path (and stay case-SENSITIVE on
+    // POSIX, where filesystems are case-sensitive).
+    const caseSwapped = file.replace(/^([A-Za-z]):/, m => (m === m.toUpperCase() ? m.toLowerCase() : m.toUpperCase()))
+    const expected = process.platform === 'win32' ? 'deleted' : 'unavailable'
+    assert.equal(deleteSessionLog(caseSwapped, root), expected)
+    if (expected === 'deleted') {
+      assert.ok(!existsSync(join(root, 'sessions', '--group--', id)))
+    }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
