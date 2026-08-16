@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.0-4D6BFE?style=flat" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.5.1-4D6BFE?style=flat" alt="Version" />
   <img src="https://img.shields.io/badge/VS_Code-%5E1.90.0-007ACC?style=flat&logo=visualstudiocode&logoColor=white" alt="VS Code" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="MIT" />
@@ -61,7 +61,7 @@ npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git
 cd dsh-tui-vscode
 npm install
-npm run package && code --install-extension dsh-tui-vscode-0.5.0.vsix --force
+npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
 # 或一步到位：npm run install:local
 ```
 

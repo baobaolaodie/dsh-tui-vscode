@@ -8,16 +8,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
-- **Published to the VS Code Marketplace**: v0.5.0 released via the web upload (the official "manual publish" path); installable directly from the extension panel.
-
 ### Changed
 
 ### Fixed
+
+## [0.5.1] - 2026-08-16
+
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
+
+- **Fixed stale Marketplace-page README**: the vsix uploaded for v0.5.0 contained a pre-publish README ("暂未上架 Marketplace") — republished so the Marketplace page matches the repository (extension-panel install first);
+- **chore**: cleaned up a Path-B-era leftover — removed the deleted `src/webview` entry from `tsconfig.json` excludes.
 
 ## [0.5.0] - 2026-08-16
 
 > direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
+- **Published to the VS Code Marketplace**: v0.5.0 released via the web upload (the official "manual publish" path); installable directly from the extension panel;
 - **Multiple concurrent sessions (aligned with Claude Code)**: every "Start new session" / whale-button click opens a NEW DeepSeek terminal + session instead of focusing the old one; older sessions keep running in their own terminals; "Focus" and "Terminate" act on the most recently created terminal; closing a terminal ends only that session.
 
 ## [0.4.1] - 2026-08-16
