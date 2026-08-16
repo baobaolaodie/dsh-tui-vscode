@@ -8,7 +8,7 @@
  */
 import * as vscode from 'vscode'
 import assert from 'node:assert/strict'
-import { readFileSync, rmSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
