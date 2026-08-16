@@ -2,7 +2,7 @@
   "name": "dsh-tui-vscode",
   "displayName": "dsh-tui (VS Code)",
   "description": "Run dsh-TUI in a dedicated VS Code panel with a real PTY (Claude Code style): activity-bar entry, xterm.js rendering, file links, $VISUAL/$EDITOR via code -w.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "baobaolaodie",
   "license": "MIT",
   "repository": {

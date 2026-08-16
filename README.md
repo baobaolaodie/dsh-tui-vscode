@@ -6,30 +6,32 @@
 
 # 简体中文
 
-**dsh-TUI 的 VS Code companion 扩展（Path B）**：让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI)
-跑在 VS Code **独立会话面板**里——活动栏 `dsh-tui` 图标 + 编辑器区面板，面板内用
-**xterm.js + 真实 PTY（ConPTY）** 渲染完整 TUI，**彻底脱离底部集成终端**。这是
+**dsh-TUI 的 VS Code companion 扩展**：让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI)
+跑在 VS Code **真实的集成终端**里（编辑器区新开一列，Windows 默认 PowerShell），
+形态与 Claude Code 官方 VS Code 扩展的终端模式完全一致（`createTerminal` +
+在终端内运行 CLI）。这是
 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161)
-的 Path B 实现，形态对齐 Claude Code 官方 VS Code 扩展。
+的实现，行为对齐官方扩展源码。
 
 ## 特性
 
-- **活动栏入口**：左侧活动栏 `dsh-tui` 图标 → 侧边栏「会话控制」视图（启动/恢复/
-  聚焦/终止按钮 + 运行状态）；点击「打开会话面板」在编辑器区打开 TUI 面板。
-- **独立会话面板**：xterm.js 渲染完整 dsh-tui——alt-screen、鼠标（滚轮/拖选）、
-  OSC 52 剪贴板、OSC 8 链接、同步输出，均由扩展自己的 webview 承载。
-- **真实 PTY**：node-pty（Windows 走 ConPTY）持有 dsh-tui 进程；`TERM=xterm-256color`、
-  正确的尺寸联动（面板缩放自动 resize）。
-- **一键启动/恢复**：`dsh-tui: Start new session / 启动新会话` 与
-  `dsh-tui: Resume last session / 恢复上次会话`（`--resume`）。
-- **会话持续**：关闭面板不终止会话；重新打开面板即回到实时流（历史滚动区不保留）。
-- **文件路径可点**：输出中的 `C:\...`、`/...`、`~/...`、`./...` 路径（含
-  `path:line[:col]`）点击直接在编辑器打开。
-- **外部编辑器接入**：`$VISUAL`/`$EDITOR` 未设置时自动导出 `code -w`，TUI 内
-  `Ctrl+X` 直接进 VS Code 编辑。
-- **OSC 宿主协作**：OSC 52 剪贴板写入 VS Code 剪贴板；OSC 11 背景查询按当前主题
-  应答（TUI 自动选浅/深色）；OSC 0 标题同步到面板标题。
-- **状态栏**：底部状态栏 `dsh-tui` 项点击打开面板。
+- **真实终端，非模拟**：会话运行在 VS Code 集成终端（默认 shell = 你的
+  PowerShell/bash），拥有终端的一切原生能力：shell 集成、原生 Ctrl+C、复制粘贴、
+  字体主题跟随。没有 webview、没有 xterm、没有模拟层。
+- **打开位置 = 另一侧**：在编辑器区**旁边新开一列**（`ViewColumn.Beside`），
+  不占你正在看的列（同 Claude Code）。
+- **入口**：活动栏鲸鱼图标 + 编辑器标签栏右侧鲸鱼按钮 + 命令面板
+  （`dsh-tui: Start new session` 等）。
+- **侧边栏会话列表**：活动栏 → 会话历史（标题 + 紧凑相对时间，同 Claude Code
+  sessions 侧边栏）；点击条目在另一侧新终端**恢复该指定会话**。
+- **一键启动/恢复**：`Start new session / 启动新会话`、
+  `Resume last session / 恢复上次会话`（`--resume` 读 `~/.dsh-tui/resume.txt`）。
+- **指定会话恢复**：通过 `DSH_TUI_RESUME_SESSION` 环境变量注入（dsh-tui profile
+  的 `cordis.patch.yml` 在启动时读取），不传 `--resume`（启动器会覆盖 env）。
+- **环境注入**：`DSH_TUI_LANG`、`$VISUAL`（未设置时自动导出 `code -w`）、可选
+  `$DSH_HOME` 注入到终端环境。
+- **自动启停**：打开 = 启动；关闭终端 = 进程结束；重复点击只聚焦（dedupe）。
+- **状态栏**：有会话时显示 `DeepSeek` 状态项，点击聚焦终端。
 
 ## 前置条件
 
@@ -44,68 +46,63 @@
 
 ## 安装
 
-从源码构建并安装（推荐，本仓库暂未上架 Marketplace）：
+从源码构建并安装（本仓库暂未上架 Marketplace）：
 
 ```sh
 npm install
-npm run package        # 生成 dsh-tui-vscode-0.2.0.vsix（内含 node-pty 二进制）
-code --install-extension dsh-tui-vscode-0.2.0.vsix --force
+npm run package        # 生成 dsh-tui-vscode-0.3.0.vsix
+code --install-extension dsh-tui-vscode-0.3.0.vsix --force
 # 或一步到位：npm run install:local
 ```
 
 ## 使用
 
-1. 点击左侧活动栏的 `dsh-tui` 图标，或命令面板（`Ctrl+Shift+P`）输入
-   `dsh-tui: Start new session / 启动新会话`；
-2. 会话面板在**编辑器区**打开（不是底部终端），dsh-tui 全屏 TUI 渲染在其中；
-3. 首次启动会自动初始化 `dsh-tui` profile（需要 pnpm，提示与 `dsh-tui` 命令一致）；
-4. 输出里的文件路径**按住 Ctrl/Cmd 点击**在编辑器打开；
-5. TUI 里 `Ctrl+X` 用 VS Code 编辑当前输入（`$VISUAL=code -w`）；
-6. 关闭面板 = 会话后台继续；重新打开面板回到实时流；「终止会话」或 TUI 内
-   双击 `Ctrl+C` 结束进程。
+1. 点击活动栏**鲸鱼图标**（或编辑器标签栏右侧鲸鱼按钮 / 命令面板
+   `dsh-tui: Start new session`）；
+2. **编辑器区另一侧**新开一个 **DeepSeek** 标签的集成终端（默认 shell =
+   PowerShell），自动运行 `dsh-tui`；
+3. 首次启动会自动初始化 `dsh-tui` profile（需要 pnpm）；
+4. 侧边栏「会话历史」点任意条目 → 另一侧新终端**恢复该指定会话**；
+5. 关闭终端 = 会话结束；TUI 内双击 `Ctrl+C` 退出。
 
 ## 配置
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | 启动命令/可执行文件（Windows 上自动解析 `.cmd/.bat` shim，POSIX 上按 PATH 解析为绝对路径） |
-| `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]`（每项一个参数） |
+| `dsh-tui-vscode.command` | `dsh-tui` | 启动命令（由终端 shell 按 PATH 解析） |
+| `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
-| `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承 VS Code 进程的值，默认与 `dsh` 共享同一 home） |
+| `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
 
 ## 工作原理
 
-- **PTY**：node-pty（Windows 用 ConPTY，Linux/macOS 用 forkpty）直接持有
-  `dsh-tui` 进程；Windows 的 `.cmd` shim 解析为绝对路径后交给 node-pty 内部
-  包裹（自包 `cmd /c` 会吞子进程 stdin，已实测定位）；POSIX 上按 PATH 解析
-  为绝对可执行文件。
-- **渲染**：webview 内 xterm.js（fit 插件自适应尺寸、web-links 插件处理
-  `path:line[:col]` 链接）；宿主把 PTY 输出经 OSC 扫描器（剪贴板/背景查询/
-  标题）清洗后推给 webview，webview 的按键/粘贴/缩放回传 PTY。
-- **会话模型**：单会话；`retainContextWhenHidden` 保持面板隐藏时的渲染；
-  面板被关闭时进程继续运行，重开即重连实时流。
-- **环境注入**：`DSH_TUI_LANG`、`$VISUAL`、可选 `$DSH_HOME` 通过 PTY env 注入。
+- **会话**：`vscode.window.createTerminal({ name: 'DeepSeek', cwd, env,
+  iconPath, location: { viewColumn: Beside }, isTransient: true })`——与官方
+  Claude Code 扩展的终端启动完全同构；shell 就绪（shell integration 或兜底
+  延时）后发送启动命令。
+- **恢复指定会话**：profile 的 `cordis.patch.yml` 在启动时读取
+  `DSH_TUI_RESUME_SESSION` env（`sessionId: !!js process.env.DSH_TUI_RESUME_SESSION
+  ?? ...`）；扩展把它注入终端环境并**不传 `--resume`**（启动器遇到 `--resume`
+  会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读源码确认）。
+- **会话列表**：读取 `~/.dsh/sessions` 下 DSH 会话日志（zstd 解压），标题遵循
+  TUI 契约（最后一条 `session/title` 事件优先，兜底首条用户消息）。
+- **去重**：已存在 DeepSeek 终端时，`start` 只聚焦；`resume` 总是新建。
 
 ## 已知限制
 
-- **关闭面板后滚动历史不保留**（重连只显示新输出）；隐藏面板则完整保留
-  （`retainContextWhenHidden`）。
-- 单会话模型：新启动会复用正在运行的会话。
-- xterm.js 能力即面板能力上限：扩展键盘协议、DEC 2026 等由 xterm.js 决定；
-  需要更完整协议支持时可在此 webview 上扩展（Path B 的优势是渲染完全自主）。
-- 打包的 vsix 含当前构建平台的 node-pty 二进制（Windows 构建 = Windows 可用；
-  其他平台请在该平台构建或等待多平台发布）。
+- 会话内容即终端内容：滚动历史由 VS Code 终端管理（同 Claude Code 终端模式）。
+- 指定会话恢复依赖 dsh-tui profile 的 `cordis.patch.yml`（0.6.1 及以上）。
 
 ## 开发
 
 ```sh
 npm install
-npm run typecheck   # tsc --noEmit（含 webview）
+npm run typecheck   # tsc --noEmit
 npm test            # 编译 + node --test（纯逻辑单测）
-npm run test:e2e    # 真实 VS Code 扩展宿主测试（@vscode/test-electron；Linux 用 xvfb-run -a）
-npm run package     # webview 打包 + 编译 + 生成 .vsix
+npm run test:e2e    # 真实扩展宿主测试（@vscode/test-electron；Linux 用 xvfb-run -a）
+npm run package     # 编译 + 生成 .vsix
 ```
 
 ## 许可
@@ -116,28 +113,36 @@ MIT © 2026 baobaolaodie。dsh-tui 本体为 [ccch1mneyyy/dsh-TUI](https://githu
 
 # English
 
-A **Path B companion extension for [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI)**:
-the TUI runs in its own VS Code session panel — activity-bar entry + an
-editor-area panel rendering the full terminal UI with **xterm.js + a real PTY
-(ConPTY)**, completely independent of the integrated terminal. This is the
-Path B implementation for
-[ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161),
-shaped like the official Claude Code VS Code extension.
+A **VS Code companion extension for [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI)**:
+the TUI runs in a REAL VS Code integrated terminal (new editor column, default
+shell — PowerShell on Windows), exactly like the terminal mode of the official
+Claude Code extension (`createTerminal` + run the CLI inside it). This is the
+implementation for
+[ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161).
 
 ## Features
 
-- Activity-bar `dsh-tui` icon → sidebar "会话控制" view (start / resume / focus /
-  kill buttons + status); "打开会话面板" opens the TUI panel in the editor area.
-- The session panel renders the full dsh-tui: alt-screen, mouse, OSC 52
-  clipboard (host-handled), OSC 8 links, synchronized output.
-- Real PTY via node-pty (ConPTY on Windows); `TERM=xterm-256color`; panel
-  resize propagates to the PTY.
-- One-click start / resume (`--resume`); session survives closing the panel
-  (reopen reconnects to the live stream; hidden panels keep full rendering).
-- Clickable file paths (`path:line[:col]`) open in the editor.
-- `$VISUAL`/`$EDITOR` → `code -w` when unset; OSC 11 background query answered
-  with the current theme; OSC 0 title syncs to the panel title.
-- Status-bar item opens the panel.
+- **Real terminal, no emulation**: sessions run in the VS Code integrated
+  terminal (your default shell — PowerShell/bash), with native shell
+  integration, Ctrl+C, copy/paste, fonts and theme. No webview, no xterm.
+- **Beside placement**: the terminal opens in a NEW column beside the active
+  one (`ViewColumn.Beside`) — never taking over the column you are looking at
+  (same as Claude Code).
+- **Entries**: activity-bar whale icon + editor-title whale button + command
+  palette (`dsh-tui: Start new session`, etc.).
+- **Sidebar session list**: activity bar → session history (title + compact
+  relative time, like the Claude Code sessions sidebar); clicking an entry
+  resumes THAT session in a fresh terminal on the Beside column.
+- **Resume last session**: `--resume` (reads `~/.dsh-tui/resume.txt`).
+- **Resume a specific session**: injected via the `DSH_TUI_RESUME_SESSION`
+  environment variable (the dsh-tui profile's `cordis.patch.yml` reads it at
+  boot) — deliberately WITHOUT `--resume` (the launcher would overwrite the
+  env from `resume.txt`; verified in `bin/dsh-tui.js`).
+- **Env injection**: `DSH_TUI_LANG`, `$VISUAL` (`code -w` when unset), optional
+  `$DSH_HOME` are passed to the terminal environment.
+- **Auto start/stop**: open = start; close the terminal = the process ends;
+  repeated opens just focus (dedupe).
+- **Status bar**: a `DeepSeek` item appears while a session exists.
 
 ## Prerequisites
 
@@ -152,22 +157,26 @@ Build from source (not yet on the Marketplace):
 ```sh
 npm install
 npm run package
-code --install-extension dsh-tui-vscode-0.2.0.vsix --force
+code --install-extension dsh-tui-vscode-0.3.0.vsix --force
 ```
 
 ## Usage
 
-- Click the activity-bar `dsh-tui` icon, or run `dsh-tui: Start new session / 启动新会话`.
-- The session opens in an **editor-area panel** (not the integrated terminal).
-- Ctrl/Cmd-click file paths in the output to open them in the editor.
-- Closing the panel keeps the session running; reopen to reconnect.
+1. Click the activity-bar **whale icon** (or the editor-title whale button, or
+   `dsh-tui: Start new session` in the command palette);
+2. A **DeepSeek** terminal opens in a NEW column beside your current one and
+   runs `dsh-tui` automatically;
+3. First run bootstraps the `dsh-tui` profile (needs pnpm);
+4. Click any entry in the sidebar session list to resume THAT session in a
+   fresh terminal;
+5. Close the terminal to end the session; double `Ctrl+C` inside the TUI exits.
 
 ## Configuration
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | Launch command/executable (Windows `.cmd/.bat` shims and POSIX PATH entries are resolved to absolute paths) |
-| `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` (one argument per item) |
+| `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved by the shell via PATH) |
+| `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
@@ -175,25 +184,26 @@ code --install-extension dsh-tui-vscode-0.2.0.vsix --force
 
 ## How it works
 
-- node-pty (ConPTY on Windows, forkpty elsewhere) owns the dsh-tui process;
-  `.cmd/.bat` shims are resolved to absolute paths and wrapped by node-pty
-  internally (self-wrapping `cmd /c` breaks child stdin — verified
-  empirically); POSIX commands are PATH-resolved to absolute executables.
-- The webview renders xterm.js (fit + web-links addons); the host cleans the
-  PTY stream through an OSC scanner (clipboard / background query / title)
-  before forwarding; key input, paste and resize flow back to the PTY.
-- Single-session model; `retainContextWhenHidden` keeps rendering while
-  hidden; closing the panel keeps the process alive and reopening reconnects.
+- **Session**: `vscode.window.createTerminal({ name: 'DeepSeek', cwd, env,
+  iconPath, location: { viewColumn: Beside }, isTransient: true })` — the same
+  shape as the official Claude Code extension's terminal launch; the command is
+  sent once the shell is ready (shell integration or a fallback delay).
+- **Resume a specific session**: the profile's `cordis.patch.yml` reads
+  `DSH_TUI_RESUME_SESSION` at boot (`sessionId: !!js process.env.DSH_TUI_RESUME_SESSION
+  ?? ...`); the extension injects it into the terminal env and runs WITHOUT
+  `--resume` (the launcher would clobber the env from `resume.txt`).
+- **Session list**: reads DSH session logs under `~/.dsh/sessions` (zstd),
+  titles follow the TUI contract (last `session/title` event wins, falling back
+  to the first user message).
+- **Dedupe**: with an existing DeepSeek terminal, `start` just focuses it;
+  `resume` always starts fresh.
 
 ## Known limitations
 
-- Scrollback is not preserved when the panel tab is closed (hidden panels
-  keep everything via `retainContextWhenHidden`).
-- Single session at a time.
-- Capabilities are bounded by xterm.js (keyboard protocol, DEC 2026, etc.);
-  Path B keeps rendering fully under our control for future extensions.
-- The packaged vsix contains the node-pty binary for the platform it was
-  built on.
+- Session content is terminal content: scrollback is managed by the VS Code
+  terminal (same as Claude Code's terminal mode).
+- Specific-session resume requires the dsh-tui profile's `cordis.patch.yml`
+  (0.6.1+).
 
 ## Development
 
