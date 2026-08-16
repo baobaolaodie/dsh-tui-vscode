@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 (2026)
+
+- **会话标题对齐 Web**：读取 dsh-storage 账本（`~/.dsh/storages/session_projcache.json`
+  的 `rows.title.val`，Web 会话列表的标题来源）——Web 有标题而扩展显示
+  "未命名会话"的问题修复；标题优先级：日志 `session/title` 事件 → storage 标题
+  → 首条用户消息。
+
 ## 0.4.0 (2026)
 
 - **会话历史重做（按项目分组）**：

@@ -23,8 +23,10 @@ export function ensureZstd(): Promise<void> {
 
 export interface SessionRecord {
   id: string
-  /** Display title (last session/title event, else first user message). */
+  /** Display title (see precedence in listSessions). */
   title?: string
+  /** Title from a `session/title` log event only (undefined otherwise). */
+  eventTitle?: string
   cwd?: string
   /** Short project name derived from cwd (or the cwd-encoded group dir). */
   project?: string
@@ -221,6 +223,7 @@ export function readSessionRecord(
   return {
     id: header.id ?? basename(sessionDir),
     title: titled ?? firstUser,
+    eventTitle: titled,
     cwd: header.cwd,
     project: projectNameOf(header.cwd, group),
     createdAt,
@@ -245,18 +248,57 @@ export function readLastUsed(): Record<string, number> {
 }
 
 /**
+ * Session titles from the dsh-storage ledger (`$DSH_HOME/storages/
+ * session_projcache.json`, `tables.sessions[<id>].rows.title.val`) — the
+ * source the dsh web session list displays. The web can carry a title for
+ * sessions whose log has no `session/title` event and no user message.
+ */
+export function readStorageTitles(dshHome?: string): Record<string, string> {
+  try {
+    const file = join(
+      dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'),
+      'storages',
+      'session_projcache.json',
+    )
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      tables?: { sessions?: Record<string, { rows?: Record<string, { val?: unknown }> }> }
+    }
+    const out: Record<string, string> = {}
+    const sessions = parsed?.tables?.sessions
+    if (sessions) {
+      for (const [id, entry] of Object.entries(sessions)) {
+        const val = entry?.rows?.title?.val
+        if (typeof val === 'string' && val.trim()) out[id] = val.trim()
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
  * All sessions across DSH_HOME, each annotated with lastUsed; ordered by
  * last-used desc, then created desc (the TUI's /resume MRU convention).
+ * Title precedence: log `session/title` → storage-ledger title → first user
+ * message (the web session list's own source).
  */
 export async function listSessions(dshHome?: string): Promise<SessionRecord[]> {
   await ensureZstd()
   const lastUsed = readLastUsed()
+  const storageTitles = readStorageTitles(dshHome)
   return findSessionFiles(dshHome)
     .map(sf => {
       const rec = readSessionRecord(sf.file, sf.group)
       if (!rec) return undefined
       const used = lastUsed[rec.id]
       if (typeof used === 'number') rec.lastUsed = used
+      const storageTitle = storageTitles[rec.id]
+      if (storageTitle !== undefined && rec.eventTitle === undefined) {
+        // The web session list shows the storage-ledger title; let it win
+        // over the raw first-user-message fallback.
+        rec.title = storageTitle
+      }
       return rec
     })
     .filter((s): s is SessionRecord => s !== undefined)
