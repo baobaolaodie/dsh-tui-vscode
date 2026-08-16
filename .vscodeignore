@@ -1,5 +1,6 @@
 .git/**
 .gitignore
+.github/**
 .npmrc
 .vscode/**
 .smoke/**
