@@ -96,11 +96,26 @@ test('start opens a REAL terminal and launches the CLI with env injection', asyn
     return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
   }, 20000).catch(() => undefined)
   if (!text) {
+    // Probe whether the shell is alive and what it sees: write $PATH and the
+    // command lookup result to files we can read back.
+    const diagPath = join(WS, 'diag-path.txt')
+    const diagType = join(WS, 'diag-type.txt')
+    rmSync(diagPath, { force: true })
+    rmSync(diagType, { force: true })
+    const terminal = findTuiTerminal()
+    try {
+      terminal?.sendText(`echo "PATH=$PATH" > "${diagPath}"`, true)
+      terminal?.sendText(`type fake-dsh-tui > "${diagType}" 2>&1; true`, true)
+    } catch {
+      // terminal gone
+    }
+    await poll(() => (readFile(diagPath) ? true : undefined), 8000).catch(() => undefined)
+    await poll(() => (readFile(diagType) ? true : undefined), 8000).catch(() => undefined)
     const shimLog = readFile(join(WS, 'fake-dsh-tui.js.shim-log'))
     const names = vscode.window.terminals.map(t => t.name).join(',')
     const wsFiles = readdirSync(WS).join(',')
     throw new Error(
-      `env-out never written; terminals=[${names}] shimLog=${JSON.stringify(shimLog ?? '<none>')} ws=[${wsFiles}]`,
+      `env-out never written; terminals=[${names}] shimLog=${JSON.stringify(shimLog ?? '<none>')} diagPath=${JSON.stringify(readFile(diagPath) ?? '<none>')} diagType=${JSON.stringify(readFile(diagType) ?? '<none>')} ws=[${wsFiles}]`,
     )
   }
   const lines = text.trim().split(/\r?\n/).map(line => line.trim())
