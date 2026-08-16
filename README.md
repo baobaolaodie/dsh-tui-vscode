@@ -34,6 +34,15 @@ PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构*
 这是 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161)
 的实现。
 
+## 展示
+
+点击鲸鱼按钮后，**DeepSeek** 终端在编辑器区另一侧打开并自动运行 dsh-tui——
+真实终端、真实 shell、完整 TUI：
+
+<p align="center">
+  <img src="media/screenshot-deepseek-terminal.png" alt="DeepSeek 终端在编辑器区另一侧运行 dsh-TUI" width="720" />
+</p>
+
 ## 特性
 
 - **真实终端，非模拟**：会话运行在 VS Code 集成终端（你的默认 shell），拥有

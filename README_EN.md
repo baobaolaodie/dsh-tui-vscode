@@ -35,6 +35,15 @@ terminal mode of the official Claude Code VS Code extension**
 emulation. This is the implementation of
 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161).
 
+## Screenshot
+
+Click the whale button and a **DeepSeek** terminal opens on the Beside column,
+running dsh-tui automatically — a real terminal, a real shell, the full TUI:
+
+<p align="center">
+  <img src="media/screenshot-deepseek-terminal.png" alt="DeepSeek terminal running dsh-TUI on the Beside column" width="720" />
+</p>
+
 ## Features
 
 - **Real terminal, not an emulation**: sessions run in the VS Code integrated
