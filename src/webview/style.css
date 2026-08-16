@@ -6,50 +6,10 @@ body {
   margin: 0;
   padding: 0;
   background: transparent;
-  display: flex;
-  flex-direction: column;
-}
-
-#toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--vscode-panel-border, transparent);
-  flex: none;
-}
-
-#toolbar button {
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
-  border: none;
-  border-radius: 3px;
-  padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-#toolbar button:hover {
-  background: var(--vscode-button-secondaryHoverBackground);
-}
-
-#status {
-  margin-left: auto;
-  font-size: 11px;
-  padding-right: 4px;
-}
-
-#status.running {
-  color: #4ec9b0;
-}
-
-#status.stopped {
-  color: var(--vscode-disabledForeground);
 }
 
 #terminal {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
   padding: 6px;
   box-sizing: border-box;
 }

@@ -1,7 +1,13 @@
 /**
- * The TUI panel: an editor-area webview that renders the PTY stream with
- * xterm.js. The session keeps running while the panel is hidden or closed;
- * reopening reconnects to the live stream (scrollback is not preserved).
+ * The TUI panel — a SIDEBAR webview view (activity-bar container), matching
+ * the official Claude Code extension's placement (claudeVSCodeSidebar).
+ * Renders the PTY stream with xterm.js.
+ *
+ * Lifecycle mirrors dsh-tui's native foreground-process model: the session
+ * runs as long as the panel holds it; it ends when you stop it (the ■ button,
+ * double Ctrl+C inside the TUI, or the kill command) or when VS Code exits.
+ * Hiding the view keeps the session alive; reopening reconnects to the live
+ * stream (scrollback is not preserved across a full dispose).
  */
 import * as vscode from 'vscode'
 import { OscScanner } from './osc'
@@ -18,8 +24,10 @@ export interface SessionState {
   webviewReady: boolean
 }
 
-export class TuiPanel {
-  private panel: vscode.WebviewPanel | undefined
+export class TuiPanel implements vscode.WebviewViewProvider {
+  static readonly viewType = PANEL_VIEW_TYPE
+
+  private view: vscode.WebviewView | undefined
   private session: PtySession | undefined
   private scanner = new OscScanner()
   private ready = false
@@ -29,6 +37,7 @@ export class TuiPanel {
 
   constructor(
     private readonly mediaUri: vscode.Uri,
+    private readonly launchOptions: () => PtyLaunchOptions,
     private readonly onChange: () => void,
   ) {}
 
@@ -45,15 +54,40 @@ export class TuiPanel {
     return this.session !== undefined && this.exitCode === undefined
   }
 
-  open(resume: boolean, options: PtyLaunchOptions): void {
-    this.ensurePanel()
-    this.ensureSession(resume, options)
-    this.panel?.reveal(vscode.ViewColumn.Beside)
-    this.onChange()
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.view = webviewView
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.mediaUri],
+    }
+    webviewView.webview.html = this.renderHtml(webviewView.webview)
+    webviewView.webview.onDidReceiveMessage(message => this.onMessage(message))
+    webviewView.onDidDispose(() => {
+      this.view = undefined
+      this.ready = false
+      this.pending.length = 0
+    })
+    // Auto-start a session when the panel opens (like Claude Code: open =
+    // start talking). No buttons anywhere — stop via Ctrl+C in the TUI, the
+    // kill command, or closing VS Code.
+    this.ensureSession(false, this.launchOptions())
+    this.postState()
   }
 
+  /** Open the sidebar view and start a session (if none is running). */
+  open(resume: boolean, options: PtyLaunchOptions): void {
+    if (!this.view) {
+      void vscode.commands.executeCommand(`${PANEL_VIEW_TYPE}.focus`)
+    }
+    this.ensureSession(resume, options)
+    this.view?.show?.(true)
+    this.onChange()
+  }
   reveal(): void {
-    this.panel?.reveal(vscode.ViewColumn.Beside)
+    if (!this.view) {
+      void vscode.commands.executeCommand(`${PANEL_VIEW_TYPE}.focus`)
+    }
+    this.view?.show?.(true)
   }
 
   kill(): void {
@@ -79,11 +113,6 @@ export class TuiPanel {
     this.session?.write(data)
   }
 
-  /** Exposed for tests/scripts (e.g. executeJavaScript probes). */
-  getWebview(): vscode.Webview | undefined {
-    return this.panel?.webview
-  }
-
   /** Exposed for tests/scripts: deliver a webview-style message to the panel. */
   handleMessage(message: unknown): void {
     this.onMessage(message)
@@ -98,30 +127,6 @@ export class TuiPanel {
     this.session = undefined
   }
 
-  private ensurePanel(): void {
-    if (this.panel) return
-    const panel = vscode.window.createWebviewPanel(
-      PANEL_VIEW_TYPE,
-      'dsh-tui',
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [this.mediaUri],
-      },
-    )
-    panel.webview.html = this.renderHtml(panel.webview)
-    panel.webview.onDidReceiveMessage(message => this.onMessage(message))
-    panel.onDidDispose(() => {
-      // Session keeps running in the background; a reopened panel reconnects
-      // to the live stream.
-      this.panel = undefined
-      this.ready = false
-      this.pending.length = 0
-    })
-    this.panel = panel
-  }
-
   private ensureSession(resume: boolean, options: PtyLaunchOptions): void {
     if (this.isRunning()) return
     this.exitCode = undefined
@@ -132,12 +137,12 @@ export class TuiPanel {
       onExit: code => {
         this.exitCode = code
         this.post({ type: 'exit', code })
-        if (this.panel) this.panel.title = 'dsh-tui（已退出）'
+        this.postState()
         this.onChange()
       },
     })
     this.pid = this.session.pid
-    if (this.panel) this.panel.title = 'dsh-tui'
+    this.postState()
   }
 
   private onPtyData(chunk: string): void {
@@ -156,13 +161,10 @@ export class TuiPanel {
           this.session?.write(backgroundResponse())
           break
         case 'title':
-          if (this.panel && event.payload) {
-            this.panel.title = `dsh-tui — ${event.payload.slice(0, 40)}`
-          }
           break
       }
     }
-    if (this.ready && this.panel) {
+    if (this.ready && this.view) {
       this.post({ type: 'data', data: clean })
     } else {
       this.pending.push(clean)
@@ -175,6 +177,7 @@ export class TuiPanel {
       | { type: 'input'; data: string }
       | { type: 'resize'; cols: number; rows: number }
       | { type: 'openPath'; path: string; line?: number; col?: number }
+      | { type: 'command'; command: string }
       | undefined
     if (!msg) return
     switch (msg.type) {
@@ -184,12 +187,18 @@ export class TuiPanel {
         this.session?.resize(msg.cols, msg.rows)
         for (const data of this.pending) this.post({ type: 'data', data })
         this.pending.length = 0
+        this.postState()
         break
       case 'input':
         this.session?.write(msg.data)
         break
       case 'resize':
         this.session?.resize(msg.cols, msg.rows)
+        break
+      case 'command':
+        if (msg.command.startsWith('dsh-tui-vscode.')) {
+          void vscode.commands.executeCommand(msg.command)
+        }
         break
       case 'openPath': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
@@ -210,8 +219,12 @@ export class TuiPanel {
     }
   }
 
+  private postState(): void {
+    this.post({ type: 'state', ...this.getState() })
+  }
+
   private post(message: unknown): void {
-    this.panel?.webview.postMessage(message)
+    this.view?.webview.postMessage(message)
   }
 
   private renderHtml(webview: vscode.Webview): string {
@@ -225,15 +238,15 @@ export class TuiPanel {
       `img-src ${webview.cspSource} data:`,
     ].join('; ')
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <link rel="stylesheet" href="${styleUri}">
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
-  <div id="terminal"></div>
-  <script src="${scriptUri}"></script>
+<div id="terminal"></div>
+<script src="${scriptUri}"></script>
 </body>
 </html>`
   }

@@ -27,7 +27,7 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onView:dsh-tui-vscode.control"
+    "onView:dsh-tui-vscode.session"
   ],
   "contributes": {
     "viewsContainers": {
@@ -43,8 +43,8 @@
       "dsh-tui-vscode": [
         {
           "type": "webview",
-          "id": "dsh-tui-vscode.control",
-          "name": "会话控制"
+          "id": "dsh-tui-vscode.session",
+          "name": "会话"
         }
       ]
     },
@@ -80,8 +80,7 @@
       "editor/title": [
         {
           "command": "dsh-tui-vscode.open",
-          "group": "navigation",
-          "when": "resourceScheme == file || resourceScheme == untitled"
+          "group": "navigation"
         }
       ]
     },

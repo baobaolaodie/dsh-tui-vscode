@@ -1,7 +1,6 @@
 import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { TuiPanel } from './panel'
-import { ControlViewProvider } from './control'
 import { SessionStatusBar } from './status'
 import type { PtyLaunchOptions } from './pty'
 
@@ -36,7 +35,6 @@ export interface ExtensionApi {
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const mediaUri = vscode.Uri.joinPath(context.extensionUri, 'media')
-  const panel = new TuiPanel(mediaUri, refreshState)
   const status = new SessionStatusBar()
   context.subscriptions.push(status)
 
@@ -54,15 +52,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   }
 
-  const control = new ControlViewProvider()
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(ControlViewProvider.viewType, control),
-  )
+  // The session panel is a SIDEBAR webview view (activity-bar container),
+  // mirroring the official Claude Code extension's placement. Opening the
+  // view auto-starts the session (no buttons in the panel).
+  const panel = new TuiPanel(mediaUri, () => launchOptions(false), refreshState)
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider(TuiPanel.viewType, panel))
 
   function refreshState(): void {
-    const state = panel.getState()
-    control.updateState(state)
-    status.update(state.running)
+    status.update(panel.getState().running)
   }
 
   const register = (id: string, fn: () => void): void => {

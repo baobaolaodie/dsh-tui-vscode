@@ -58,32 +58,10 @@ window.addEventListener('message', event => {
     case 'focus':
       term.focus()
       break
-    case 'state': {
-      const status = document.getElementById('status')
-      if (!status) break
-      if (msg.running) {
-        status.textContent = '运行中' + (msg.pid ? ` (PID ${msg.pid})` : '')
-        status.className = 'running'
-      } else if (msg.exitCode !== undefined && msg.exitCode !== null) {
-        status.textContent = `已退出 (code ${msg.exitCode})`
-        status.className = 'stopped'
-      } else {
-        status.textContent = '未运行'
-        status.className = 'stopped'
-      }
-      break
-    }
     default:
       break
   }
 })
-
-// Toolbar buttons → host commands.
-for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-cmd]')) {
-  button.addEventListener('click', () => {
-    vscode.postMessage({ type: 'command', command: button.dataset.cmd })
-  })
-}
 
 const observer = new ResizeObserver(() => {
   try {

@@ -13,7 +13,6 @@ import { readFileSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
-const PANEL_VIEW_TYPE = 'dsh-tui-vscode.session'
 // out-test/test-suite -> repo root -> .e2e-workspace
 const WS = join(__dirname, '..', '..', '.e2e-workspace')
 const ENV_OUT = join(WS, 'env-out.txt')
@@ -44,18 +43,6 @@ function readFile(path: string): string | undefined {
   } catch {
     return undefined
   }
-}
-
-function panelTab(): vscode.Tab | undefined {
-  return vscode.window.tabGroups.all
-    .flatMap(group => group.tabs)
-    .find(tab => {
-      if (!(tab.input instanceof vscode.TabInputWebview)) return false
-      const viewType = tab.input.viewType
-      // Newer VS Code versions expose the internal type with a
-      // "mainThreadWebview-" prefix.
-      return viewType === PANEL_VIEW_TYPE || viewType.endsWith(`-${PANEL_VIEW_TYPE}`)
-    })
 }
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -94,18 +81,19 @@ test('start opens the panel and launches a PTY with env injection', async () => 
 
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
 
-  // The panel tab must exist (editor area, NOT the integrated terminal).
-  const tab = await poll(() => (panelTab() ? true : undefined), 10000).catch(() => undefined)
-  if (!tab) {
-    const tabs = vscode.window.tabGroups.all.flatMap(group =>
-      group.tabs.map(t =>
-        t.input instanceof vscode.TabInputWebview
-          ? `webview:${t.input.viewType}`
-          : `other:${String(t.input).slice(0, 40)}`,
-      ),
-    )
+  // The sidebar view (activity-bar container) must come up: the webview posts
+  // 'ready' after xterm initializes — proving view creation AND the full
+  // webview→host message channel.
+  const ready = await poll(
+    () =>
+      (vscode.extensions.getExtension(EXT_ID)!.exports as Api).getState().webviewReady
+        ? true
+        : undefined,
+    15000,
+  ).catch(() => undefined)
+  if (!ready) {
     const api0 = (vscode.extensions.getExtension(EXT_ID)!.exports as Api).getState()
-    throw new Error(`session panel tab missing; tabs=${JSON.stringify(tabs)} state=${JSON.stringify(api0)}`)
+    throw new Error(`session view not ready; state=${JSON.stringify(api0)}`)
   }
 
   // Ground truth: the PTY child echoes its own environment.
