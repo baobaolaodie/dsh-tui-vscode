@@ -1,6 +1,12 @@
+# Node.js
 node_modules/
 out/
 out-test/
+dist/
+coverage/
+*.tsbuildinfo
+
+# 本地环境与缓存
 .smoke/
 .e2e-workspace/
 .vscode-test/
@@ -8,3 +14,8 @@ npm-cache/
 .gh-log/
 *.vsix
 *.log
+
+# 凭据
+.env
+.env.*
+!.env.example

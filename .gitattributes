@@ -1,0 +1,15 @@
+# 换行符规范：仓库统一 LF；Windows 检出可转 CRLF
+* text=auto
+
+# 仓库内钩子（.githooks/）必须以 LF 入库与检出——Windows core.autocrlf=true 下
+# CRLF 会使 sh 钩子报错（$'\r: command not found）
+.githooks/** text eol=lf
+
+# 按语言统一换行
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

@@ -27,17 +27,12 @@
 
 # dsh-tui-vscode
 
-**dsh-tui-vscode** 让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI)
-跑在 VS Code **真实的集成终端**里（编辑器区另一侧新开一列，Windows 默认
-PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构**
-（`createTerminal` + 在终端内运行 CLI），没有 webview、没有 xterm 模拟层。
-这是 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161)
-的实现。
+**dsh-tui-vscode** 让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI) 跑在 VS Code **真实的集成终端**里（编辑器区另一侧新开一列，Windows 默认 PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构**（`createTerminal` + 在终端内运行 CLI），没有 webview、没有 xterm 模拟层。
+这是 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161) 的实现。
 
 ## 展示
 
-点击鲸鱼按钮后，**DeepSeek** 终端在编辑器区另一侧打开并自动运行 dsh-tui——
-真实终端、真实 shell、完整 TUI：
+点击鲸鱼按钮后，**DeepSeek** 终端在编辑器区另一侧打开并自动运行 dsh-tui——真实终端、真实 shell、完整 TUI：
 
 <p align="center">
   <img src="media/screenshot-deepseek-terminal.png" alt="DeepSeek 终端在编辑器区另一侧运行 dsh-TUI" width="720" />
@@ -45,24 +40,16 @@ PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构*
 
 ## 特性
 
-- **真实终端，非模拟**：会话运行在 VS Code 集成终端（你的默认 shell），拥有
-  终端的一切原生能力：shell 集成、原生 Ctrl+C、复制粘贴、字体主题跟随。
-- **打开位置 = 另一侧**：`ViewColumn.Beside`——在编辑器区**旁边新开一列**，
-  绝不占你正在看的列（同 Claude Code）。
-- **多会话并存**：每次点击「启动新会话」都新开一个终端 + 会话，旧会话继续
-  运行（同 Claude Code）。
-- **侧边栏会话历史**：按项目分组的树形列表（标题 + 紧凑相对时间，与 Web
-  会话列表同源标题），点击条目**恢复该指定会话**；目录变化自动刷新。
-- **一键启动/恢复**：`Start new session`、`Resume last session`、侧边栏
-  指定会话恢复——恢复指定会话走 `DSH_TUI_RESUME_SESSION` 环境变量通道
-  （profile 的 `cordis.patch.yml` 启动时读取），与 `--resume` 互不干扰。
-- **自动启停 + 环境注入**：打开 = 启动，关闭终端 = 进程结束；`$VISUAL` /
-  `DSH_TUI_LANG` / `$DSH_HOME` 自动注入终端环境。
+- **真实终端，非模拟**：会话运行在 VS Code 集成终端（你的默认 shell），拥有终端的一切原生能力：shell 集成、原生 Ctrl+C、复制粘贴、字体主题跟随。
+- **打开位置 = 另一侧**：`ViewColumn.Beside`——在编辑器区**旁边新开一列**，绝不占你正在看的列（同 Claude Code）。
+- **多会话并存**：每次点击「启动新会话」都新开一个终端 + 会话，旧会话继续运行（同 Claude Code）。
+- **侧边栏会话历史**：按项目分组的树形列表（标题 + 紧凑相对时间，与 Web 会话列表同源标题），点击条目**恢复该指定会话**；目录变化自动刷新。
+- **一键启动/恢复**：`Start new session`、`Resume last session`、侧边栏指定会话恢复——恢复指定会话走 `DSH_TUI_RESUME_SESSION` 环境变量通道（profile 的 `cordis.patch.yml` 启动时读取），与 `--resume` 互不干扰。
+- **自动启停 + 环境注入**：打开 = 启动，关闭终端 = 进程结束；`$VISUAL` / `DSH_TUI_LANG` / `$DSH_HOME` 自动注入终端环境。
 
 ## 快速开始
 
-前置条件：全局安装 DSH CLI 与 dsh-tui（首次启动自动初始化 profile，需 pnpm），
-运行模型需要 `DEEPSEEK_API_KEY`：
+前置条件：全局安装 DSH CLI 与 dsh-tui（首次启动自动初始化 profile，需 pnpm），运行模型需要 `DEEPSEEK_API_KEY`：
 
 ```sh
 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
@@ -80,15 +67,10 @@ npm run package && code --install-extension dsh-tui-vscode-0.5.0.vsix --force
 
 ## 使用
 
-- **启动 / 多开**：点活动栏鲸鱼图标、编辑器标签栏右侧鲸鱼按钮，或命令
-  `dsh-tui: Start new session / 启动新会话`——每次都在编辑器区另一侧新开一个
-  **DeepSeek** 终端并自动运行 dsh-tui；再次点击 = 再开一个，多会话并行。
-- **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`
-  （`--resume`，读 `~/.dsh-tui/resume.txt`）。
-- **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带
-  `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
-- **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令
-  `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
+- **启动 / 多开**：点活动栏鲸鱼图标、编辑器标签栏右侧鲸鱼按钮，或命令 `dsh-tui: Start new session / 启动新会话`——每次都在编辑器区另一侧新开一个 **DeepSeek** 终端并自动运行 dsh-tui；再次点击 = 再开一个，多会话并行。
+- **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`（`--resume`，读 `~/.dsh-tui/resume.txt`）。
+- **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
+- **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
 
 ## 架构
 
@@ -118,14 +100,9 @@ flowchart LR
 
 要点：
 
-- **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、
-  滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）；
-- **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取
-  `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume`
-  会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）；
-- **会话历史数据源**：会话日志（zstd）→ 标题取日志 `session/title` 事件 →
-  dsh-storage 账本（Web 列表同源）→ 首条用户消息 → "未命名会话"；组内按
-  last-used 排序。
+- **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
+- **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
+- **会话历史数据源**：会话日志（zstd）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条用户消息 → "未命名会话"；组内按 last-used 排序。
 
 ## 配置
 
@@ -144,13 +121,14 @@ flowchart LR
 dsh-tui-vscode/
 ├── src/
 │   ├── extension.ts        # 激活入口：命令注册、createTerminal、视图注册
-│   ├── session.ts          # 环境注入（DSH_TUI_LANG / $VISUAL / $DSH_HOME）
+│   ├── session.ts          # 环境注入与启动命令解析（宿主 PATH）
 │   ├── sessions.ts         # 会话数据层（zstd 日志 + storage 账本 + MRU 排序）
 │   ├── sessions-view.ts    # 侧边栏会话历史（项目分组树 + fs.watch 自动刷新）
 │   ├── status.ts           # 状态栏项
 │   ├── test/               # 数据层单元测试（node:test）
 │   └── test-suite/         # 真实扩展宿主 e2e（@vscode/test-electron）
 ├── media/icon.svg          # DeepSeek 鲸鱼图标（活动栏 / 终端标签）
+├── media/icon.png          # Marketplace 图标
 ├── .github/workflows/ci.yml
 ├── package.json
 └── LICENSE
@@ -165,27 +143,18 @@ dsh-tui-vscode/
 | 运行时依赖 | `@bokuweb/zstd-wasm`（会话日志 zstd 解压，唯一依赖） |
 | 测试 | `node:test` 单测 + `@vscode/test-electron` 真实扩展宿主 e2e |
 | 打包 | `@vscode/vsce` |
-| CI | GitHub Actions（ubuntu-latest + xvfb） |
+| CI | GitHub Actions（Linux/Windows 矩阵 + xvfb） |
 
 ## CI / 验证
 
-`.github/workflows/ci.yml` 在每次 push/PR 运行：`npm ci` → `typecheck` →
-`npm test`（数据层单测）→ `xvfb-run -a npm run test:e2e`（真实扩展宿主，
-Windows 本地与 Linux CI 双平台验证）→ `npm run package`。
+`.github/workflows/ci.yml` 在每次 push/PR 运行：`npm ci` → `typecheck` → `npm test`（数据层单测）→ `xvfb-run -a npm run test:e2e`（真实扩展宿主）→ `npm run package`。
+另有 quality（双语镜像对称 / BOM 防线 / actionlint）、pr-policy（Conventional Commits 标题、分支前缀、PR 模板完整性、CHANGELOG 自查真实性）、release-consistency（版本五处一致 + 每版本段 PR 链接）、security-scan（凭据扫描）与 docs-links（死链检查）job。
 
-e2e 覆盖：命令注册、真实终端创建与环境注入、输入回环、多会话、Ctrl+C 终止、
-`--resume` 恢复、指定会话恢复（env 通道、不传 `--resume`），以及受保护的真实
-dsh-tui 恢复测试（恢复成功 = 不新建会话，可观测）。
+e2e 覆盖：命令注册、真实终端创建与环境注入、输入回环、多会话、Ctrl+C 终止、`--resume` 恢复、指定会话恢复（env 通道、不传 `--resume`），以及受保护的真实 dsh-tui 恢复测试（恢复成功 = 不新建会话，可观测）。
 
 ## 贡献
 
-遵循 dsh-TUI 共享贡献契约（见上游仓库 `docs/contributing.md` 的精神）：
-
-1. Fork 本仓库，从 `main` 建分支；
-2. 保持改动**聚焦**——一个 PR 只做一个逻辑改动，标题用中文或中英对照；
-3. 请求 review 前跑 `npm run typecheck && npm test && npm run test:e2e`，
-   **如实**报告跑了哪些验证；
-4. 显式路径暂存，不 `git add -A` 大杂烩。
+请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（中英双语）——分支前缀、Conventional Commits 提交、PR 模板与验证要求由 CI 强制。
 
 ## 许可
 
