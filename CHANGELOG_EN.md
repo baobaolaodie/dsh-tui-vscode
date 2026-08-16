@@ -14,7 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [0.5.1] - 2026-08-16
 
-> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
+> direct-push, no PR / 直推提交，无关联 PR
 
 - **Fixed stale Marketplace-page README**: the vsix uploaded for v0.5.0 contained a pre-publish README ("暂未上架 Marketplace") — republished so the Marketplace page matches the repository (extension-panel install first);
 - **chore**: cleaned up a Path-B-era leftover — removed the deleted `src/webview` entry from `tsconfig.json` excludes.

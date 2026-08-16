@@ -12,7 +12,7 @@
 
 ## [0.5.1] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> 直推提交，无关联 PR / direct-push, no PR
 
 - **修复 Marketplace 页面 README 过期**：v0.5.0 上传的 vsix 内含发布前 README（「暂未上架 Marketplace」）——重新打包发布，Marketplace 页面与仓库同步为「扩展面板安装优先」；
 - **chore**: 清理 Path B 时代残留——`tsconfig.json` 移除已删除的 `src/webview` exclude。
