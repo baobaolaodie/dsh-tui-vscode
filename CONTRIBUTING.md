@@ -10,7 +10,7 @@
 
 ## 开发环境
 
-- Node.js 24（开发与 CI 一致）；包管理用 **npm**（`npm ci` 安装）。
+- Node.js 24（开发默认；CI 测试矩阵为 Node 22/24）；包管理用 **npm**（`npm ci` 安装）。
 - e2e 的"真实 dsh-tui 恢复测试"需要本机全局安装 `dsh` CLI 与 `dsh-tui`（无则自动跳过该用例）。
 - 开发时建议安装本地钩子：`node scripts/install-commit-hook.mjs`（拦截提交消息格式等快速可逆问题）。
 

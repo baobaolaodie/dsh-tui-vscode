@@ -108,7 +108,7 @@ flowchart LR
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | 启动命令（由终端 shell 按 PATH 解析） |
+| `dsh-tui-vscode.command` | `dsh-tui` | 启动命令（按宿主 PATH 解析为绝对路径后发送） |
 | `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
@@ -133,7 +133,7 @@ dsh-tui-vscode/
 │   └── install-commit-hook.mjs  # 本地钩子安装脚本
 ├── .githooks/              # pre-commit / commit-msg（入库分发）
 ├── .github/
-│   ├── workflows/ci.yml    # 完整 CI（test/quality/pr-policy/release-consistency/security-scan/docs-links）
+│   ├── workflows/ci.yml    # 完整 CI（test 矩阵/e2e/quality/pr-policy/release-consistency/security-scan/docs-links）
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   └── ISSUE_TEMPLATE/     # 四类 issue 表单
 ├── CONTRIBUTING.md / CONTRIBUTING_EN.md
@@ -149,7 +149,7 @@ dsh-tui-vscode/
 
 | 层 | 技术 |
 | --- | --- |
-| 语言 | TypeScript 5.6（ESM，Node 24 开发运行时） |
+| 语言 | TypeScript 5.6（源码 ESM 语法，编译产物 CommonJS；Node 24 开发运行时） |
 | 平台 | VS Code Extension API（engines `^1.90.0`） |
 | 运行时依赖 | `@bokuweb/zstd-wasm`（会话日志 zstd 解压，唯一依赖） |
 | 测试 | `node:test` 单测 + `@vscode/test-electron` 真实扩展宿主 e2e |
@@ -158,7 +158,7 @@ dsh-tui-vscode/
 
 ## CI / 验证
 
-`.github/workflows/ci.yml` 在每次 push/PR 运行：`npm ci` → `typecheck` → `npm test`（数据层单测）→ `xvfb-run -a npm run test:e2e`（真实扩展宿主）→ `npm run package`。
+`.github/workflows/ci.yml` 在每次 push/PR 运行：**test job**（Linux/Windows × Node 22/24 矩阵：`npm ci` → `typecheck` → `npm test`）与 **e2e job**（Linux + xvfb：`npm ci` → `npm run test:e2e` → `npm run package`）。
 另有 quality（双语镜像对称 / BOM 防线 / actionlint）、pr-policy（Conventional Commits 标题、分支前缀、PR 模板完整性、CHANGELOG 自查真实性）、release-consistency（版本五处一致 + 每版本段 PR 链接）、security-scan（凭据扫描）与 docs-links（死链检查）job。
 
 e2e 覆盖：命令注册、真实终端创建与环境注入、输入回环、多会话、Ctrl+C 终止、`--resume` 恢复、指定会话恢复（env 通道、不传 `--resume`），以及受保护的真实 dsh-tui 恢复测试（恢复成功 = 不新建会话，可观测）。

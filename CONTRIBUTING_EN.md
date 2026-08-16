@@ -10,7 +10,7 @@ Thank you for considering contributing to dsh-tui-vscode! The workflow and conve
 
 ## Development environment
 
-- Node.js 24 (dev and CI agree); package management uses **npm** (`npm ci`).
+- Node.js 24 (dev default; the CI test matrix runs Node 22/24); package management uses **npm** (`npm ci`).
 - The e2e "real dsh-tui resume" test needs a global `dsh` CLI and `dsh-tui` (skipped automatically when absent).
 - Install the local hook for development: `node scripts/install-commit-hook.mjs` (blocks fast-to-revert issues like commit-message format).
 

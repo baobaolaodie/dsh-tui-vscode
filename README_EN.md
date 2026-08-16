@@ -108,7 +108,7 @@ Key points:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved by the shell via PATH) |
+| `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved to an absolute path against the HOST PATH before being sent) |
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
@@ -133,7 +133,7 @@ dsh-tui-vscode/
 │   └── install-commit-hook.mjs  # local hook installer
 ├── .githooks/              # pre-commit / commit-msg (shipped in the repo)
 ├── .github/
-│   ├── workflows/ci.yml    # full CI (test/quality/pr-policy/release-consistency/security-scan/docs-links)
+│   ├── workflows/ci.yml    # full CI (test matrix/e2e/quality/pr-policy/release-consistency/security-scan/docs-links)
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   └── ISSUE_TEMPLATE/     # four issue forms
 ├── CONTRIBUTING.md / CONTRIBUTING_EN.md
@@ -149,7 +149,7 @@ dsh-tui-vscode/
 
 | Layer | Technology |
 | --- | --- |
-| Language | TypeScript 5.6 (ESM, Node 24 dev runtime) |
+| Language | TypeScript 5.6 (ESM syntax in source, compiled to CommonJS; Node 24 dev runtime) |
 | Platform | VS Code Extension API (engines `^1.90.0`) |
 | Runtime dependency | `@bokuweb/zstd-wasm` (session-log zstd decompression — the only dependency) |
 | Testing | `node:test` unit tests + `@vscode/test-electron` real extension-host e2e |
@@ -158,7 +158,7 @@ dsh-tui-vscode/
 
 ## CI / Verification
 
-`.github/workflows/ci.yml` runs on every push/PR: `npm ci` → `typecheck` → `npm test` (data-layer unit tests) → `xvfb-run -a npm run test:e2e` (real extension host) → `npm run package`.
+`.github/workflows/ci.yml` runs on every push/PR: the **test job** (Linux/Windows × Node 22/24 matrix: `npm ci` → `typecheck` → `npm test`) and the **e2e job** (Linux + xvfb: `npm ci` → `npm run test:e2e` → `npm run package`).
 Additional jobs: quality (bilingual mirror symmetry / BOM guard / actionlint), pr-policy (Conventional Commits title, branch prefix, PR template completeness, CHANGELOG self-check honesty), release-consistency (five-point version sync + per-version PR links), security-scan (credential scan) and docs-links (dead-link check).
 
 The e2e suite covers: command registration, real terminal creation with env injection, input round-trip, multiple sessions, Ctrl+C termination, `--resume` resume, specific-session resume (env channel, no `--resume`), and a guarded REAL dsh-tui resume test (a successful resume creates no new session — observable).
