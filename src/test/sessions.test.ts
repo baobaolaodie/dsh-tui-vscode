@@ -82,7 +82,7 @@ test('readSessionRecord tolerates missing/garbage events; undecodable logs still
     // Undecodable content → tolerant fallback: id from the session dir,
     // project from the group dir, createdAt from the file mtime.
     writeFileSync(file, '\x00\x01\x02broken')
-    const tolerant = readSessionRecord(file, '--D-LongYinHaHa-VSCode-deepsharness--')
+    const tolerant = readSessionRecord(file, '--D-user-VSCode-deepsharness--')
     assert.equal(tolerant?.id, 'ghi-789')
     assert.equal(tolerant?.project, 'deepsharness')
     assert.ok(typeof tolerant?.createdAt === 'number')
@@ -93,16 +93,16 @@ test('readSessionRecord tolerates missing/garbage events; undecodable logs still
 
 test('decodeGroupDir and projectNameOf derive project short names', () => {
   // Hyphen-free paths decode exactly.
-  assert.equal(decodeGroupDir('--C-Users-LongYinHaHa--'), 'C:\\Users\\LongYinHaHa')
-  assert.equal(decodeGroupDir('--D-LongYinHaHa-VSCode-deepsharness--'), 'D:\\LongYinHaHa\\VSCode\\deepsharness')
+  assert.equal(decodeGroupDir('--C-Users-user--'), 'C:\\Users\\user')
+  assert.equal(decodeGroupDir('--D-user-VSCode-deepsharness--'), 'D:\\user\\VSCode\\deepsharness')
   // The cwd-encoding is lossy for hyphenated names — documented limitation.
-  assert.equal(decodeGroupDir('--D-LongYinHaHa-VSCode-flow-comet--'), 'D:\\LongYinHaHa\\VSCode\\flow\\comet')
+  assert.equal(decodeGroupDir('--D-user-VSCode-flow-comet--'), 'D:\\user\\VSCode\\flow\\comet')
   assert.equal(decodeGroupDir('not-encoded'), undefined)
   // cwd wins over the group dir.
   assert.equal(projectNameOf('d:\\repo\\my-app', '--D-x--'), 'my-app')
   // group-dir fallback when cwd is missing.
-  assert.equal(projectNameOf(undefined, '--D-LongYinHaHa-VSCode-deepsharness--'), 'deepsharness')
-  assert.equal(projectNameOf(undefined, '--C-Users-LongYinHaHa--'), 'LongYinHaHa')
+  assert.equal(projectNameOf(undefined, '--D-user-VSCode-deepsharness--'), 'deepsharness')
+  assert.equal(projectNameOf(undefined, '--C-Users-user--'), 'user')
   assert.equal(projectNameOf(undefined, undefined), undefined)
 })
 
