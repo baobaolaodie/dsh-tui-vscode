@@ -96,7 +96,12 @@ test('start opens a REAL terminal and launches the CLI with env injection', asyn
     return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
   }, 20000).catch(() => undefined)
   if (!text) {
-    throw new Error('env-out never written by the fake launcher')
+    const shimLog = readFile(join(WS, 'fake-dsh-tui.js.shim-log'))
+    const names = vscode.window.terminals.map(t => t.name).join(',')
+    const wsFiles = readdirSync(WS).join(',')
+    throw new Error(
+      `env-out never written; terminals=[${names}] shimLog=${JSON.stringify(shimLog ?? '<none>')} ws=[${wsFiles}]`,
+    )
   }
   const lines = text.trim().split(/\r?\n/).map(line => line.trim())
   assert.ok(lines.includes('VISUAL=code -w'), `VISUAL missing: ${lines.join(' | ')}`)
