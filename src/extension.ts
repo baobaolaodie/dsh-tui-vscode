@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
+import { appendSessionTitle, deleteSessionLog } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, quoteLaunchPath } from './session'
 
 const TERMINAL_NAME = 'DeepSeek'
@@ -187,6 +188,28 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
     if (typeof sessionId !== 'string' || !sessionId) return
     runCommand(true, sessionId)
+  })
+  register('dsh-tui-vscode.renameSession', async (sessionId: unknown, file: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId || typeof file !== 'string' || !file) return
+    const title = await vscode.window.showInputBox({
+      prompt: `重命名会话 ${sessionId.slice(0, 8)}…`,
+      placeHolder: '输入新标题',
+      ignoreFocusOut: true,
+    })
+    if (title === undefined) return // cancelled
+    const trimmed = title.trim()
+    if (!trimmed) return
+    if (appendSessionTitle(file, trimmed) === 'appended') sessionsTree.refresh()
+  })
+  register('dsh-tui-vscode.deleteSession', async (sessionId: unknown, file: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId || typeof file !== 'string' || !file) return
+    const answer = await vscode.window.showWarningMessage(
+      `删除会话 ${sessionId.slice(0, 8)}…？其日志目录将被永久移除，此操作不可撤销。`,
+      { modal: true },
+      '删除',
+    )
+    if (answer !== '删除') return
+    if (deleteSessionLog(file) === 'deleted') sessionsTree.refresh()
   })
 
   sessionsTree.refresh()

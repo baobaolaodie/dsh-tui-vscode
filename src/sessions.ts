@@ -12,9 +12,19 @@
  * workspace (same semantics as the TUI's `sessionCwdMatches`), hide
  * boot-only sessions (no human prompt) and hide delegated sub-agent runs.
  */
-import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import {
+  readdirSync,
+  readFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+  appendFileSync,
+  realpathSync,
+  rmSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, sep } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import * as zstd from '@bokuweb/zstd-wasm'
 import { gunzipSync } from 'node:zlib'
 
@@ -833,6 +843,86 @@ export function sessionCwdMatches(
     // Pre-upgrade subdirectory session of this workspace.
     recorded.startsWith(`${cwd}/`)
   )
+}
+
+/**
+ * Append a `session/title` event to a session log — the rename contract of
+ * the dsh-TUI `/resume` picker (`appendSessionTitle` in compat/sessionLog.
+ * ts): one more zstd frame appended at EOF, `seq = maxSeq + 1`, and
+ * last-title-wins on every reader. Append-only (O_APPEND via appendFileSync),
+ * existing bytes are never rewritten, so a concurrently writing TUI/web
+ * session is safe. The live session's own TUI does not see the new title
+ * until it re-reads the log — the sidebar rename is meant for stored
+ * sessions.
+ * @param file - Absolute path of the session log (session.jsonl.zstd).
+ * @param title - New display title (already trimmed by the caller).
+ * @returns 'appended', or 'unavailable' when the log is absent/undecodable.
+ */
+export function appendSessionTitle(
+  file: string,
+  title: string,
+): 'appended' | 'unavailable' {
+  try {
+    // Only zstd logs can take a new frame: appending one to a gzip/plain
+    // legacy log would corrupt its format (the TUI's own rename only ever
+    // targets session.jsonl.zstd).
+    const buf = readFileSync(file)
+    if (buf.length <= 4 || buf.readUInt32LE(0) !== ZSTD_MAGIC) return 'unavailable'
+    const text = decodeSessionLog(file).toString('utf8')
+    let maxSeq = -1
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim()
+      if (!line) continue
+      try {
+        const event = JSON.parse(line) as { seq?: unknown }
+        if (typeof event['seq'] === 'number' && event['seq'] > maxSeq) maxSeq = event['seq']
+      } catch {
+        // unparseable line — not a seq witness
+      }
+    }
+    // Same envelope shape as a manual /rename append ({ title } only); the
+    // seed validator asks only for type/seq/time/data on non-message types.
+    const event = {
+      type: 'session/title',
+      seq: maxSeq + 1,
+      time: Date.now(),
+      data: { title },
+    }
+    const frame = Buffer.from(zstd.compress(Buffer.from(JSON.stringify(event) + '\n', 'utf8'), 3))
+    appendFileSync(file, frame)
+    return 'appended'
+  } catch {
+    return 'unavailable'
+  }
+}
+
+/**
+ * Delete a session's log directory — the delete contract of the dsh-TUI
+ * `/resume` picker (`deleteSessionLog` in compat/sessionLog.ts). Refuses when
+ * the resolved directory escapes the sessions root: a symlinked group
+ * directory could otherwise steer the recursive rm outside the root, so both
+ * sides are realpath'd before the containment check.
+ * @param file - Absolute path of the session log (session.jsonl.zstd).
+ * @param dshHome - DSH home override (defaults to env/`~/.dsh`), matching
+ *   the listing functions.
+ * @returns 'deleted', or 'unavailable' when the log is absent or the path
+ *   escapes the sessions root.
+ */
+export function deleteSessionLog(file: string, dshHome?: string): 'deleted' | 'unavailable' {
+  try {
+    const root = join(
+      dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'),
+      'sessions',
+    )
+    const dir = dirname(file)
+    const realDir = realpathSync(dir)
+    const realRoot = realpathSync(root)
+    if (!realDir.startsWith(realRoot + sep)) return 'unavailable'
+    rmSync(dir, { recursive: true, force: true })
+    return 'deleted'
+  } catch {
+    return 'unavailable'
+  }
 }
 
 export interface ListSessionsOptions {

@@ -6,6 +6,8 @@
 
 ### Added
 
+- **侧边栏右键重命名/删除会话**：条目上悬停/右键可重命名（向日志追加 `session/title` zstd 帧，`seq` 续接，与 dsh-TUI `/resume` 选择器同一契约；非 zstd 旧日志拒绝追加不损坏）或删除（真实路径 containment 校验，符号链接无法把删除引到会话根之外；删除前模态确认）。
+
 ### Changed
 
 ### Fixed

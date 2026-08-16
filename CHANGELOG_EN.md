@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Rename/delete sessions from the sidebar**: hover/right-click an entry to rename (appends a `session/title` zstd frame, `seq` continued — the same contract as the dsh-TUI `/resume` picker; non-zstd legacy logs are refused, never corrupted) or delete (realpath containment check so a symlink cannot steer the removal outside the sessions root; modal confirmation before deleting).
+
 ### Changed
 
 ### Fixed

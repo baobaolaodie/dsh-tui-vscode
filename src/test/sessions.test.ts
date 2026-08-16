@@ -18,6 +18,8 @@ import {
   sessionCwdMatches,
   sessionLabel,
   pathBase,
+  appendSessionTitle,
+  deleteSessionLog,
   readStorageTitles,
   readStorageMeta,
 } from '../sessions.js'
@@ -162,11 +164,13 @@ test('decodeSessionLog decodes gzip and single-frame zstd logs', async () => {
     writeFileSync(gzFile, gzipSync(Buffer.from(gzBody, 'utf8')))
     assert.match(decodeSessionLog(gzFile).toString('utf8'), /"cwd":"\/gz"/)
 
-    // Single-frame zstd (the `compressed` form of makeSession).
-    const one = makeSession(root, 'one-1', [
-      JSON.stringify({ type: 'session', version: 0, id: 'one-1', cwd: '/one', createdAt: 1 }),
-      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '单帧消息' }] } }),
-    ], true)
+    // A REAL single-frame zstd log (makeMultiFrameSession compresses).
+    const one = makeMultiFrameSession(root, 'one-1', [
+      [
+        JSON.stringify({ type: 'session', version: 0, id: 'one-1', cwd: '/one', createdAt: 1 }),
+        JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '单帧消息' }] } }),
+      ],
+    ])
     const rec = readSessionRecord(one)
     assert.equal(rec?.title, '单帧消息')
     assert.equal(rec?.cwd, '/one')
@@ -630,6 +634,62 @@ test('listSessions title precedence: event > storage > first user message', asyn
     assert.equal(byId['sess-e'].title, '事件标题')
     assert.equal(byId['sess-s'].title, 'Storage 标题')
     assert.equal(byId['sess-u'].title, '唯一消息')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('appendSessionTitle appends a zstd frame; last title wins on read', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-rename-'))
+  try {
+    const id = 'ren-1'
+    const file = makeMultiFrameSession(root, id, [
+      [JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 })],
+      [JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '原始消息' }] } })],
+      [JSON.stringify({ type: 'session/title', seq: 1, data: { title: '自动标题' } })],
+    ])
+    assert.equal(appendSessionTitle(file, '右键重命名'), 'appended')
+    const rec = readSessionRecord(file)
+    assert.equal(rec?.title, '右键重命名')
+    assert.equal(rec?.eventTitle, '右键重命名')
+    // The appended frame decodes as part of the multi-frame chain.
+    assert.match(decodeSessionLog(file).toString('utf8'), /右键重命名/)
+    // Renaming again continues the seq (maxSeq + 1) and still wins.
+    assert.equal(appendSessionTitle(file, '再次重命名'), 'appended')
+    assert.equal(readSessionRecord(file)?.title, '再次重命名')
+    // Absent log → unavailable.
+    assert.equal(appendSessionTitle(join(root, 'nope.jsonl.zstd'), 'x'), 'unavailable')
+    // A NON-zstd log cannot take a new frame — refused, not corrupted.
+    const plain = makeSession(root, 'ren-2', [
+      JSON.stringify({ type: 'session', version: 0, id: 'ren-2', cwd: '/w', createdAt: 1 }),
+      JSON.stringify({ type: 'session/title', seq: 1, data: { title: '明文标题' } }),
+    ])
+    assert.equal(appendSessionTitle(plain, 'x'), 'unavailable')
+    assert.equal(readSessionRecord(plain)?.title, '明文标题')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deleteSessionLog removes the session dir and refuses out-of-root paths', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-del-'))
+  try {
+    const id = 'del-1'
+    const file = makeSession(root, id, [
+      JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 }),
+      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '待删会话' }] } }),
+    ])
+    assert.equal(findSessionFiles(root).length, 1)
+    assert.equal(deleteSessionLog(file, root), 'deleted')
+    assert.equal(findSessionFiles(root).length, 0)
+    // Deleting again → unavailable (the dir is gone).
+    assert.equal(deleteSessionLog(file, root), 'unavailable')
+    // A path OUTSIDE the sessions root is refused — the containment check
+    // must hold even without any symlink in play.
+    const outside = join(root, 'outside.txt')
+    writeFileSync(outside, 'not a session')
+    assert.equal(deleteSessionLog(outside, root), 'unavailable')
+    assert.ok(statSync(outside).isFile())
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
