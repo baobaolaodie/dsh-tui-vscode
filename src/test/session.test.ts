@@ -1,9 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync, existsSync, chmodSync } from 'node:fs'
-import { join } from 'node:path'
+import { writeFileSync, mkdtempSync, rmSync, existsSync, chmodSync, mkdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildLaunchEnv, buildTerminalPlan, resolveWindowsCommand, resolvePosixCommand } from '../session.js'
+import {
+  buildLaunchEnv,
+  buildTerminalPlan,
+  resolveWindowsCommand,
+  resolvePosixCommand,
+  extractShimEntry,
+} from '../session.js'
 
 test('buildLaunchEnv sets DSH_TUI_LANG when lang provided', () => {
   // injectEditor is on by default, so VISUAL also appears unless disabled.
@@ -145,6 +151,66 @@ test('buildTerminalPlan Windows resolves shims and passes args through', () => {
     } finally {
       process.env.PATH = originalPath
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('buildTerminalPlan Windows runs npm-style shims directly via node (no cmd wrapper)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-direct-'))
+  try {
+    const entry = join(dir, 'node_modules', '@deepseek-harness-tui', 'dsh-tui', 'bin', 'dsh-tui.js')
+    mkdirSync(dirname(entry), { recursive: true })
+    writeFileSync(entry, '#!/usr/bin/env node\n')
+    const shim = join(dir, 'dsh-tui.cmd')
+    // The exact shape npm generates (incl. `title %COMSPEC%`).
+    writeFileSync(
+      shim,
+      [
+        '@ECHO off',
+        ':start',
+        'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@deepseek-harness-tui\\dsh-tui\\bin\\dsh-tui.js" %*',
+        '',
+      ].join('\r\n'),
+    )
+    const fakeNode = join(dir, 'node.exe')
+    writeFileSync(fakeNode, '')
+    const originalPath = process.env.PATH
+    process.env.PATH = dir
+    try {
+      assert.deepEqual(buildTerminalPlan({ resume: true, isWindows: true }), {
+        shellPath: fakeNode,
+        shellArgs: [entry, '--resume'],
+      })
+      assert.deepEqual(buildTerminalPlan({ resume: false, extraArgs: ['--lang', 'en'], isWindows: true }), {
+        shellPath: fakeNode,
+        shellArgs: [entry, '--lang', 'en'],
+      })
+    } finally {
+      process.env.PATH = originalPath
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('extractShimEntry resolves %dp0% relative entries', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-extract-'))
+  try {
+    const entry = join(dir, 'node_modules', 'pkg', 'bin', 'cli.js')
+    mkdirSync(dirname(entry), { recursive: true })
+    writeFileSync(entry, '')
+    const shim = join(dir, 'tool.cmd')
+    writeFileSync(shim, `@ECHO off\r\n"node" "%dp0%\\node_modules\\pkg\\bin\\cli.js" %*\r\n`)
+    assert.equal(extractShimEntry(shim), entry)
+    // Absolute entry without %dp0%.
+    const other = join(dir, 'other.js')
+    writeFileSync(other, '')
+    writeFileSync(shim, `@ECHO off\r\n"node" "${other}" %*\r\n`)
+    assert.equal(extractShimEntry(shim), other)
+    // No .js entry → undefined.
+    writeFileSync(shim, '@ECHO off\r\nnot-a-shim\r\n')
+    assert.equal(extractShimEntry(shim), undefined)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
