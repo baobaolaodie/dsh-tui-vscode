@@ -23,7 +23,16 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionReco
   private sessions: SessionRecord[] = []
 
   refresh(): void {
-    this.sessions = listSessions()
+    void this.reload()
+  }
+
+  private async reload(): Promise<void> {
+    try {
+      this.sessions = await listSessions()
+    } catch (error) {
+      this.sessions = []
+      console.error('dsh-tui: failed to list sessions', error)
+    }
     this.onChange.fire(undefined)
   }
 

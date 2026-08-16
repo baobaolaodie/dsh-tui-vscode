@@ -111,11 +111,12 @@ export class TuiPanel {
     panel.webview.html = this.renderHtml(panel.webview)
     panel.webview.onDidReceiveMessage(message => this.onMessage(message))
     panel.onDidDispose(() => {
-      // The session keeps running in the background; reopening reconnects to
-      // the live stream.
       this.panel = undefined
       this.ready = false
       this.pending.length = 0
+      // Close panel = stop session (like Claude Code: the session lives and
+      // dies with the panel).
+      this.kill()
     })
     this.panel = panel
   }

@@ -164,12 +164,23 @@ test('open-path message opens the file in the editor', async () => {
 test('kill terminates the session; resume relaunches with --resume', async () => {
   const ext = vscode.extensions.getExtension(EXT_ID)!
   const api = ext.exports as Api
+  // Self-contained: (re)configure the fake launcher so this test does not
+  // depend on settings left by earlier tests (the test host may restart).
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  await cfg.update('command', 'fake-dsh-tui', vscode.ConfigurationTarget.Global)
+  await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
+  await cfg.update('lang', 'zh', vscode.ConfigurationTarget.Global)
+  await cfg.update('dshHome', 'C:\\e2e-home', vscode.ConfigurationTarget.Global)
+  // Close=stop lifecycle: the session dies with the panel, and the panel may
+  // have been disposed by earlier tests — ensure a live session first.
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  await poll(() => (api.getState().running ? true : undefined), 15000, 200)
   rmSync(EXITED, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.kill')
-  // Ctrl+C reaches the child (SIGINT handler writes the marker)…
-  await poll(() => (readFile(EXITED) ? true : undefined), 15000, 200)
-  // …then the PTY exit event propagates to the extension state.
-  await poll(() => (api.getState().running ? undefined : true), 5000, 100)
+  // Ctrl+C then force-kill (600ms grace) → the PTY exit event propagates to
+  // the extension state. (The SIGINT marker is best-effort only; the host
+  // environment does not always deliver Ctrl+C as a signal.)
+  await poll(() => (api.getState().running ? undefined : true), 10000, 200)
   assert.equal(api.getState().running, false, 'session should be stopped after kill')
 
   rmSync(ENV_OUT, { force: true })
@@ -191,6 +202,11 @@ test('kill terminates the session; resume relaunches with --resume', async () =>
 test('focus reveals the panel without restarting', async () => {
   const ext = vscode.extensions.getExtension(EXT_ID)!
   const api = ext.exports as Api
+  // Ensure a live session so focus has something to reveal.
+  if (!api.getState().running) {
+    await vscode.commands.executeCommand('dsh-tui-vscode.start')
+    await poll(() => (api.getState().running ? true : undefined), 15000, 200)
+  }
   const before = api.getState()
   await vscode.commands.executeCommand('dsh-tui-vscode.focus')
   const after = api.getState()

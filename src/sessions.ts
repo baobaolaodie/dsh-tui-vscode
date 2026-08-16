@@ -12,6 +12,13 @@ import { join } from 'node:path'
 import * as zstd from '@bokuweb/zstd-wasm'
 import { gunzipSync } from 'node:zlib'
 
+/** zstd WASM must be initialized once before decompression (async). */
+let zstdInit: Promise<void> | null = null
+export function ensureZstd(): Promise<void> {
+  if (!zstdInit) zstdInit = zstd.init()
+  return zstdInit
+}
+
 export interface SessionRecord {
   id: string
   /** Display title, or undefined when the log has none. */
@@ -157,7 +164,8 @@ export function readSessionRecord(file: string): SessionRecord | undefined {
 }
 
 /** All sessions across DSH_HOME, most recently created first. */
-export function listSessions(dshHome?: string): SessionRecord[] {
+export async function listSessions(dshHome?: string): Promise<SessionRecord[]> {
+  await ensureZstd()
   return findSessionFiles(dshHome)
     .map(sf => readSessionRecord(sf.file))
     .filter((s): s is SessionRecord => s !== undefined && s.id.length > 0)

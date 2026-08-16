@@ -1,9 +1,13 @@
-import { test } from 'node:test'
+import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { findSessionFiles, readSessionRecord, listSessions } from '../sessions.js'
+import { findSessionFiles, readSessionRecord, listSessions, ensureZstd } from '../sessions.js'
+
+before(async () => {
+  await ensureZstd()
+})
 
 function makeSession(
   root: string,
@@ -74,14 +78,14 @@ test('readSessionRecord tolerates missing/garbage events', () => {
   }
 })
 
-test('findSessionFiles and listSessions walk the DSH tree', () => {
+test('findSessionFiles and listSessions walk the DSH tree', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-tree-'))
   try {
     makeSession(root, 'a-1', [JSON.stringify({ type: 'session', id: 'a-1', createdAt: 100 })])
     makeSession(root, 'b-2', [JSON.stringify({ type: 'session', id: 'b-2', createdAt: 200 })])
     const files = findSessionFiles(root)
     assert.equal(files.length, 2)
-    const list = listSessions(root)
+    const list = await listSessions(root)
     assert.equal(list.length, 2)
     // most recently created first
     assert.equal(list[0].id, 'b-2')
