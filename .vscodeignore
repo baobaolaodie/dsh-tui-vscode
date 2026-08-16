@@ -16,3 +16,6 @@ package-lock.json
 *.vsix
 *.log
 .gh-log/
+
+.githooks/
+scripts/

@@ -129,7 +129,18 @@ dsh-tui-vscode/
 │   └── test-suite/         # Real extension-host e2e (@vscode/test-electron)
 ├── media/icon.svg          # DeepSeek whale icon (activity bar / terminal tab)
 ├── media/icon.png          # Marketplace icon
-├── .github/workflows/ci.yml
+├── scripts/
+│   └── install-commit-hook.mjs  # local hook installer
+├── .githooks/              # pre-commit / commit-msg (shipped in the repo)
+├── .github/
+│   ├── workflows/ci.yml    # full CI (test/quality/pr-policy/release-consistency/security-scan/docs-links)
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── ISSUE_TEMPLATE/     # four issue forms
+├── CONTRIBUTING.md / CONTRIBUTING_EN.md
+├── SECURITY.md / SECURITY_EN.md
+├── CODE_OF_CONDUCT.md / CODE_OF_CONDUCT_EN.md
+├── CHANGELOG.md / CHANGELOG_EN.md
+├── README_EN.md
 ├── package.json
 └── LICENSE
 ```

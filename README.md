@@ -129,7 +129,18 @@ dsh-tui-vscode/
 │   └── test-suite/         # 真实扩展宿主 e2e（@vscode/test-electron）
 ├── media/icon.svg          # DeepSeek 鲸鱼图标（活动栏 / 终端标签）
 ├── media/icon.png          # Marketplace 图标
-├── .github/workflows/ci.yml
+├── scripts/
+│   └── install-commit-hook.mjs  # 本地钩子安装脚本
+├── .githooks/              # pre-commit / commit-msg（入库分发）
+├── .github/
+│   ├── workflows/ci.yml    # 完整 CI（test/quality/pr-policy/release-consistency/security-scan/docs-links）
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── ISSUE_TEMPLATE/     # 四类 issue 表单
+├── CONTRIBUTING.md / CONTRIBUTING_EN.md
+├── SECURITY.md / SECURITY_EN.md
+├── CODE_OF_CONDUCT.md / CODE_OF_CONDUCT_EN.md
+├── CHANGELOG.md / CHANGELOG_EN.md
+├── README_EN.md
 ├── package.json
 └── LICENSE
 ```
