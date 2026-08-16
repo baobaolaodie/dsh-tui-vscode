@@ -1,0 +1,70 @@
+name: 问题报告 / Bug report
+description: 报告行为异常 / Report abnormal behavior
+title: "[bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- 报告前请先搜索既有 issue,避免重复 / Search existing issues before filing -->
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为 / Actual behavior
+      description: 发生了什么 / What actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected behavior
+      description: 应该怎样 / What should have happened
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 最小化复现 / Minimal reproduction
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: checkboxes
+    id: duplicates
+    attributes:
+      label: 查重 / Duplicate check
+      options:
+        - label: 我已搜索既有 issue / I have searched existing issues
+          required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: 影响 / Impact
+      options:
+        - 阻塞(无法继续)/ Blocking (cannot continue)
+        - 降级(功能部分失效)/ Degraded (partial functionality)
+        - 轻微 / Minor
+      default: 2
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: 用于定位问题的上下文 / Context for reproducing the issue
+      placeholder: |
+        - 平台 / Platform:
+        - 版本 / Version:
+        - 安装方式 / Install method:
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 相关日志片段 / Relevant log snippets
+      render: shell
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他 / Additional context
+      description: 截图或补充说明 / Screenshots or extra details

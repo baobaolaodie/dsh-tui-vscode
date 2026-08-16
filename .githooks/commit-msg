@@ -1,0 +1,8 @@
+#!/bin/sh
+# commit-msg：提交信息必须遵循 Conventional Commits（CI pr-policy 服务端兜底）
+set -e
+msg=$(cat "$1")
+echo "$msg" | grep -qE '^(feat|fix|docs|chore|test|ci|refactor|perf|build|revert)(\([^)]+\))?: ' \
+  || echo "$msg" | grep -qE '^Merge ' \
+  || { echo "提交信息不符合 Conventional Commits（feat:/fix:/docs:/chore:/test:/ci:/refactor:/perf:/build:/revert:）" >&2; exit 1; }
+exit 0

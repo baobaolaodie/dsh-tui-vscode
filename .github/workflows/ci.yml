@@ -1,32 +1,207 @@
+# CI —— 由 github-repo-setup skill 生成（约定检查全部在服务端内嵌实现，不依赖仓库内脚本）
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
+  # ── 测试：跨版本 + 平台 / Tests ──
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - name: Install
+        run: npm ci
+      # TypeScript 用 tsc 而非 node --check（node 无法解析 TS 语法）
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      # 覆盖率门禁：本项目暂无覆盖率工具链（c8 等），有意省略；引入后再补
+
+  # ── 真实扩展宿主 e2e + 打包（仅 ubuntu + Node 24，避免矩阵重复）──
+  e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-
       - run: npm ci
-
-      - run: npm run typecheck
-
-      - run: npm test
-
-      # Real extension-host tests: launches VS Code under xvfb.
       - run: xvfb-run -a npm run test:e2e
-
       - run: npm run package
+
+  # ── 质量：双语镜像 + BOM 防线 + workflow lint / Quality ──
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: '双语镜像对称 / Bilingual mirror symmetry'
+        run: |
+          python - <<'EOF'
+          import io, os
+          pairs = [('README.md','README_EN.md'),('CONTRIBUTING.md','CONTRIBUTING_EN.md'),
+                   ('SECURITY.md','SECURITY_EN.md'),('CHANGELOG.md','CHANGELOG_EN.md')]
+          # CODE_OF_CONDUCT 除外：标准模板与翻译行数天然不对齐
+          for zh, en in pairs:
+              if not os.path.isfile(zh) or not os.path.isfile(en):
+                  raise SystemExit('missing bilingual pair: %s / %s' % (zh, en))
+              nz = sum(1 for _ in io.open(zh, encoding='utf-8'))
+              ne = sum(1 for _ in io.open(en, encoding='utf-8'))
+              if abs(nz - ne) > 10:
+                  raise SystemExit('bilingual asymmetry: %s %d vs %s %d' % (zh, nz, en, ne))
+          print('bilingual pairs OK')
+          EOF
+
+      - name: 'BOM 防线 / BOM guard'
+        run: |
+          # 本项目无依赖 BOM 的文件（无 PS 脚本等）；所有文本文件禁止意外 BOM
+          for f in $(git ls-files '*.ts' '*.js' '*.mjs' '*.json' '*.md' '*.yml' '*.yaml'); do
+            if head -c 3 "$f" | od -An -tx1 | grep -qi 'ef bb bf'; then
+              echo "非预期 BOM / unexpected BOM in: $f"; exit 1
+            fi
+          done
+
+      - name: 'Workflow lint (actionlint)'
+        uses: reviewdog/action-actionlint@v1
+
+  # ── PR 纪律：标题/模板/分支前缀/提交规范（服务端强制）/ PR policy ──
+  pr-policy:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const pr = context.payload.pull_request;
+            const isRelease = pr.head.ref === 'dev' && pr.base.ref === 'main';
+            const P = [];
+
+            if (!isRelease && !/^(feat|fix|docs|chore|hotfix|ci|test)\//.test(pr.head.ref))
+              P.push(`PR head branch must carry a feat/fix/docs/chore/hotfix/ci/test prefix, got ${pr.head.ref}`);
+
+            const tmpl = fs.readFileSync('.github/PULL_REQUEST_TEMPLATE.md', 'utf8');
+            const body = pr.body ?? '';
+            const SECTION_PAIRS = [
+              ['## 摘要', '## Summary'],
+              ['## 改动范围', '## Scope of Changes'],
+              ['## 验证', '## Verification'],
+              ['## 自查', '## Self-check'],
+              ['## 审查注意点', '## Review Notes'],
+            ];
+            for (const [zh, en] of SECTION_PAIRS)
+              if (!body.includes(zh) && !body.includes(en))
+                P.push(`PR body missing template section: ${zh} / ${en}`);
+            for (const m of tmpl.matchAll(/^- \[ \] (.+)$/gm)) {
+              const it = m[1].trim();
+              if (!body.includes(`- [x] ${it}`) && !body.includes(`- [ ] ${it}`))
+                P.push(`PR body deleted or omitted checkbox "${it.slice(0, 24)}…" (keep unchecked items)`);
+            }
+
+            if (body.includes('- [x] 行为变化已记入 CHANGELOG(Unreleased)/ Behavior changes recorded in CHANGELOG (Unreleased)')) {
+              const base = 'origin/main';
+              const clDiff = execSync(`git diff --name-only ${base} HEAD -- CHANGELOG.md CHANGELOG_EN.md`).toString().trim();
+              if (!clDiff) P.push('self-check claims CHANGELOG updated (Unreleased) but no CHANGELOG diff against base');
+            }
+
+            const conv = /^(feat|fix|docs|chore|test|ci|refactor|perf|build|revert)(\([^)]+\))?: .+/;
+            if (!conv.test(pr.title)) P.push(`PR title not Conventional Commits: "${pr.title}"`);
+            if (!isRelease) {
+              const commits = await github.rest.pulls.listCommits({
+                owner: context.repo.owner, repo: context.repo.repo, pull_number: pr.number,
+              });
+              for (const c of commits.data) {
+                const msg = c.commit.message.split('\n')[0];
+                if (/^Merge /.test(msg)) continue;
+                if (!conv.test(msg)) P.push(`commit message not Conventional Commits: "${msg.slice(0, 60)}"`);
+              }
+            }
+
+            if (P.length) core.setFailed('Convention violations:\n' + P.join('\n'));
+
+  # ── 版本一致性：仅发布面触发 / Release consistency ──
+  release-consistency:
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))
+      || (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: '版本一致性 / Version consistency'
+        run: |
+          # package.json / README 双版徽章 / CHANGELOG 双版 五处一致
+          V1=$(node -p "require('./package.json').version")
+          V2=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1 | sed 's/version-//')
+          V3=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README_EN.md | head -1 | sed 's/version-//')
+          V4=$(grep -m1 '^## \[' CHANGELOG.md | sed -E 's/## \[([0-9.]+).*/\1/')
+          V5=$(grep -m1 '^## \[' CHANGELOG_EN.md | sed -E 's/## \[([0-9.]+).*/\1/')
+          echo "version=$V1 README=$V2/$V3 CHANGELOG=$V4/$V5"
+          [ "$V1" = "$V2" ] && [ "$V1" = "$V3" ] && [ "$V1" = "$V4" ] && [ "$V1" = "$V5" ] \
+            || { echo "版本不一致 / version mismatch"; exit 1; }
+      - name: 'CHANGELOG 每版本段 PR 链接 / CHANGELOG per-version PR links'
+        run: |
+          # 每个已发布版本段（## [x.y.z]）必须含 PR 链接，或显式 direct-push 标记
+          # （分支保护启用前的直推历史无 PR——诚实豁免；新版本必须有 PR 链接）
+          for f in CHANGELOG.md CHANGELOG_EN.md; do
+            awk -v file="$f" '
+              /^## \[[0-9]/{ver=$2; has[ver]=0}
+              /pull\/[0-9]+/{if (ver) has[ver]=1}
+              /direct-push/{if (ver) has[ver]=1}
+              END{for (v in has) if (!has[v]) {print file " version section missing PR link: " v; exit 1}}' "$f"
+          done
+
+  # ── 敏感信息扫描：HEAD 级增量防线 / Security scan ──
+  # 注意：CI 只覆盖当前 HEAD；全历史深度扫描用本地审计（推送前必做）
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: '凭据扫描 / Credential scan'
+        run: |
+          if git grep -nE 'sk-(ant-api[0-9]{2}-)?[A-Za-z0-9]{20,}|(api[_-]?key|apikey)[[:space:]]*[:=]|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-|BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY' HEAD; then
+            echo "凭据泄露 / credentials found in tracked files"; exit 1
+          fi
+          echo "无凭据命中 / no credentials found"
+      - name: '凭据文件检查 / Credential-file check'
+        run: |
+          if git ls-files | grep -iE '\.env$|credential|secret|\.key$|\.pem$'; then
+            echo "凭据文件被跟踪 / credential-like file tracked"; exit 1
+          fi
+          echo "无凭据文件 / no credential-like files"
+
+  # ── 死链检查 / Dead links ──
+  docs-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: '死链检查 / Dead-link check'
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress README.md README_EN.md CONTRIBUTING.md CONTRIBUTING_EN.md SECURITY.md SECURITY_EN.md CHANGELOG.md CHANGELOG_EN.md CODE_OF_CONDUCT.md CODE_OF_CONDUCT_EN.md .github/

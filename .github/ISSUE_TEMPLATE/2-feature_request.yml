@@ -1,0 +1,57 @@
+name: 功能请求 / Feature request
+description: 请求新功能或新能力 / Request a new feature or capability
+title: "[feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- 报告前请先搜索既有 issue,避免重复 / Search existing issues before filing -->
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 动机 / Motivation
+      description: "为什么需要:当前痛点或场景 / Why it is needed: current pain point or scenario"
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标 / Goal
+      description: 想实现什么 / What you want to achieve
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected behavior
+      description: 描述期望的工作方式 / Describe the expected behavior
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准(可选)/ Acceptance criteria (optional)
+      description: 完成判据 / Definition of done
+  - type: checkboxes
+    id: duplicates
+    attributes:
+      label: 查重 / Duplicate check
+      options:
+        - label: 我已搜索既有 issue / I have searched existing issues
+          required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 贡献意愿 / Contribution intent
+      options:
+        - label: 我打算自己实现此功能 / I plan to implement this myself
+        - label: 我期望维护者或其他贡献者实现 / I expect a maintainer or another contributor to implement it
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围 / Scope of impact
+      multiple: true
+      options:
+        - 核心逻辑 / Core logic
+        - 界面/展示 / UI / Display
+        - 文档 / Docs
+        - 其他 / Other

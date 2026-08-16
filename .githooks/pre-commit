@@ -1,0 +1,38 @@
+#!/bin/sh
+# pre-commit：本地快速检查（CI 服务端兜底其余）；分层定位：本地拦"快速可逆但进历史
+# 极难清理"的问题。注意：.gitattributes 已强制 .githooks/** eol=lf（CRLF 会破坏本文件）。
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "=== [pre-commit] 测试 / Tests ==="
+npm test
+
+echo "=== [pre-commit] 双语镜像对称 / Bilingual mirror ==="
+node -e "
+const fs = require('fs');
+const pairs = [['README.md','README_EN.md'],['CONTRIBUTING.md','CONTRIBUTING_EN.md'],
+               ['SECURITY.md','SECURITY_EN.md'],['CHANGELOG.md','CHANGELOG_EN.md']];
+for (const [zh, en] of pairs) {
+  const nz = fs.readFileSync(zh, 'utf8').split('\n').length;
+  const ne = fs.readFileSync(en, 'utf8').split('\n').length;
+  if (Math.abs(nz - ne) > 10) {
+    console.error('双语镜像不对称 / asymmetry: ' + zh + ' ' + nz + ' vs ' + en + ' ' + ne);
+    process.exit(1);
+  }
+}
+console.log(pairs.length + ' bilingual pairs OK');
+"
+
+echo "=== [pre-commit] BOM 检查 / BOM guard ==="
+for f in $(git diff --cached --name-only -- '*.ts' '*.js' '*.mjs' '*.json' '*.md' '*.yml' '*.yaml'); do
+  if head -c 3 "$f" 2>/dev/null | od -An -tx1 | grep -qi 'ef bb bf'; then
+    echo "非预期 BOM / unexpected BOM in: $f"; exit 1
+  fi
+done
+
+echo "=== [pre-commit] 暂存内容凭据快速扫描 / staged credential scan ==="
+if git diff --cached | grep -nE 'sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY'; then
+  echo "暂存内容疑似包含凭据 / staged content looks like credentials"; exit 1
+fi
+
+git diff --cached --check
