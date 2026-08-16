@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
-import { buildLaunchEnv } from './session'
+import { buildLaunchEnv, resolveLaunchCommand, quoteLaunchPath } from './session'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -117,7 +117,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
-    const parts = [cfg.command.trim() || 'dsh-tui']
+    const isWindows = process.platform === 'win32'
+    const command = cfg.command.trim() || 'dsh-tui'
+    // Resolve against the HOST PATH: the terminal shell's PATH may differ
+    // (login shells rebuild it) — verified on Linux CI.
+    const resolved = resolveLaunchCommand(command, isWindows)
+    const parts = resolved ? [quoteLaunchPath(resolved, isWindows)] : [command]
     for (const arg of cfg.extraArgs) parts.push(arg)
 
     const existing = findTerminal()
