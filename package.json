@@ -155,7 +155,7 @@
     "test": "npm run compile && node --test out/test/sessions.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
-    "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.2.0.vsix --force"
+    "install:local": "npm run package && code --install-extension dsh-tui-vscode-0.5.0.vsix --force"
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27"
