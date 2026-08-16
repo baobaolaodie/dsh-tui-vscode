@@ -4,7 +4,7 @@ import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
 import { buildLaunchEnv } from './session'
 
-const TERMINAL_NAME = 'dsh-TUI'
+const TERMINAL_NAME = 'DeepSeek'
 
 interface Settings {
   command: string

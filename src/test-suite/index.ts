@@ -16,7 +16,7 @@ const WS = join(__dirname, '..', '..', '.e2e-workspace')
 const ENV_OUT = join(WS, 'env-out.txt')
 const STDIN_OUT = join(WS, 'stdin-out.txt')
 const EXITED = join(WS, 'exited.txt')
-const TERMINAL_NAME = 'dsh-TUI'
+const TERMINAL_NAME = 'DeepSeek'
 
 interface Api {
   sendInput(text: string): void
