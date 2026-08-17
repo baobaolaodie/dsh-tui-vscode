@@ -61,8 +61,7 @@ npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git
 cd dsh-tui-vscode
 npm install
-npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
-# 或一步到位：npm run install:local
+npm run install:local
 ```
 
 ## 使用
@@ -130,7 +129,8 @@ dsh-tui-vscode/
 ├── media/icon.svg          # DeepSeek 鲸鱼图标（活动栏 / 终端标签）
 ├── media/icon.png          # Marketplace 图标
 ├── scripts/
-│   └── install-commit-hook.mjs  # 本地钩子安装脚本
+│   ├── install-commit-hook.mjs  # 本地钩子安装脚本
+│   └── install-local.mjs        # 安装本地打包的 vsix（从 package.json 动态取版本号）
 ├── .githooks/              # pre-commit / commit-msg（入库分发）
 ├── .github/
 │   ├── workflows/ci.yml    # 完整 CI（test 矩阵/e2e/quality/pr-policy/release-consistency/security-scan/docs-links）

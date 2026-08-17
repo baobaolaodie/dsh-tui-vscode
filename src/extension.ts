@@ -11,7 +11,7 @@ import {
   readWorkspaceMeta,
   listSessions,
 } from './sessions'
-import { buildLaunchEnv, resolveLaunchCommand, quoteLaunchPath } from './session'
+import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -141,11 +141,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
     const isWindows = process.platform === 'win32'
+    const shellKind = detectShellKind(vscode.env.shell)
     const command = cfg.command.trim() || 'dsh-tui'
     // Resolve against the HOST PATH: the terminal shell's PATH may differ
-    // (login shells rebuild it) — verified on Linux CI.
-    const resolved = resolveLaunchCommand(command, isWindows)
-    const parts = resolved ? [quoteLaunchPath(resolved, isWindows)] : [command]
+    // (login shells rebuild it) — verified on Linux CI. The shell kind also
+    // tells us whether a Windows path must be converted for Git Bash/WSL.
+    const resolved = resolveLaunchCommand(command, isWindows, shellKind)
+    const parts = [formatLaunchPath(resolved ?? command, shellKind, isWindows)]
     for (const arg of cfg.extraArgs) parts.push(arg)
 
     const existing = findTerminal()

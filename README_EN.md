@@ -61,8 +61,7 @@ Install from the **VS Code extension marketplace** (recommended): press `Ctrl+Sh
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git
 cd dsh-tui-vscode
 npm install
-npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
-# or: npm run install:local
+npm run install:local
 ```
 
 ## Usage
@@ -130,7 +129,8 @@ dsh-tui-vscode/
 ├── media/icon.svg          # DeepSeek whale icon (activity bar / terminal tab)
 ├── media/icon.png          # Marketplace icon
 ├── scripts/
-│   └── install-commit-hook.mjs  # local hook installer
+│   ├── install-commit-hook.mjs  # local hook installer
+│   └── install-local.mjs        # installs the locally packaged vsix (version read from package.json)
 ├── .githooks/              # pre-commit / commit-msg (shipped in the repo)
 ├── .github/
 │   ├── workflows/ci.yml    # full CI (test matrix/e2e/quality/pr-policy/release-consistency/security-scan/docs-links)
