@@ -787,7 +787,7 @@ test('deleteSessionLog removes the session dir and refuses out-of-root paths', a
   }
 })
 
-test('deleteSessionLog containment is case-insensitive on Windows (vscode.Uri fsPath lowercases the drive)', async () => {
+test('deleteSessionLog containment follows platform case semantics', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-delcase-'))
   try {
     const id = 'delc-1'
@@ -795,15 +795,22 @@ test('deleteSessionLog containment is case-insensitive on Windows (vscode.Uri fs
       JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 }),
       JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '大小写会话' }] } }),
     ])
-    // vscode.Uri.file(...).fsPath on Windows normalizes the drive letter to
-    // lower case while $DSH_HOME keeps its original case — the containment
-    // test must treat them as the same path (and stay case-SENSITIVE on
-    // POSIX, where filesystems are case-sensitive).
-    const caseSwapped = file.replace(/^([A-Za-z]):/, m => (m === m.toUpperCase() ? m.toLowerCase() : m.toUpperCase()))
-    const expected = process.platform === 'win32' ? 'deleted' : 'unavailable'
-    assert.equal(deleteSessionLog(caseSwapped, root), expected)
-    if (expected === 'deleted') {
+    if (process.platform === 'win32') {
+      // vscode.Uri.file(...).fsPath on Windows normalizes the drive letter
+      // to lower case while $DSH_HOME keeps its original case — containment
+      // must treat them as the same path.
+      const caseSwapped = file.replace(/^([A-Za-z]):/, m => (m === m.toUpperCase() ? m.toLowerCase() : m.toUpperCase()))
+      assert.equal(deleteSessionLog(caseSwapped, root), 'deleted')
       assert.ok(!existsSync(join(root, 'sessions', '--group--', id)))
+    } else {
+      // POSIX filesystems are case-sensitive: a differently-cased sessions
+      // root is a different (nonexistent) directory, so the delete is
+      // refused and the session stays untouched.
+      const last = root.split('/').pop()!
+      const swapped = last === last.toUpperCase() ? last.toLowerCase() : last.toUpperCase()
+      const bogusRoot = join(root.slice(0, root.length - last.length), swapped)
+      assert.equal(deleteSessionLog(file, bogusRoot), 'unavailable')
+      assert.ok(existsSync(join(root, 'sessions', '--group--', id)), 'session must be untouched')
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
