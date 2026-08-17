@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync, mkdirSync, statSync, existsSync } from 'node:fs'
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, mkdirSync, statSync, existsSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
@@ -20,6 +20,8 @@ import {
   pathBase,
   appendSessionTitle,
   deleteSessionLog,
+  readWorkspaceMeta,
+  setSessionArchived,
   readStorageTitles,
   readStorageMeta,
 } from '../sessions.js'
@@ -416,6 +418,72 @@ test('listSessions filters by workspace, hides empty sessions and subagent runs'
     const noSub = await listSessions(root, { hideSubagents: true })
     assert.ok(noSub.some(s => s.id === 'empty'))
     assert.ok(!noSub.some(s => s.id === 'sub'))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('readWorkspaceMeta and setSessionArchived edit the dsh archive set', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-arch-'))
+  try {
+    const storages = join(root, 'storages')
+    mkdirSync(storages, { recursive: true })
+    const file = join(storages, 'workspace.json')
+    writeFileSync(
+      file,
+      JSON.stringify({
+        unit: { name: 'workspace', version: 2 },
+        global: { initialized: true, workspaceIds: ['w1'], archivedSessionIds: ['sess-a'] },
+        tables: { workspaces: { w1: { path: '/w', title: 'w', sessionIds: [] } } },
+      }, null, 2) + '\n',
+    )
+    assert.deepEqual(readWorkspaceMeta(root).archivedSessionIds, ['sess-a'])
+    // Archive appends (dsh web semantics: log and accounting slot retained).
+    assert.equal(setSessionArchived('sess-b', true, root), 'ok')
+    assert.deepEqual(readWorkspaceMeta(root).archivedSessionIds, ['sess-a', 'sess-b'])
+    // Already archived → idempotent.
+    assert.equal(setSessionArchived('sess-b', true, root), 'ok')
+    assert.deepEqual(readWorkspaceMeta(root).archivedSessionIds, ['sess-a', 'sess-b'])
+    // Unarchive removes without touching the rest of the domain file.
+    assert.equal(setSessionArchived('sess-a', false, root), 'ok')
+    assert.deepEqual(readWorkspaceMeta(root).archivedSessionIds, ['sess-b'])
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { unit?: unknown; tables?: unknown }
+    assert.equal((raw.unit as { name?: string }).name, 'workspace')
+    assert.ok(raw.tables)
+    // Missing/unreadable domain → unavailable, never a crash.
+    assert.equal(setSessionArchived('x', true, join(root, 'nope')), 'unavailable')
+    assert.deepEqual(readWorkspaceMeta(join(root, 'nope')).archivedSessionIds, [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('listSessions hideArchived filters the workspace archive set', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-archfilter-'))
+  try {
+    makeSession(root, 'arch-1', [
+      JSON.stringify({ type: 'session', id: 'arch-1', cwd: '/w', createdAt: 200 }),
+      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '归档会话' }] } }),
+    ])
+    makeSession(root, 'live-1', [
+      JSON.stringify({ type: 'session', id: 'live-1', cwd: '/w', createdAt: 100 }),
+      JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '活跃会话' }] } }),
+    ])
+    const storages = join(root, 'storages')
+    mkdirSync(storages, { recursive: true })
+    writeFileSync(
+      join(storages, 'workspace.json'),
+      JSON.stringify({
+        unit: { name: 'workspace', version: 2 },
+        global: { initialized: true, workspaceIds: [], archivedSessionIds: ['arch-1'] },
+        tables: { workspaces: {} },
+      }),
+    )
+    const filtered = await listSessions(root, { hideArchived: true })
+    assert.deepEqual(filtered.map(s => s.id), ['live-1'])
+    // Without the option the archived session stays listed (backward compat).
+    const all = await listSessions(root, {})
+    assert.deepEqual(all.map(s => s.id), ['arch-1', 'live-1'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

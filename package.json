@@ -63,14 +63,19 @@
       ],
       "view/item/context": [
         {
-          "command": "dsh-tui-vscode.renameSession",
+          "command": "dsh-tui-vscode.archiveSession",
           "when": "view == dsh-tui-vscode.sessions && viewItem == dshSession",
           "group": "inline@1"
         },
         {
-          "command": "dsh-tui-vscode.deleteSession",
+          "command": "dsh-tui-vscode.renameSession",
           "when": "view == dsh-tui-vscode.sessions && viewItem == dshSession",
           "group": "inline@2"
+        },
+        {
+          "command": "dsh-tui-vscode.deleteSession",
+          "when": "view == dsh-tui-vscode.sessions && viewItem == dshSession",
+          "group": "2_destructive@1"
         }
       ]
     },
@@ -119,8 +124,20 @@
         "icon": "$(edit)"
       },
       {
+        "command": "dsh-tui-vscode.archiveSession",
+        "title": "dsh-tui: Archive session / 归档会话",
+        "category": "dsh-tui",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "dsh-tui-vscode.manageArchived",
+        "title": "dsh-tui: Manage archived sessions / 管理已归档会话",
+        "category": "dsh-tui",
+        "icon": "$(archive)"
+      },
+      {
         "command": "dsh-tui-vscode.deleteSession",
-        "title": "dsh-tui: Delete session / 删除会话",
+        "title": "dsh-tui: Delete session permanently / 永久删除会话",
         "category": "dsh-tui",
         "icon": "$(trash)"
       }

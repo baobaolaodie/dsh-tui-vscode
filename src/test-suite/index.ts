@@ -323,13 +323,22 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       headerEvent('cmd-1', '/w', 1),
       userEvent('命令链路会话'),
     ])
-    // VS Code passes the SELECTED TreeItem to view/item/context commands.
-    // The identity must survive via STANDARD fields (id / resourceUri) —
-    // build the item exactly like SessionsTreeProvider.getTreeItem does.
-    const fakeItem = new vscode.TreeItem('cmd-1 会话')
-    fakeItem.id = 'cmd-1'
-    fakeItem.resourceUri = vscode.Uri.file(logFile)
-    fakeItem.contextValue = 'dshSession'
+    // Verified against real VS Code clicks: view/item/context commands
+    // receive the provider's ELEMENT (the SessionRecord — id + file), not
+    // the rendered TreeItem. Build the argument in that exact shape.
+    const fakeItem: Record<string, unknown> = {
+      id: 'cmd-1',
+      title: '命令链路会话',
+      eventTitle: undefined,
+      cwd: '/w',
+      project: 'w',
+      origin: undefined,
+      parent: undefined,
+      hasPrompt: true,
+      createdAt: 1,
+      file: logFile,
+      lastUsed: undefined,
+    }
 
     // Patch dialogs so the command chain runs headless (restored below).
     const origInput = vscode.window.showInputBox
@@ -342,7 +351,7 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
     }) as typeof vscode.window.showInputBox
     vscode.window.showWarningMessage = (async () => {
       warnShown = true
-      return '删除'
+      return '永久删除'
     }) as typeof vscode.window.showWarningMessage
 
     // deleteSessionLog resolves the sessions root from $DSH_HOME — point it
@@ -355,11 +364,12 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       const rec = sessionsMod.readSessionRecord(logFile)
       assert.equal(rec?.title, 'e2e-新标题', 'rename must append the title frame (last wins)')
 
-      // A SECOND item carrying identity only on the CUSTOM properties must
-      // still work (the fallback path of sessionIdentity).
+      // A SECOND argument carrying identity only in the TreeItem shape
+      // (id + resourceUri, the getTreeItem fallback for other VS Code
+      // versions) must still work.
       const customItem = new vscode.TreeItem('x')
-      ;(customItem as unknown as { sessionId: string; sessionFile: string }).sessionId = 'cmd-1'
-      ;(customItem as unknown as { sessionId: string; sessionFile: string }).sessionFile = logFile
+      customItem.id = 'cmd-1'
+      customItem.resourceUri = vscode.Uri.file(logFile)
       vscode.window.showInputBox = (async () => {
         inputShown = true
         return 'e2e-自定义字段标题'
@@ -449,6 +459,62 @@ test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group 
   }
 })
 
+test('archiveSession archives via the dsh web archive set; manageArchived restores', async () => {
+  const sessionsMod = await import('../sessions.js') as typeof import('../sessions.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-arch-'))
+  try {
+    const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+    const logFile = await makeE2eSession(home, '--g--', 'arch-1', [
+      headerEvent('arch-1', ws, 1),
+      userEvent('待归档'),
+    ])
+    // A workspace domain with an empty archive set (dsh web's own source).
+    const storages = join(home, 'storages')
+    mkdirSync(storages, { recursive: true })
+    writeFileSync(
+      join(storages, 'workspace.json'),
+      JSON.stringify({
+        unit: { name: 'workspace', version: 2 },
+        global: { initialized: true, workspaceIds: [], archivedSessionIds: [] },
+        tables: { workspaces: {} },
+      }, null, 2) + '\n',
+    )
+    const savedHome = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      // Real argument shape: the SessionRecord element.
+      const item: Record<string, unknown> = { id: 'arch-1', file: logFile, title: '待归档', hasPrompt: true, createdAt: 1, cwd: ws }
+      await vscode.commands.executeCommand('dsh-tui-vscode.archiveSession', item)
+      assert.deepEqual(sessionsMod.readWorkspaceMeta(home).archivedSessionIds, ['arch-1'])
+      const hidden = await sessionsMod.listSessions(home, { workspaceDirs: [ws], hideArchived: true })
+      assert.ok(!hidden.some(s => s.id === 'arch-1'), 'archived session must be hidden')
+
+      // manageArchived: pick the archived session, then the restore action.
+      const origPick = vscode.window.showQuickPick
+      let picks = 0
+      vscode.window.showQuickPick = (async (items: unknown) => {
+        picks += 1
+        const arr = items as unknown[]
+        if (picks === 1) return arr[0]
+        return arr.find(i => String((i as { label?: string }).label ?? '').includes('恢复'))
+      }) as typeof vscode.window.showQuickPick
+      try {
+        await vscode.commands.executeCommand('dsh-tui-vscode.manageArchived')
+      } finally {
+        vscode.window.showQuickPick = origPick
+      }
+      assert.deepEqual(sessionsMod.readWorkspaceMeta(home).archivedSessionIds, [], 'restore must clear the archive set')
+      const visible = await sessionsMod.listSessions(home, { workspaceDirs: [ws], hideArchived: true })
+      assert.ok(visible.some(s => s.id === 'arch-1'), 'restored session must be visible again')
+    } finally {
+      if (savedHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = savedHome
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('renameSession recovers from a corrupt wasm compress state (reset + retry)', async () => {
   // By this point in the suite the Electron host has usually corrupted the
   // wasm compress module (observed: compress emits non-frame bytes). If it
@@ -469,9 +535,14 @@ test('renameSession recovers from a corrupt wasm compress state (reset + retry)'
     const origInput = vscode.window.showInputBox
     vscode.window.showInputBox = (async () => '重试后的标题') as typeof vscode.window.showInputBox
     try {
-      const item = new vscode.TreeItem('r-1')
-      item.id = 'r-1'
-      item.resourceUri = vscode.Uri.file(logFile)
+      const item: Record<string, unknown> = {
+        id: 'r-1',
+        file: logFile,
+        title: '重试会话',
+        hasPrompt: true,
+        createdAt: 1,
+        cwd: '/w',
+      }
       await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', item)
       const rec = sessionsMod.readSessionRecord(logFile)
       assert.equal(rec?.title, '重试后的标题', 'reset + retry must still append the title frame')

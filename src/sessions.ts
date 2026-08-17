@@ -22,9 +22,12 @@ import {
   appendFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
+  renameSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import * as zstd from '@bokuweb/zstd-wasm'
 import { gunzipSync } from 'node:zlib'
 
@@ -786,6 +789,75 @@ export function readSessionSummary(file: string, group?: string): SessionRecord 
 }
 
 /**
+ * Workspace domain metadata from `$DSH_HOME/storages/workspace.json` — the
+ * SAME file the dsh web session list reads. `archivedSessionIds` is the
+ * registry-global archive set: archived sessions are hidden from every
+ * grouping surface while their log and workspace accounting slot are
+ * retained, so unarchiving restores the exact position.
+ */
+export interface WorkspaceMeta {
+  archivedSessionIds: string[]
+}
+
+export function readWorkspaceMeta(dshHome?: string): WorkspaceMeta {
+  const out: WorkspaceMeta = { archivedSessionIds: [] }
+  try {
+    const file = join(resolveDshHome(dshHome), 'storages', 'workspace.json')
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      global?: { archivedSessionIds?: unknown }
+    }
+    const archived = parsed?.global?.archivedSessionIds
+    if (Array.isArray(archived)) {
+      out.archivedSessionIds = archived.filter((x): x is string => typeof x === 'string')
+    }
+  } catch {
+    // absent or unreadable — no archive set
+  }
+  return out
+}
+
+/**
+ * Archive or unarchive a session by editing the workspace domain's
+ * registry-global archive set (the dsh web session list's own source).
+ * Archiving hides the session from every grouping surface; its log and
+ * workspace accounting slot are untouched, so unarchiving restores its
+ * exact position. The file is re-read immediately before the write and
+ * replaced atomically (tmp + rename — the dsh-storage-json backend's own
+ * discipline): the dsh concurrency model is one writer per process with
+ * last-write-wins, and this extension is a second writer exactly like
+ * another dsh process would be.
+ * @returns 'ok', or 'unavailable' when the workspace domain is absent or
+ *   unreadable.
+ */
+export function setSessionArchived(
+  sessionId: string,
+  archived: boolean,
+  dshHome?: string,
+): 'ok' | 'unavailable' {
+  try {
+    const file = join(resolveDshHome(dshHome), 'storages', 'workspace.json')
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      global?: { archivedSessionIds?: unknown }
+    }
+    if (parsed.global === null || typeof parsed.global !== 'object') return 'unavailable'
+    const list = Array.isArray(parsed.global.archivedSessionIds)
+      ? parsed.global.archivedSessionIds.filter((x): x is string => typeof x === 'string')
+      : []
+    const present = list.indexOf(sessionId)
+    if (archived && present < 0) list.push(sessionId)
+    if (!archived && present >= 0) list.splice(present, 1)
+    parsed.global.archivedSessionIds = list
+    // Atomic whole-file replacement, mirroring dsh-storage-json.
+    const tmp = join(dirname(file), `.${randomUUID()}.tmp`)
+    writeFileSync(tmp, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 })
+    renameSync(tmp, file)
+    return 'ok'
+  } catch {
+    return 'unavailable'
+  }
+}
+
+/**
  * Session metadata from the dsh-storage ledger (`$DSH_HOME/storages/
  * session_projcache.json`): display titles (`tables.sessions[<id>].rows.
  * title.val` — the source the dsh web session list displays), the
@@ -1021,6 +1093,8 @@ export interface ListSessionsOptions {
   hideEmpty?: boolean
   /** Drop delegated sub-agent runs (session header `origin: 'subagent'`). */
   hideSubagents?: boolean
+  /** Drop sessions in the workspace domain's archive set (web-consistent). */
+  hideArchived?: boolean
 }
 
 /**
@@ -1042,6 +1116,7 @@ function buildSessionList(
   options: ListSessionsOptions,
   lastUsed: Record<string, number>,
   storage: StorageMeta,
+  archivedIds: ReadonlySet<string>,
 ): SessionRecord[] {
   return findSessionFiles(dshHome)
     .map(sf => {
@@ -1086,6 +1161,7 @@ function buildSessionList(
     .filter((s): s is SessionRecord => s !== undefined)
     .filter(s => !options.hideSubagents || s.origin !== 'subagent')
     .filter(s => !options.hideEmpty || s.hasPrompt !== false)
+    .filter(s => !options.hideArchived || !archivedIds.has(s.id))
     .filter(s => {
       if (!options.workspaceDirs || options.workspaceDirs.length === 0) return true
       const cwd = s.cwd
@@ -1106,7 +1182,8 @@ export async function listSessions(
   await ensureZstd()
   const lastUsed = readLastUsed()
   const storage = readStorageMeta(dshHome)
-  let result = buildSessionList(dshHome, options, lastUsed, storage)
+  const archivedIds = new Set(readWorkspaceMeta(dshHome).archivedSessionIds)
+  let result = buildSessionList(dshHome, options, lastUsed, storage, archivedIds)
   if (zstdSuspected) {
     // The wasm module corrupted during the build (observed in long-lived
     // Electron hosts — every frame "fails to decompress"). Reload the
@@ -1115,7 +1192,7 @@ export async function listSessions(
     zstdSuspected = false
     resetZstd()
     await ensureZstd()
-    result = buildSessionList(dshHome, options, lastUsed, storage)
+    result = buildSessionList(dshHome, options, lastUsed, storage, archivedIds)
   }
   return result
 }

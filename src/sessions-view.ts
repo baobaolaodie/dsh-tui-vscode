@@ -55,6 +55,12 @@ export class SessionsTreeProvider
     void this.reload()
   }
 
+  /** The DSH home this provider watches ('' = env default) — for commands
+   *  that read/write the workspace domain (archive management). */
+  dshHomeForCommands(): string | undefined {
+    return this.dshHome
+  }
+
   /** Debounced reload, shared by every fs.watch callback. */
   private scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
@@ -132,6 +138,9 @@ export class SessionsTreeProvider
         workspaceDirs,
         hideEmpty: true,
         hideSubagents: true,
+        // Match the dsh web session list: the workspace domain's archive
+        // set hides archived sessions from every grouping surface.
+        hideArchived: true,
       })
       // Pick up group directories created since the last pass (fs.watch on
       // the root is not recursive) so their log writes keep refreshing.
