@@ -102,7 +102,7 @@ flowchart LR
 
 - **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
 - **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
-- **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行，组内按 last-used 排序。
+- **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行/已归档会话，组内按 last-used 排序。
 
 ## 配置
 
