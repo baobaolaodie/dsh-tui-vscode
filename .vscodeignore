@@ -17,6 +17,7 @@ package-lock.json
 *.vsix
 *.log
 .gh-log/
+CLAUDE.md
 
 .githooks/
 scripts/
