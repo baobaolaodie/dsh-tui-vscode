@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.0-4D6BFE?style=flat" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.6.1-4D6BFE?style=flat" alt="Version" />
   <img src="https://img.shields.io/badge/VS_Code-%5E1.90.0-007ACC?style=flat&logo=visualstudiocode&logoColor=white" alt="VS Code" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="MIT" />
@@ -61,8 +61,7 @@ Install from the **VS Code extension marketplace** (recommended): press `Ctrl+Sh
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git
 cd dsh-tui-vscode
 npm install
-npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
-# or: npm run install:local
+npm run install:local
 ```
 
 ## Usage
@@ -130,7 +129,8 @@ dsh-tui-vscode/
 ├── media/icon.svg          # DeepSeek whale icon (activity bar / terminal tab)
 ├── media/icon.png          # Marketplace icon
 ├── scripts/
-│   └── install-commit-hook.mjs  # local hook installer
+│   ├── install-commit-hook.mjs  # local hook installer
+│   └── install-local.mjs        # installs the locally packaged vsix (version read from package.json)
 ├── .githooks/              # pre-commit / commit-msg (shipped in the repo)
 ├── .github/
 │   ├── workflows/ci.yml    # full CI (test matrix/e2e/quality/pr-policy/release-consistency/security-scan/docs-links)
