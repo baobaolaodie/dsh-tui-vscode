@@ -12,6 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+## [0.6.1] - 2026-08-17
+
+> via PR [#3](https://github.com/baobaolaodie/dsh-tui-vscode/pull/3)
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **Fixed launching under non-PowerShell Windows terminals (Git Bash etc.)**: npm global installs create both a `.cmd` shim and an extensionless bash shim on Windows; the extension previously sent the Windows absolute path of `dsh-tui.cmd` directly to bash, which swallowed the backslashes and reported `C:Users...: command not found`. The launch path now respects the terminal shell: bash/MSYS/Cygwin/WSL prefer npm's bash shim and convert the path to POSIX form (`/c/...`, `/cygdrive/c/...`, `/mnt/c/...`) before sending; PowerShell/CMD keep the existing `.cmd/.exe` resolution.
 
 ## [0.6.0] - 2026-08-17

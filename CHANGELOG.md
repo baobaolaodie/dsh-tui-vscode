@@ -10,6 +10,16 @@
 
 ### Fixed
 
+## [0.6.1] - 2026-08-17
+
+> 经 PR [#3](https://github.com/baobaolaodie/dsh-tui-vscode/pull/3) 合并 / via PR #3
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **修复 Windows 非 PowerShell 终端（Git Bash 等）启动失败**：npm 全局安装会在 Windows 上同时生成 `.cmd` 与无扩展名 bash shim；扩展原先把 `dsh-tui.cmd` 的 Windows 绝对路径直接发给 bash，反斜杠被吞成 `C:Users...: command not found`。现在按终端 shell 类型区分：Git Bash/MSYS/Cygwin/WSL 优先解析 npm 的 bash shim 并把路径转成 POSIX 形式（`/c/...`、`/cygdrive/c/...`、`/mnt/c/...`）后发送，PowerShell/CMD 保持原有 `.cmd/.exe` 解析。
 
 ## [0.6.0] - 2026-08-17

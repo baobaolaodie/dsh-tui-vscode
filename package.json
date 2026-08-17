@@ -2,7 +2,7 @@
   "name": "dsh-tui-vscode",
   "displayName": "dsh-tui (VS Code)",
   "description": "Run dsh-TUI in a real VS Code integrated terminal — an experience almost identical to the official Claude Code extension: Beside placement, multiple concurrent sessions, sidebar session history, one-click start/resume. 让 dsh-TUI 跑在真实集成终端里，体验与 Claude Code 官方扩展几乎一致。",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "baobaolaodie",
   "license": "MIT",
   "repository": {
