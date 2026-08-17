@@ -2,9 +2,29 @@ import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
+import {
+  appendSessionTitle,
+  deleteSessionLog,
+  ensureZstd,
+  resetZstd,
+  setSessionArchived,
+  readWorkspaceMeta,
+  listSessions,
+} from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, quoteLaunchPath } from './session'
 
 const TERMINAL_NAME = 'DeepSeek'
+
+/** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
+function relativeTime(epochMs: number): string {
+  const diff = Date.now() - epochMs
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}
 
 interface Settings {
   command: string
@@ -61,6 +81,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   context.subscriptions.push(
     vscode.window.onDidOpenTerminal(() => refreshState()),
     vscode.window.onDidCloseTerminal(() => refreshState()),
+    // The sidebar shows only the CURRENT workspace's sessions — re-filter
+    // when the user opens/closes/switches workspace folders.
+    vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsTree.refresh()),
   )
 
   function buildEnv(extra: Record<string, string> = {}): Record<string, string> {
@@ -184,6 +207,145 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
     if (typeof sessionId !== 'string' || !sessionId) return
     runCommand(true, sessionId)
+  })
+  /**
+   * Session identity from a view/item/context command argument. Verified
+   * against real VS Code clicks: the argument is the provider's ELEMENT
+   * (the SessionRecord itself — id + file), not the rendered TreeItem.
+   * TreeItem shapes (id/resourceUri, custom sessionId/sessionFile) are kept
+   * as fallbacks for other VS Code versions.
+   */
+  const sessionIdentity = (item: unknown): { id: string; file: string } | undefined => {
+    const it = item as
+      | {
+          id?: unknown
+          file?: unknown
+          resourceUri?: { fsPath?: unknown }
+          sessionId?: unknown
+          sessionFile?: unknown
+        }
+      | undefined
+    if (!it) return undefined
+    const id =
+      typeof it.sessionId === 'string' ? it.sessionId : typeof it.id === 'string' ? it.id : undefined
+    const file =
+      typeof it.sessionFile === 'string'
+        ? it.sessionFile
+        : typeof it.file === 'string' // SessionRecord shape (real VS Code passes this)
+          ? it.file
+          : typeof it.resourceUri?.fsPath === 'string'
+            ? it.resourceUri.fsPath
+            : undefined
+    return id !== undefined && file !== undefined ? { id, file } : undefined
+  }
+
+  register('dsh-tui-vscode.renameSession', async (item: unknown) => {
+    const session = sessionIdentity(item)
+    if (!session) return
+    // The command may run before any list refresh initialized the wasm.
+    await ensureZstd()
+    const title = await vscode.window.showInputBox({
+      prompt: `重命名会话 ${session.id.slice(0, 8)}…`,
+      placeHolder: '输入新标题',
+      ignoreFocusOut: true,
+    })
+    if (title === undefined) return // cancelled
+    const trimmed = title.trim()
+    if (!trimmed) return
+    let result = appendSessionTitle(session.file, trimmed)
+    if (result === 'unavailable') {
+      // The wasm module instance can corrupt in a long-lived Electron host
+      // (compress then emits non-frames). Reload it and retry once — the
+      // first attempt verified its output and wrote nothing.
+      resetZstd()
+      await ensureZstd()
+      result = appendSessionTitle(session.file, trimmed)
+    }
+    if (result === 'appended') {
+      sessionsTree.refresh()
+    } else {
+      void vscode.window.showErrorMessage('重命名失败：会话日志不可写')
+    }
+  })
+  register('dsh-tui-vscode.archiveSession', async (item: unknown) => {
+    const session = sessionIdentity(item)
+    if (!session) return
+    // dsh-native archive: the session joins the workspace domain's archive
+    // set (the same set the dsh web list reads) — hidden from the sidebar
+    // while its log and accounting slot are retained, recoverable anytime.
+    if (setSessionArchived(session.id, true) === 'ok') {
+      sessionsTree.refresh()
+    } else {
+      void vscode.window.showErrorMessage('归档失败：无法写入会话域存储')
+    }
+  })
+  register('dsh-tui-vscode.manageArchived', async () => {
+    // List archived sessions (title + relative time); pick one, then choose
+    // restore or permanent delete.
+    const dshHome = sessionsTree.dshHomeForCommands()
+    const archivedIds = readWorkspaceMeta(dshHome).archivedSessionIds
+    if (archivedIds.length === 0) {
+      void vscode.window.showInformationMessage('没有已归档的会话')
+      return
+    }
+    const all = await listSessions(dshHome, {})
+    const byId = new Map(all.map(s => [s.id, s]))
+    const items: vscode.QuickPickItem[] = archivedIds.map(id => {
+      const rec = byId.get(id)
+      const when = rec?.lastUsed ?? rec?.createdAt
+      return {
+        label: rec?.title?.trim() || id.slice(0, 12),
+        description: rec && when !== undefined ? relativeTime(when) : '日志缺失',
+        detail: id,
+      }
+    })
+    const picked = await vscode.window.showQuickPick(items, {
+      title: '已归档会话',
+      placeHolder: '选择会话',
+      ignoreFocusOut: true,
+    })
+    if (!picked || !picked.detail) return
+    const action = await vscode.window.showQuickPick(
+      [
+        { label: '$(archive) 恢复会话', detail: '移回侧边栏，日志与位置原样保留' },
+        { label: '$(trash) 彻底删除', detail: '永久移除该会话的日志目录，不可恢复' },
+      ],
+      { title: `会话：${picked.label}`, ignoreFocusOut: true },
+    )
+    if (!action) return
+    if (action.label.includes('恢复')) {
+      if (setSessionArchived(picked.detail, false) === 'ok') {
+        sessionsTree.refresh()
+        void vscode.window.showInformationMessage('会话已恢复')
+      } else {
+        void vscode.window.showErrorMessage('恢复失败：无法写入会话域存储')
+      }
+      return
+    }
+    const rec = byId.get(picked.detail)
+    if (!rec) return
+    const confirm = await vscode.window.showWarningMessage(
+      `永久删除归档会话 ${picked.detail.slice(0, 8)}…？日志目录将被彻底移除，不可恢复。`,
+      { modal: true },
+      '永久删除',
+    )
+    if (confirm !== '永久删除') return
+    if (deleteSessionLog(rec.file) === 'deleted') {
+      // Drop the id from the archive set too (its log is gone).
+      void setSessionArchived(picked.detail, false)
+      sessionsTree.refresh()
+    }
+  })
+  register('dsh-tui-vscode.deleteSession', async (item: unknown) => {
+    const session = sessionIdentity(item)
+    if (!session) return
+    const answer = await vscode.window.showWarningMessage(
+      `永久删除会话 ${session.id.slice(0, 8)}…？其日志目录将被彻底移除，此操作不可撤销。建议先归档。`,
+      { modal: true },
+      '永久删除',
+    )
+    if (answer !== '永久删除') return
+    if (deleteSessionLog(session.file) === 'deleted') sessionsTree.refresh()
   })
 
   sessionsTree.refresh()
