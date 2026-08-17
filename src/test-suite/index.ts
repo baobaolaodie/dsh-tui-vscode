@@ -506,6 +506,28 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
       assert.deepEqual(sessionsMod.readWorkspaceMeta(home).archivedSessionIds, [], 'restore must clear the archive set')
       const visible = await sessionsMod.listSessions(home, { workspaceDirs: [ws], hideArchived: true })
       assert.ok(visible.some(s => s.id === 'arch-1'), 'restored session must be visible again')
+
+      // Permanent-delete path inside manageArchived: archive again, pick
+      // "permanently delete" → the log dir AND the archive entry go away.
+      await vscode.commands.executeCommand('dsh-tui-vscode.archiveSession', item)
+      assert.ok(sessionsMod.readWorkspaceMeta(home).archivedSessionIds.includes('arch-1'))
+      const origWarn = vscode.window.showWarningMessage
+      vscode.window.showWarningMessage = (async () => '永久删除') as typeof vscode.window.showWarningMessage
+      picks = 0
+      vscode.window.showQuickPick = (async (items: unknown) => {
+        picks += 1
+        const arr = items as unknown[]
+        if (picks === 1) return arr[0]
+        return arr.find(i => String((i as { label?: string }).label ?? '').includes('彻底删除'))
+      }) as typeof vscode.window.showQuickPick
+      try {
+        await vscode.commands.executeCommand('dsh-tui-vscode.manageArchived')
+      } finally {
+        vscode.window.showQuickPick = origPick
+        vscode.window.showWarningMessage = origWarn
+      }
+      assert.ok(!existsSync(logFile), 'permanent delete must remove the session log dir')
+      assert.deepEqual(sessionsMod.readWorkspaceMeta(home).archivedSessionIds, [], 'archive entry must be cleared with the log')
     } finally {
       if (savedHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = savedHome
