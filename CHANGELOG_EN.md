@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.6.0] - 2026-08-17
+
+> via PR [#1](https://github.com/baobaolaodie/dsh-tui-vscode/pull/1)
+
+### Added
+
 - **Rename/delete sessions from the sidebar**: hover/right-click an entry to rename (appends a `session/title` zstd frame, `seq` continued — the same contract as the dsh-TUI `/resume` picker; non-zstd legacy logs are refused, never corrupted) or delete (realpath containment check so a symlink cannot steer the removal outside the sessions root; modal confirmation before deleting).
 - **dsh-native archiving**: the hover "Archive" button adds a session to the workspace domain's archive set (`archivedSessionIds` in `storages/workspace.json` — the same source the dsh web list reads): the session disappears from every grouping surface while its log and accounting slot are retained, restorable anytime; the "Manage archived sessions" command (QuickPick) restores or permanently deletes; the list filters archived sessions by default (web-consistent). Delete moved behind the right-click menu as "Delete permanently" (destructive actions stay off the hover buttons).
 

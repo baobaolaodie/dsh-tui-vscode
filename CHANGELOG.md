@@ -6,6 +6,16 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.6.0] - 2026-08-17
+
+> 经 PR [#1](https://github.com/baobaolaodie/dsh-tui-vscode/pull/1) 合并 / via PR #1
+
+### Added
+
 - **侧边栏右键重命名/删除会话**：条目上悬停/右键可重命名（向日志追加 `session/title` zstd 帧，`seq` 续接，与 dsh-TUI `/resume` 选择器同一契约；非 zstd 旧日志拒绝追加不损坏）或删除（真实路径 containment 校验，符号链接无法把删除引到会话根之外；删除前模态确认）。
 - **dsh 原生归档**：侧边栏悬停「归档」按钮把会话加入 dsh workspace 域的归档集合（`storages/workspace.json` 的 `archivedSessionIds`——与 dsh web 列表同源）：会话从所有分组表面隐藏，日志与记账槽位保留，随时可恢复；「管理已归档会话」命令（QuickPick）可恢复或彻底删除；列表默认过滤归档会话（与 web 一致）。删除改为右键「永久删除」（危险操作不放在悬停按钮）。
 
