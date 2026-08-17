@@ -1,0 +1,63 @@
+{
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
+  "id": "com.baobaolaodie.dsh-tui-vscode",
+  "name": "dsh-tui-vscode (VS Code companion)",
+  "version": "0.6.1",
+  "manifestVersion": "0.15",
+  "facets": {
+    "host": {
+      "entry": "out/extension.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "commands.dsh/v1alpha1",
+        "kind": "Command"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "name": "commands.invoke",
+      "scope": "com.baobaolaodie.dsh-tui-vscode.start",
+      "reason": "启动 dsh-TUI 会话"
+    },
+    {
+      "name": "commands.invoke",
+      "scope": "com.baobaolaodie.dsh-tui-vscode.resume",
+      "reason": "恢复 dsh-TUI 会话"
+    }
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "com.baobaolaodie.dsh-tui-vscode.start",
+        "title": "Start new dsh-TUI session"
+      },
+      {
+        "id": "com.baobaolaodie.dsh-tui-vscode.resume",
+        "title": "Resume last dsh-TUI session"
+      }
+    ]
+  },
+  "subscriptions": [],
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/baobaolaodie/dsh-tui-vscode.git",
+    "revision": "main"
+  },
+  "compat": {
+    "hosts": [
+      "dsh-tui >=0.7.0"
+    ]
+  },
+  "overrides": [
+    {
+      "target": "cordis.patch.yml",
+      "kind": "patch",
+      "description": "Existing VS Code companion integration kept as the executable layer; this manifest is an experimental v0.15 declaration for ecosystem compatibility testing."
+    }
+  ]
+}
