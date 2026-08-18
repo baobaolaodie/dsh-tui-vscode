@@ -37,10 +37,15 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 - 仓库：https://github.com/baobaolaodie/dsh-tui-vscode
 - 分支：`feat/dsh-ecosystem-spec`
 - `dsh-plugin.json`：本仓库根目录（试点声明）
-- 上游 conformance 核对：T-Auto/dsh-ecosystem-spec（HEAD `aca48d8`，2026-08-18）+ 固定 `vendor/dsh-std` submodule；以 `conformance/tests/run.js` 同款逻辑对试点 manifest 重新执行校验 → **`compatible`**（结构校验 + 语义校验 + 协商全部通过）。
-- 注：上游完整 `pnpm test` 在独立 checkout 下暂因 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（`protocols/tui-channel.js` 裸引用 `@dsh-std/connection`）导入失败，属上游已知开放问题，与试点 manifest 无关。
-- 已提交上游：本 Note 的上游镜像见 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3)（`adapters/dsh-tui-vscode-v0.15.md`）。
+- 上游 conformance 复核：T-Auto/dsh-ecosystem-spec（HEAD `e1b902b`，2026-08-18，含 tui.dsh 命名空间迁移）+ 固定 `vendor/dsh-std` submodule；`npm run test:standalone` 独立跑通官方 suite 全绿，并对试点 manifest 执行同款校验 → **`compatible`**（结构 + 语义 + 协商全过，迁移后仍合规）。
+- 注：上游 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（conformance 加载对齐）已合并，修复早期「独立检出无法运行」问题；独立检出现在用 `npm run test:standalone`（等价 `node scripts/conformance.mjs --standalone`）。
+- 已合入上游：本 Note 已随 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) 合入 `adapters/dsh-tui-vscode-v0.15.md`（生态首篇 Adapter Note；README 生态扩展表第一行）。
 - 现有 CI：`npm test` / `npm run test:e2e` 覆盖 VS Code 扩展行为，不覆盖 v0.15 conformance。
+
+## 上游演变跟踪
+
+- **2026-08-18 命名空间迁移（PR #4）**：上游把 TUI 私有命名空间 `x-ccch1mneyyy.tui/*` 统一迁移为中性 `tui.dsh/*`（DecisionEvents / Channel / SettingsSection / Scene，坐标 `tui.dsh/v1alpha1`），旧坐标不作隐式别名（协商保持确定性）。**本试点 `requires.contracts` 仅使用 std 的 `commands.dsh/v1alpha1#Command`，不消费任何 `tui.dsh` 私有坐标，故迁移不影响本试点**；若未来使用 TUI 私有能力，须改用 `tui.dsh/v1alpha1` 坐标。
+- **2026-08-18 conformance 可独立跑**：PR #2 合并后 `npm run test:standalone` 可独立验证（31 fixture + 五态协商全绿）；本试点在其上复核结论仍为 `compatible`。
 
 ## 收敛计划
 
