@@ -70,7 +70,7 @@ npm run install:local
 - **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`（`--resume`，读 `~/.dsh-tui/resume.txt`）。
 - **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
 - **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
-- **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 `@相对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（未选中则仅为 `@相对路径` 引用整个文件。`@` 引用在提交时自动附加整个文件内容；行区间 `L起-止` 是空格分隔的纯文本提示——dsh-tui 不支持 `#L` 行区间语法）。无运行会话时回退为复制到剪贴板。行为以 Claude Code 官方 `insertAtMention` 为基准并做了 dsh-tui 适配。
+- **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（用正斜杠绝对路径,与 dsh-tui 会话工作目录无关;未选中则仅为 `@绝对路径` 引用整个文件。`@` 引用在提交时自动附加整个文件内容;行区间 `L起-止` 是空格分隔的纯文本提示——dsh-tui 不支持 `#L` 行区间语法）。无运行会话时回退为复制到剪贴板。行为以 Claude Code 官方 `insertAtMention` 为基准并做了 dsh-tui 适配。
 
 ## 架构
 

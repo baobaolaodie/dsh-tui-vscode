@@ -589,7 +589,8 @@ test('insertAtMention copies @-mention to clipboard when no session is running',
     const editor = await vscode.window.showTextDocument(doc)
     // Multi-line selection: lines 1..3 (0-based) → L2-4 (1-based).
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
-    const expected = '@' + vscode.workspace.asRelativePath(vscode.Uri.file(file)) + ' L2-4'
+    const { normalizeMentionPath } = await import('../at-mention.js') as typeof import('../at-mention.js')
+    const expected = '@' + normalizeMentionPath(editor.document.uri.fsPath) + ' L2-4'
 
     const origInfo = vscode.window.showInformationMessage
     let infoShown: string | undefined
@@ -624,7 +625,8 @@ test('insertAtMention types the @-mention into the running session input', async
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
     const editor = await vscode.window.showTextDocument(doc)
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 5))
-    const expected = '@' + vscode.workspace.asRelativePath(vscode.Uri.file(file)) + ' L2-3'
+    const { normalizeMentionPath } = await import('../at-mention.js') as typeof import('../at-mention.js')
+    const expected = '@' + normalizeMentionPath(editor.document.uri.fsPath) + ' L2-3'
 
     await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
     // insertAtMention types the mention WITHOUT a trailing newline (it stays

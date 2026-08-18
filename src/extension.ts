@@ -12,7 +12,7 @@ import {
   listSessions,
 } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
-import { buildAtMention } from './at-mention'
+import { buildAtMention, normalizeMentionPath } from './at-mention'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -205,18 +205,20 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   })
   // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
-  // 选中代码以 `@相对路径 L起-止` 形式插入输入框。dsh-tui 的 @ 提及不认 #L
-  // 行区间(会把整段当文件名),因此 @ 引用停在相对路径、提交时附加整个文件,
-  // 行区间作为空格分隔的纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
+  // 选中代码以 `@绝对路径 L起-止` 形式插入输入框。用「正斜杠绝对路径」是因为
+  // dsh-tui 的 @ 提及把相对路径按「会话自己 cwd」解析(不认 VS Code 工作区,
+  // 实测弹「未找到引用」),绝对路径则原样直通、与 cwd 无关;dsh-tui 不认 #L
+  // 行区间,所以 @ 引用止于路径、提交时附加整个文件,行区间作为空格分隔的
+  // 纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
       void vscode.window.showInformationMessage('请先聚焦一个编辑器,再插入 @文件引用')
       return
     }
-    const relativePath = vscode.workspace.asRelativePath(editor.document.uri)
+    const mentionPath = normalizeMentionPath(editor.document.uri.fsPath)
     const selection = editor.selection
-    const mention = buildAtMention(relativePath, {
+    const mention = buildAtMention(mentionPath, {
       isEmpty: selection.isEmpty,
       startLine: selection.start.line,
       endLine: selection.end.line,
