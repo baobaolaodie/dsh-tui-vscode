@@ -9,10 +9,24 @@ test('empty selection references the whole file', () => {
   )
 })
 
+test('single-line selection on the first line (0-based 0 → 1-based 1)', () => {
+  assert.equal(
+    buildAtMention('src/index.ts', { isEmpty: false, startLine: 0, endLine: 0 }),
+    '@src/index.ts#L1',
+  )
+})
+
 test('single-line selection uses one line number (1-based)', () => {
   assert.equal(
     buildAtMention('src/session.ts', { isEmpty: false, startLine: 11, endLine: 11 }),
     '@src/session.ts#L12',
+  )
+})
+
+test('two-line selection uses compact range 1-2', () => {
+  assert.equal(
+    buildAtMention('src/index.ts', { isEmpty: false, startLine: 0, endLine: 1 }),
+    '@src/index.ts#L1-2',
   )
 })
 

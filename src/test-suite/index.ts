@@ -84,6 +84,7 @@ test('extension activates and registers all commands', async () => {
     'dsh-tui-vscode.resume',
     'dsh-tui-vscode.focus',
     'dsh-tui-vscode.kill',
+    'dsh-tui-vscode.insertAtMention',
     'dsh-tui-vscode.resumeSession',
     'dsh-tui-vscode.renameSession',
     'dsh-tui-vscode.deleteSession',
@@ -573,6 +574,67 @@ test('renameSession recovers from a corrupt wasm compress state (reset + retry)'
     }
   } finally {
     rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('insertAtMention copies @-mention to clipboard when no session is running', async () => {
+  // Force the no-terminal fallback: dispose every DeepSeek terminal.
+  for (const t of [...vscode.window.terminals]) if (t.name === TERMINAL_NAME) t.dispose()
+  await poll(() => (findTuiTerminal() ? undefined : true), 8000)
+
+  const file = join(WS, 'e2e-insert.ts')
+  writeFileSync(file, 'line0\nline1\nline2\nline3\nline4\n')
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+    const editor = await vscode.window.showTextDocument(doc)
+    // Multi-line selection: lines 1..3 (0-based) → #L2-4 (1-based).
+    editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
+    const expected = '@' + vscode.workspace.asRelativePath(vscode.Uri.file(file)) + '#L2-4'
+
+    const origInfo = vscode.window.showInformationMessage
+    let infoShown: string | undefined
+    vscode.window.showInformationMessage = (async (message: string) => {
+      infoShown = String(message)
+    }) as typeof vscode.window.showInformationMessage
+    try {
+      await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
+      assert.ok(infoShown?.includes('已复制'), `fallback must inform the user, got ${infoShown}`)
+      assert.equal(await vscode.env.clipboard.readText(), expected)
+    } finally {
+      vscode.window.showInformationMessage = origInfo
+    }
+  } finally {
+    rmSync(file, { force: true })
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  }
+})
+
+test('insertAtMention types the @-mention into the running session input', async () => {
+  await configureFakeLauncher()
+  rmSync(STDIN_OUT, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+
+  const file = join(WS, 'e2e-insert.ts')
+  writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+    const editor = await vscode.window.showTextDocument(doc)
+    editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 5))
+    const expected = '@' + vscode.workspace.asRelativePath(vscode.Uri.file(file)) + '#L2-3'
+
+    await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
+    // insertAtMention types the mention WITHOUT a trailing newline (it stays
+    // in the TUI input, like the official insertAtMention). Complete the line
+    // the way the user pressing Enter would, then read it back from the child.
+    ;(vscode.extensions.getExtension(EXT_ID)!.exports as Api).sendInput('\r')
+    await poll(() => {
+      const content = readFile(STDIN_OUT)
+      return content?.includes(expected) ? true : undefined
+    }, 10000)
+  } finally {
+    rmSync(file, { force: true })
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
   }
 })
 
