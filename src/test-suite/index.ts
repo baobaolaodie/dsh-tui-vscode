@@ -611,9 +611,12 @@ test('insertAtMention copies @-mention to clipboard when no session is running',
 
 test('insertAtMention types the @-mention into the running session input', async () => {
   await configureFakeLauncher()
+  rmSync(ENV_OUT, { force: true }) // fresh readiness signal — not a stale one from an earlier test
   rmSync(STDIN_OUT, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
   await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+  // Belt and braces: let the fake child attach to stdin before we type.
+  await sleep(750)
 
   const file = join(WS, 'e2e-insert.ts')
   writeFileSync(file, 'line0\nline1\nline2\nline3\n')
