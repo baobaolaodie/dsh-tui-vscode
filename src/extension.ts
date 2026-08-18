@@ -12,6 +12,7 @@ import {
   listSessions,
 } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
+import { buildAtMention, normalizeMentionPath } from './at-mention'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -202,6 +203,37 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       // Ctrl+C, like interrupting Claude Code with a keyboard interrupt.
       terminal.sendText('\u0003', false)
     }
+  })
+  // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
+  // 选中代码以 `@绝对路径 L起-止` 形式插入输入框。用「正斜杠绝对路径」是因为
+  // dsh-tui 的 @ 提及把相对路径按「会话自己 cwd」解析(不认 VS Code 工作区,
+  // 实测弹「未找到引用」),绝对路径则原样直通、与 cwd 无关;dsh-tui 不认 #L
+  // 行区间,所以 @ 引用止于路径、提交时附加整个文件,行区间作为空格分隔的
+  // 纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
+  register('dsh-tui-vscode.insertAtMention', async () => {
+    const editor = vscode.window.activeTextEditor
+    if (!editor) {
+      void vscode.window.showInformationMessage('请先聚焦一个编辑器,再插入 @文件引用')
+      return
+    }
+    const mentionPath = normalizeMentionPath(editor.document.uri.fsPath)
+    const selection = editor.selection
+    const mention = buildAtMention(mentionPath, {
+      isEmpty: selection.isEmpty,
+      startLine: selection.start.line,
+      endLine: selection.end.line,
+    })
+    const terminal = findTerminal()
+    if (terminal) {
+      // 插入输入框而不自动提交:用户可继续补问题,回车后 dsh-tui 会把
+      // @ 引用文件的内容附到消息中。
+      terminal.show()
+      terminal.sendText(mention, false)
+      return
+    }
+    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(官方未投递时的回退路径)。
+    await vscode.env.clipboard.writeText(mention)
+    void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
   register('dsh-tui-vscode.refreshSessions', () => {
     sessionsTree.refresh()
