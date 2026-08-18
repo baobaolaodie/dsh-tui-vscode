@@ -70,6 +70,7 @@ npm run install:local
 - **Resume the last session**: `dsh-tui: Resume last session / 恢复上次会话` (`--resume`, reads `~/.dsh-tui/resume.txt`).
 - **Resume a specific session**: in the sidebar session history, expand a project and click a session — a new terminal boots it with `DSH_TUI_RESUME_SESSION=<id>` in its environment.
 - **Stop**: close the terminal tab (ends only that session), or double `Ctrl+C` inside the TUI; `dsh-tui: Terminate session / 终止会话` sends Ctrl+C to the most recent terminal.
+- **Reference selected code**: with editor focus, press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`), or use the Command Palette / editor context menu "Insert @-mention" — it inserts the current file or selection as `@relative/path#Lstart-end` into the running dsh-tui input box (whole file when nothing is selected; dsh-tui natively attaches the referenced file's content to the message). With no running session it falls back to copying to the clipboard. Mirrors the official Claude Code extension's `insertAtMention` behavior.
 
 ## Architecture
 

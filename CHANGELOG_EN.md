@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Insert @-mention command (reference selected code into the input box)**: new `dsh-tui-vscode.insertAtMention` with default shortcut `Ctrl+Alt+K` (macOS `Cmd+Alt+K`, when editor has focus), also available from the Command Palette / editor context menu — it inserts the current file or selection as `@relative/path#Lstart-end` into the running dsh-tui input box (whole file when nothing is selected; dsh-tui natively attaches the referenced file's content on send); with no running session it falls back to copying to the clipboard. Matches the official Claude Code extension's `insertAtMention` algorithm.
+
 ### Changed
 
 ### Fixed

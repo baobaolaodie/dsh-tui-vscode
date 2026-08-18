@@ -6,6 +6,8 @@
 
 ### Added
 
+- **插入 @文件引用命令（引用选中代码到输入框）**：新增 `dsh-tui-vscode.insertAtMention`，默认快捷键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`，编辑器聚焦时），也可从命令面板/编辑器右键触发——把当前文件或选中代码以 `@相对路径#L起-止` 形式插入运行中的 dsh-tui 输入框（未选中引用整个文件；dsh-tui 原生 `@` 引用发送时附加文件内容）；无运行会话时回退为复制到剪贴板。算法与 Claude Code 官方扩展 `insertAtMention` 一致。
+
 ### Changed
 
 ### Fixed

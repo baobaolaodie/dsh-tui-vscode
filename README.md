@@ -70,6 +70,7 @@ npm run install:local
 - **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`（`--resume`，读 `~/.dsh-tui/resume.txt`）。
 - **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
 - **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
+- **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 `@相对路径#L起-止` 形式插入运行中的 dsh-tui 输入框（未选中则引用整个文件；dsh-tui 原生 `@` 文件引用会把文件内容附到消息中）；无运行会话时回退为复制到剪贴板。该行为与 Claude Code 官方扩展的 `insertAtMention` 一致。
 
 ## 架构
 

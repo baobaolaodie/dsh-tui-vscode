@@ -12,6 +12,7 @@ import {
   listSessions,
 } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
+import { buildAtMention } from './at-mention'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -202,6 +203,34 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       // Ctrl+C, like interrupting Claude Code with a keyboard interrupt.
       terminal.sendText('\u0003', false)
     }
+  })
+  // 与 Claude Code 官方扩展 insertAtMention 同款:把当前文件/选中代码以
+  // `@相对路径#L起-止` 形式插入 dsh-tui 输入框(未选中引用整个文件)。
+  // dsh-tui 原生支持 @ 文件引用,发送时自动附加文件内容。
+  register('dsh-tui-vscode.insertAtMention', async () => {
+    const editor = vscode.window.activeTextEditor
+    if (!editor) {
+      void vscode.window.showInformationMessage('请先聚焦一个编辑器,再插入 @文件引用')
+      return
+    }
+    const relativePath = vscode.workspace.asRelativePath(editor.document.uri)
+    const selection = editor.selection
+    const mention = buildAtMention(relativePath, {
+      isEmpty: selection.isEmpty,
+      startLine: selection.start.line,
+      endLine: selection.end.line,
+    })
+    const terminal = findTerminal()
+    if (terminal) {
+      // 插入输入框而不自动提交:用户可继续补问题,回车后 dsh-tui 会把
+      // @ 引用文件的内容附到消息中。
+      terminal.show()
+      terminal.sendText(mention, false)
+      return
+    }
+    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(官方未投递时的回退路径)。
+    await vscode.env.clipboard.writeText(mention)
+    void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
   register('dsh-tui-vscode.refreshSessions', () => {
     sessionsTree.refresh()

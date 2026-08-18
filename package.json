@@ -61,6 +61,13 @@
           "group": "navigation"
         }
       ],
+      "editor/context": [
+        {
+          "command": "dsh-tui-vscode.insertAtMention",
+          "when": "editorTextFocus",
+          "group": "navigation@2"
+        }
+      ],
       "view/item/context": [
         {
           "command": "dsh-tui-vscode.archiveSession",
@@ -102,6 +109,11 @@
         "category": "dsh-tui"
       },
       {
+        "command": "dsh-tui-vscode.insertAtMention",
+        "title": "dsh-tui: Insert @-mention / 插入 @文件引用",
+        "category": "dsh-tui"
+      },
+      {
         "command": "dsh-tui-vscode.kill",
         "title": "dsh-tui: Terminate session / 终止会话",
         "category": "dsh-tui"
@@ -140,6 +152,14 @@
         "title": "dsh-tui: Delete session permanently / 永久删除会话",
         "category": "dsh-tui",
         "icon": "$(trash)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "dsh-tui-vscode.insertAtMention",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus"
       }
     ],
     "configuration": {
@@ -194,7 +214,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"
