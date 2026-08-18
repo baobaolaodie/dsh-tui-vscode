@@ -204,9 +204,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       terminal.sendText('\u0003', false)
     }
   })
-  // 与 Claude Code 官方扩展 insertAtMention 同款:把当前文件/选中代码以
-  // `@相对路径#L起-止` 形式插入 dsh-tui 输入框(未选中引用整个文件)。
-  // dsh-tui 原生支持 @ 文件引用,发送时自动附加文件内容。
+  // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
+  // 选中代码以 `@相对路径 L起-止` 形式插入输入框。dsh-tui 的 @ 提及不认 #L
+  // 行区间(会把整段当文件名),因此 @ 引用停在相对路径、提交时附加整个文件,
+  // 行区间作为空格分隔的纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
