@@ -21,23 +21,23 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 | `permissions` | `commands.invoke`（单条；scope = 插件命名空间，覆盖 start/resume；dsh-std 投影按 action 去重，同一 action 不允许重复声明） |
 | `contributes.commands` | `dsh-tui-vscode.start` / `dsh-tui-vscode.resume` |
 | `subscriptions` | 无（当前不订阅 messages.observe 等事件） |
-| Host Descriptor | 官方示例已发布：上游 `registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，storage/commands/messages）；真实 dsh-tui host 未发布（见 D-2） |
+| Host Descriptor | 上游示例已发布：`registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，storage/commands/messages）；真实 dsh-tui host 未发布（见 D-2） |
 | effect ledger | 未实现；当前通过 VS Code 终端/会话文件系统读写，无标准 ledger |
 
 ## 已知偏差
 
 - **D-1 entry 不可被 dsh 直接加载**：`out/extension.js` 是 VS Code Extension Host 入口，不能由 dsh/Cordis 直接加载。当前 `dsh-plugin.json` 是“声明性试点”，不是可执行插件。
-- **D-2 无真实 Host Descriptor**：上游 dsh-ecosystem-spec 已发布官方示例 `registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，contracts=storage/commands/messages，hostVersion `0.1.0-experimental`），但 dsh-tui 运行时仍未发布可验证的“真实” Host Descriptor；本扩展自身也无法单独声明宿主能力。
+- **D-2 无真实 Host Descriptor**：上游 dsh-ecosystem-spec 已发布示例 `registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，contracts=storage/commands/messages，hostVersion `0.1.0-experimental`），但 dsh-tui 运行时仍未发布可验证的“真实” Host Descriptor；本扩展自身也无法单独声明宿主能力。
 - **D-3 无 effect ledger / lifecycle 实现**：当前没有 activation instance、runtime generation、effect ledger 等 v0.15 生命周期实体。
 - **D-4 与 Cordis bundle 双轨并存**：实际可运行层仍是 `package.json` 的 `dsh.bundle` + `cordis.patch.yml`；`dsh-plugin.json` 是额外试点声明，两者尚未统一。
-- **D-5 证据等级为 Declared**：试点 manifest 已通过上游 dsh-std v0.15 的 schema + 语义校验（`parseManifest` → `projectManifest` → `manifestDefinitions.validate`），并对官方示例 Host Descriptor（`registry/host-descriptor.tui.example.json`）协商出 **`compatible`**（无 required 缺失、无 denied permission）。但因 entry 不可被 dsh 直接加载（D-1）且真实 host 协商未发生，证据等级仍为 `Declared`，不能声称 `Tested` / `Verified`。
+- **D-5 证据等级为 Declared**：试点 manifest 已通过上游 dsh-std v0.15 的 schema + 语义校验（`parseManifest` → `projectManifest` → `manifestDefinitions.validate`），并对上游仓库的示例(example)Host Descriptor（`registry/host-descriptor.tui.example.json`）协商出 **`compatible`**（无 required 缺失、无 denied permission）。但因 entry 不可被 dsh 直接加载（D-1）且真实 host 协商未发生，证据等级仍为 `Declared`，不能声称 `Tested` / `Verified`。
 
 ## 证据
 
 - 仓库：https://github.com/baobaolaodie/dsh-tui-vscode
 - 分支：`feat/dsh-ecosystem-spec`
 - `dsh-plugin.json`：本仓库根目录（试点声明）
-- 上游 conformance 复核：T-Auto/dsh-ecosystem-spec（HEAD `e1b902b`，2026-08-18，含 tui.dsh 命名空间迁移）+ 固定 `vendor/dsh-std` submodule；`npm run test:standalone` 独立跑通官方 suite 全绿，并对试点 manifest 执行同款校验 → **`compatible`**（结构 + 语义 + 协商全过，迁移后仍合规）。
+- 上游 conformance 复核：T-Auto/dsh-ecosystem-spec（HEAD `e1b902b`，2026-08-18，含 tui.dsh 命名空间迁移）+ 固定 `vendor/dsh-std` submodule；`npm run test:standalone` 独立跑通上游 conformance suite 全绿，并对试点 manifest 执行同款校验 → **`compatible`**（结构 + 语义 + 协商全过，迁移后仍合规）。
 - 注：上游 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（conformance 加载对齐）已合并，修复早期「独立检出无法运行」问题；独立检出现在用 `npm run test:standalone`（等价 `node scripts/conformance.mjs --standalone`）。
 - 已合入上游：本 Note 已随 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) 合入 `adapters/dsh-tui-vscode-v0.15.md`（生态首篇 Adapter Note；README 生态扩展表第一行）。
 - 现有 CI：`npm test` / `npm run test:e2e` 覆盖 VS Code 扩展行为，不覆盖 v0.15 conformance。
