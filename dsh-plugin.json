@@ -21,13 +21,8 @@
   "permissions": [
     {
       "name": "commands.invoke",
-      "scope": "com.baobaolaodie.dsh-tui-vscode.start",
-      "reason": "启动 dsh-TUI 会话"
-    },
-    {
-      "name": "commands.invoke",
-      "scope": "com.baobaolaodie.dsh-tui-vscode.resume",
-      "reason": "恢复 dsh-TUI 会话"
+      "scope": "com.baobaolaodie.dsh-tui-vscode",
+      "reason": "启动/恢复 dsh-TUI 会话（覆盖 start/resume 两个已声明命令）"
     }
   ],
   "contributes": {
@@ -46,7 +41,7 @@
   "license": "MIT",
   "source": {
     "repository": "https://github.com/baobaolaodie/dsh-tui-vscode.git",
-    "revision": "main"
+    "revision": "feat/dsh-ecosystem-spec"
   },
   "compat": {
     "hosts": [
