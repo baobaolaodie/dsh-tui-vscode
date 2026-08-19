@@ -6,6 +6,16 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.6.3] - 2026-08-19
+
+> 经 PR [#10](https://github.com/baobaolaodie/dsh-tui-vscode/pull/10) 合并 / via PR #10
+
+### Added
+
 - **选区变化自动引用（experimental，默认关）**：新增配置 `dsh-tui-vscode.autoInsertMention`（默认 `false`），开启后在编辑器选中代码时自动以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖、仅当存在运行中会话、对同一选区去重、无会话静默忽略）。官方 Claude Code 经其原生 `selection_changed` 通道实现该能力，本项为其 dsh-tui 降级近似；与 dsh-TUI 上游 issue #359（相对路径 + #L 行区间）解耦，待上游落地后升级。
 - **快捷键冲突说明**：README 增加默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）与 opencode 等扩展撞键时的重绑方法（「键盘快捷方式」`Ctrl+K Ctrl+S`），右键/命令面板入口不受影响。
 
