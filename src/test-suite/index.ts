@@ -643,6 +643,60 @@ test('insertAtMention types the @-mention into the running session input', async
   }
 })
 
+test('autoInsertMention (experimental) auto-types the mention on selection change', async () => {
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  try {
+    // Give the config-change handler time to arm the selection listener.
+    await sleep(400)
+    rmSync(ENV_OUT, { force: true })
+    rmSync(STDIN_OUT, { force: true })
+    await vscode.commands.executeCommand('dsh-tui-vscode.start')
+    await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+    await sleep(750)
+
+    const file = join(WS, 'e2e-auto-insert.ts')
+    writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+      const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+      // A real selection change (non-empty) after arming — this is what the
+      // user "selecting code" produces; must auto-type after the debounce.
+      editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
+      const { normalizeMentionPath } = await import('../at-mention.js') as typeof import('../at-mention.js')
+      const expected = '@' + normalizeMentionPath(editor.document.uri.fsPath) + ' L1-3'
+
+      // Auto-inject fires after the 300ms debounce, WITHOUT any Enter — the
+      // mention stays in the dsh-tui input (exactly like manual insertAtMention:
+      // the user completes the question, then presses Enter). To observe it on
+      // the child's stdin, wait for the debounced inject to land in the terminal
+      // buffer, THEN simulate the Enter the user would press.
+      await sleep(700) // > 300ms debounce + terminal round-trip
+      ;(vscode.extensions.getExtension(EXT_ID)!.exports as Api).sendInput('\r')
+      let seen = false
+      try {
+        await poll(() => {
+          const content = readFile(STDIN_OUT)
+          return content?.includes(expected) ? true : undefined
+        }, 10000)
+        seen = true
+      } finally {
+        if (!seen) {
+          const stdin = readFile(STDIN_OUT) ?? '<empty>'
+          console.log(`[e2e] auto-insert diagnostic: expected=[${expected}] stdin=[${stdin.slice(0, 200)}] terminals=[${vscode.window.terminals.map(t => t.name).join(',')}]`)
+        }
+      }
+      assert.ok(seen, 'auto mention reached the running session input after user Enter')
+    } finally {
+      rmSync(file, { force: true })
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    }
+  } finally {
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+  }
+})
+
 export async function run(): Promise<void> {
   console.log(`[e2e] running ${tests.length} tests`)
   // Inject the fake launcher dir into PATH so the bare command

@@ -2,7 +2,7 @@
   "name": "dsh-tui-vscode",
   "displayName": "dsh-tui (VS Code)",
   "description": "Run dsh-TUI in a real VS Code integrated terminal — an experience almost identical to the official Claude Code extension: Beside placement, multiple concurrent sessions, sidebar session history, one-click start/resume. 让 dsh-TUI 跑在真实集成终端里，体验与 Claude Code 官方扩展几乎一致。",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publisher": "baobaolaodie",
   "license": "MIT",
   "repository": {
@@ -207,6 +207,11 @@
           "type": "string",
           "default": "",
           "description": "Optional $DSH_HOME override for the dsh-tui session ('' keeps the value inherited from the VS Code process)."
+        },
+        "dsh-tui-vscode.autoInsertMention": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Experimental** 选区变化时自动把选中代码以 `@绝对值路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖，仅当存在运行中的 dsh-tui 会话时生效；默认关闭以避免抢占/刷屏）。官方 Claude Code 通过其原生 `selection_changed` 通道实现该能力，本项为其 dsh-tui 降级近似。"
         }
       }
     }
@@ -214,7 +219,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"

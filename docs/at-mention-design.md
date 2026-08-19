@@ -63,6 +63,35 @@ const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.pat
 
 差距源于 dsh-tui 的架构(会话 cwd 中心 + 无 IPC 选区上下文),而非扩展能力不足。
 
+## 4.1 选区自动引用:官方真实机制(webview AND 终端模式)
+
+调查(官方 VSIX v2.1.235 解包)确认:**官方「编辑器选区自动出现在会话引用」不止 webview,终端模式同样有**。
+两者共用同一通道,与面板模式无关:
+
+1. 扩展 `onDidChangeTextEditorSelection` → 与上次选区 diff → **300ms 防抖**;
+2. 经扩展内部 WebSocket server(写 `~/.claude/ide/<port>.lock`,含 `transport:"ws"` + authToken,
+   CLI 侧自动发现)发送 JSON-RPC `selection_changed`(params: `{text, filePath, selection{start,end,isEmpty}}`);
+3. CLI(`claude`)消费后,把选区打包为 `<ide_selection>The user selected lines X-Y from PATH: TEXT</ide_selection>`
+   上下文标记,输入面显示引用标识(未选中为 `<ide_opened_file>`);
+4. 手动兜底(两种模式都有):`insertAtMention`(webview, alt+k)/ `insertAtMentioned`
+   (terminal, ctrl+alt+K)插入 `@相对路径#L起-止`。
+
+**结论**:官方终端模式的「自动选区引用」依赖 **CLI 内建协议**——扩展只做选区采集 + WS 通道,消费与显示全在 CLI。
+dsh-tui(whale,独立 cordis TUI)**不消费** `~/.claude/ide` / `selection_changed`,扩展又只有 `terminal.sendText`
+一条通道,故只能**降级近似**(见下节)。
+
+## 4.2 降级近似(本仓库已实现,experimental)
+
+`dsh-tui-vscode.autoInsertMention`(默认 **false**,experimental):开启后监听选区变化 →
+300ms 防抖 → 自动把 `@绝对路径 L起-止` `sendText` 键入**运行中的** dsh-tui 输入框。
+
+- 与官方差异:官方更新的是「上下文标记,不进输入框文字」;本实现是**实质性往输入框敲字**,
+  故默认关闭、仅当存在运行中会话、对同一选区去重,避免抢占/刷屏。
+- 无运行中会话时**静默忽略**(不复制、不提示),避免打扰。
+- 文件 scheme 外的编辑器(输出/终端等非文件)不触发。
+- 与上游补丁 #359 **解耦**:本次扩展侧可独立交付;`#L` 行区间/相对路径落在 dsh-TUI 上游
+  (issue #359),落地后本文档 §4 差距表与 §5 计划再将实现切回「相对路径 + #L 行区间」。
+
 ## 5. 未来计划:给 dsh-TUI 打补丁,对齐官方设计
 
 目标:让 `@相对路径` 与行区间在 dsh-tui 中原生可用,扩展回归「相对路径 + 行区间」,
