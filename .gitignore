@@ -15,6 +15,8 @@ npm-cache/
 *.vsix
 *.log
 
+CLAUDE.md
+
 # 凭据
 .env
 .env.*
