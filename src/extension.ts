@@ -13,6 +13,7 @@ import {
 } from './sessions'
 import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
+import { decideAutoInsert } from './auto-mention'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -235,6 +236,59 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     await vscode.env.clipboard.writeText(mention)
     void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
+  // 选区变化自动引用(experimental,默认关):把官方「编辑器选区自动出现在会话
+  // 引用」在 dsh-tui 上降级近似为——选区变化 → 300ms 防抖 → 自动把
+  // `@绝对路径 L起-止` 键入运行中的 dsh-tui 输入框。官方 true 机制走
+  // `~/.claude/ide` WebSocket(`selection_changed`),dsh-tui 不消费该通道,
+  // 扩展只有 `terminal.sendText` 一条输入通道,故为降级近似;也因此必须：
+  // 默认关闭、仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。
+  // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
+  // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
+  {
+    let lastInserted: string | undefined
+    let postpone: ReturnType<typeof setTimeout> | undefined
+    const isEnabled = (): boolean =>
+      vscode.workspace
+        .getConfiguration('dsh-tui-vscode')
+        .get<boolean>('autoInsertMention', false)
+    context.subscriptions.push(
+      vscode.window.onDidChangeTextEditorSelection(event => {
+        if (!isEnabled()) return
+        const editor = event.textEditor
+        // 非文件 scheme(终端输出、diff 等)不注入;不等同于必须有
+        // activeTextEditor —— 官方实现同样不要求 active,程序化/焦点切换
+        // 时事件仍应工作(且后台编辑器选区通常不会变化,误触发风险低)。
+        if (editor.document.uri.scheme !== 'file') return
+        const selection = editor.selection
+        const outcome = decideAutoInsert({
+          enabled: true,
+          hasSelection: !selection.isEmpty,
+          hasTerminal: hasTerminal(),
+          snapshot: {
+            path: editor.document.uri.fsPath,
+            startLine: selection.start.line,
+            endLine: selection.end.line,
+          },
+          lastInserted,
+        })
+        if (outcome.action !== 'insert') return
+        // 300ms 防抖:连续拖选/多点只收敛为最后一次。
+        if (postpone !== undefined) clearTimeout(postpone)
+        postpone = setTimeout(() => {
+          const terminal = findTerminal()
+          if (!terminal) return
+          terminal.show()
+          terminal.sendText(outcome.mention, false)
+          lastInserted = outcome.mention
+        }, 300)
+      }),
+      {
+        dispose: () => {
+          if (postpone !== undefined) clearTimeout(postpone)
+        },
+      },
+    )
+  }
   register('dsh-tui-vscode.refreshSessions', () => {
     sessionsTree.refresh()
   })

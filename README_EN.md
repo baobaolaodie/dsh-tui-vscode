@@ -71,6 +71,7 @@ npm run install:local
 - **Resume a specific session**: in the sidebar session history, expand a project and click a session — a new terminal boots it with `DSH_TUI_RESUME_SESSION=<id>` in its environment.
 - **Stop**: close the terminal tab (ends only that session), or double `Ctrl+C` inside the TUI; `dsh-tui: Terminate session / 终止会话` sends Ctrl+C to the most recent terminal.
 - **Reference selected code**: with editor focus, press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`), or use the Command Palette / editor context menu "Insert @-mention" — it inserts the current file or selection as `@absolute/path Lstart-end` into the running dsh-tui input box (forward-slash absolute path, independent of the dsh-tui session cwd; `@absolute/path` alone references the whole file when nothing is selected. The `@` mention attaches the whole file's content on submit; the `Lstart-end` range is a space-separated plain-text hint — dsh-tui does not support `#L` line-range syntax). With no running session it falls back to copying to the clipboard. Based on the official Claude Code extension's `insertAtMention` and adapted for dsh-tui.
+  - **Keybinding conflicts**: the default `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) may collide with extensions like opencode (the official terminal mode uses the same default). If it does not work or conflicts, open "Keyboard Shortcuts" (`Ctrl+K Ctrl+S`), search `dsh_tui`, and rebind it to your preferred keys; the context-menu / command-palette entries are unaffected.
 
 ## Architecture
 
@@ -114,6 +115,7 @@ Key points:
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
+| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | On selection change, auto-insert the selected code as `@absolute/path Lstart-end` into the running dsh-tui input box (300 ms debounce; only when a session is running; disabled by default to avoid hijacking/spam). The official extension implements this via its native `selection_changed` channel; this is the dsh-tui degraded approximation, upgraded once the upstream patch lands |
 
 ## Directory Structure
 

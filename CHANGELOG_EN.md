@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Experimental auto @-mention on selection (off by default)**: new setting `dsh-tui-vscode.autoInsertMention` (default `false`). When enabled, selecting code in the editor auto-inserts `@absolute/path Lstart-end` into the running dsh-tui input box (300 ms debounce, only when a session is running, deduped per selection, silently ignored otherwise). The official Claude Code extension implements this via its native `selection_changed` channel; this is the dsh-tui degraded approximation, decoupled from upstream dsh-TUI issue #359 (relative paths + #L ranges) and upgraded once the upstream patch lands.
+- **Keybinding-conflict note**: README now documents how to rebind the default `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) when it collides with extensions like opencode ("Keyboard Shortcuts" `Ctrl+K Ctrl+S`); context-menu / command-palette entries are unaffected.
+
 ### Changed
 
 ### Fixed
