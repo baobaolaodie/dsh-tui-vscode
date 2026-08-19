@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.2-4D6BFE?style=flat" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.6.3-4D6BFE?style=flat" alt="Version" />
   <img src="https://img.shields.io/badge/VS_Code-%5E1.90.0-007ACC?style=flat&logo=visualstudiocode&logoColor=white" alt="VS Code" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="MIT" />
@@ -71,6 +71,7 @@ npm run install:local
 - **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
 - **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
 - **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（用正斜杠绝对路径,与 dsh-tui 会话工作目录无关;未选中则仅为 `@绝对路径` 引用整个文件。`@` 引用在提交时自动附加整个文件内容;行区间 `L起-止` 是空格分隔的纯文本提示——dsh-tui 不支持 `#L` 行区间语法）。无运行会话时回退为复制到剪贴板。行为以 Claude Code 官方 `insertAtMention` 为基准并做了 dsh-tui 适配。
+  - **快捷键冲突**：默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）可能与 opencode 等扩展撞键（官方终端模式同样默认此键）。若无效或冲突，在「键盘快捷方式」（`Ctrl+K Ctrl+S`）搜索 `dsh_tui` 重绑为你习惯的键位即可；右键/命令面板入口不受影响。
 
 ## 架构
 
@@ -114,6 +115,7 @@ flowchart LR
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
+| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | 选区变化时自动把选中代码以 `@绝对路径 L起-止` 插入运行中的 dsh-tui 输入框（300ms 防抖；仅当有运行中的会话时生效；默认关闭避免抢占/刷屏）。官方经原生 `selection_changed` 通道实现，本项为其 dsh-tui 降级近似，待上游补丁后升级 |
 
 ## 目录结构
 

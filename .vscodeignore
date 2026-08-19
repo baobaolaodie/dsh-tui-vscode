@@ -18,6 +18,8 @@ package-lock.json
 *.log
 .gh-log/
 CLAUDE.md
+.scratch/
+.tmp-audit/
 
 .githooks/
 scripts/
