@@ -2,7 +2,7 @@
   "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
   "id": "com.baobaolaodie.dsh-tui-vscode",
   "name": "dsh-tui-vscode (VS Code companion)",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "manifestVersion": "0.15",
   "facets": {
     "host": {
