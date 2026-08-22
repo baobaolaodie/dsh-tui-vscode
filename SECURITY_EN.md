@@ -10,7 +10,7 @@ English · [中文](SECURITY.md)
 
 | Version | Supported |
 |---------|-----------|
-| 0.5.x | ✅ |
+| 0.6.x | ✅ |
 
 ## Reporting a Vulnerability
 
