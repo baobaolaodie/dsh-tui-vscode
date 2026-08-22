@@ -12,10 +12,14 @@ coverage/
 .vscode-test/
 npm-cache/
 .gh-log/
+.scratch/
 *.vsix
 *.log
 
 CLAUDE.md
+
+docs/superpowers/
+.specs/
 
 # 凭据
 .env
