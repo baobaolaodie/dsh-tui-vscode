@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- **启动命令恰好发送一次**：`sendTextWhenReady` 增加 sent 幂等标志——此前当 shell integration 晚到（PowerShell profile 加载慢）或在 1.2s 回退已发送后再次触发时，启动命令会被第二次敲进运行中的 dsh-tui 输入框并被尾随回车提交（已在实际使用中复现）；现在无论哪条就绪信号先到，败者路径一律变 no-op。
+
 ## [0.6.3] - 2026-08-19
 
 > 经 PR [#10](https://github.com/baobaolaodie/dsh-tui-vscode/pull/10) 合并 / via PR #10

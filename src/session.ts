@@ -191,3 +191,35 @@ export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
   }
   return env
 }
+
+/**
+ * 启动竞态的幂等发送门:shell integration 与保守回退都在等待投递启动命令,
+ * 二者可能任一先到,也可能先后都触发(integration 晚到/在 1.2s 回退已发送后
+ * 再次触发——实测发生过:启动命令被第二次敲进已运行的 dsh-tui 输入框并被
+ * 尾随回车提交)。无论时序如何,命令必须恰好送达一次,败者路径变 no-op。
+ * 从 extension.ts 抽出为纯逻辑(无 vscode import),让「双发回归」可被单测锁死。
+ */
+export interface SendOnceGate {
+  /** 在某条就绪信号上调用——每扇门至多投递一次。 */
+  trySend(): void
+  /** 是否已经投递过(含投递时目标已关闭的情形)。 */
+  readonly sent: boolean
+}
+
+export function createSendOnceGate(deliver: () => void): SendOnceGate {
+  let sent = false
+  return {
+    get sent(): boolean {
+      return sent
+    },
+    trySend(): void {
+      if (sent) return
+      sent = true
+      try {
+        deliver()
+      } catch {
+        // 竞态途中终端已关闭也计为已投递,防止迟到的信号复活投递。
+      }
+    },
+  }
+}

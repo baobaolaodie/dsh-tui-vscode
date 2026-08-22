@@ -11,7 +11,13 @@ import {
   readWorkspaceMeta,
   listSessions,
 } from './sessions'
-import { buildLaunchEnv, resolveLaunchCommand, detectShellKind, formatLaunchPath } from './session'
+import {
+  buildLaunchEnv,
+  createSendOnceGate,
+  detectShellKind,
+  formatLaunchPath,
+  resolveLaunchCommand,
+} from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
 import { decideAutoInsert } from './auto-mention'
 
@@ -117,24 +123,23 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   }
 
   /** Wait until the shell is ready to accept input (shell integration or a
-   *  conservative fallback), then run the command. */
+   *  conservative fallback), then run the command exactly once. The race
+   *  semantics live on createSendOnceGate in session.ts — pure and
+   *  unit-tested there; here we only wire real timers/events onto it. */
   function sendTextWhenReady(terminal: vscode.Terminal, command: string): void {
-    const fallback = setTimeout(() => {
+    const gate = createSendOnceGate(() => {
       try {
         terminal.sendText(command, true)
       } catch {
         // terminal already closed
       }
-    }, 1200)
+    })
+    const fallback = setTimeout(() => gate.trySend(), 1200)
     const listener = vscode.window.onDidChangeTerminalShellIntegration(event => {
       if (event.terminal !== terminal) return
       clearTimeout(fallback)
       listener.dispose()
-      try {
-        terminal.sendText(command, true)
-      } catch {
-        // terminal already closed
-      }
+      gate.trySend()
     })
     // Safety: drop the listener if shell integration never arrives.
     setTimeout(() => listener.dispose(), 15000)

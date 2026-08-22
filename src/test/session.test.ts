@@ -8,6 +8,7 @@ import {
   quoteLaunchPath,
   detectShellKind,
   formatLaunchPath,
+  createSendOnceGate,
 } from '../session.js'
 
 test('resolveLaunchCommand finds .cmd/.bat/.exe on Windows PATH', () => {
@@ -124,4 +125,41 @@ test('quoteLaunchPath quotes only when needed', () => {
   assert.equal(quoteLaunchPath('/usr/local/bin/dsh-tui', false), '/usr/local/bin/dsh-tui')
   assert.equal(quoteLaunchPath("C:\\Program Files\\dsh-tui.cmd", true), "& 'C:\\Program Files\\dsh-tui.cmd'")
   assert.equal(quoteLaunchPath('/opt/my tools/dsh-tui', false), "'/opt/my tools/dsh-tui'")
+})
+
+// 回归锁:createSendOnceGate 防「双发启动命令」。实测场景:shell integration
+// 晚于 1.2s 回退到达(慢 PowerShell profile)或再次触发时,旧实现把启动命令
+// 第二次敲进已运行的 dsh-tui 输入框并被尾随回车提交。
+test('send-once gate delivers exactly once no matter how many signals fire', () => {
+  let deliveries = 0
+  const gate = createSendOnceGate(() => {
+    deliveries += 1
+  })
+  gate.trySend() // fallback wins the race
+  gate.trySend() // late shell-integration event — must be a no-op
+  gate.trySend()
+  assert.equal(deliveries, 1)
+  assert.equal(gate.sent, true)
+})
+
+test('send-once gate: integration-first suppresses the later fallback', () => {
+  let deliveries = 0
+  const gate = createSendOnceGate(() => {
+    deliveries += 1
+  })
+  gate.trySend() // integration arrives first
+  gate.trySend() // fallback timer fires afterwards — must be a no-op
+  assert.equal(deliveries, 1)
+})
+
+test('send-once gate: throwing deliver still counts as sent (no resurrect)', () => {
+  let attempts = 0
+  const gate = createSendOnceGate(() => {
+    attempts += 1
+    throw new Error('terminal closed')
+  })
+  gate.trySend()
+  gate.trySend()
+  assert.equal(attempts, 1, 'failed delivery must not be retried by late signals')
+  assert.equal(gate.sent, true)
 })
