@@ -27,7 +27,7 @@ npm run package          # 编译 + 生成 .vsix
 
 1. 从 `main` 创建功能分支，**分支前缀**必须是 `feat/` `fix/` `docs/` `chore/` `hotfix/` `ci/` `test/`（CI pr-policy 强制，`feature/` 会被拒绝）。
 2. 提交消息遵循 **Conventional Commits**：`fix: ...` / `feat: ...` / `docs: ...` / `ci: ...`（CI 逐个提交审计）。
-3. 发起 Pull Request：**标题同样遵循 Conventional Commits**；正文使用 `.github/PULL_REQUEST_TEMPLATE.md` 的五段结构（摘要 / 改动范围 / 验证 / 自查 / 审查注意点），**删除或省略任何段落或勾选项即失败**。
+3. 发起 Pull Request：**标题同样遵循 Conventional Commits**；正文使用 `.github/PULL_REQUEST_TEMPLATE.md` 的五段结构（摘要 / 改动范围 / 验证 / 自查 / 审查注意点），**删除或省略任何段落或勾选项即失败**。勾选项行（含全角标点）会被 CI 逐字节精确匹配——原样保留模板文本、只切换 `[ ]`/`[x]`，勿手打复述。
 4. 行为变化**必须记入 `CHANGELOG.md` 的 Unreleased 段**（中英同步）；勾选"行为变化已记入 CHANGELOG"时，分支必须相对基线有实际的 CHANGELOG diff（防虚假自查）。
 5. 文档改动必须**中英双语同步**（CI 强制行数差 ≤ 10，CoC 除外）。
 

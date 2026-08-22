@@ -27,7 +27,7 @@ npm run package          # compile + build the .vsix
 
 1. Branch from `main` with a **prefix** of `feat/` `fix/` `docs/` `chore/` `hotfix/` `ci/` `test/` (enforced by the CI pr-policy; `feature/` is rejected).
 2. Commit messages follow **Conventional Commits**: `fix: ...` / `feat: ...` / `docs: ...` / `ci: ...` (CI audits every commit).
-3. Open a Pull Request: the **title must also be Conventional Commits**; the body uses the five-section structure of `.github/PULL_REQUEST_TEMPLATE.md` (Summary / Scope of Changes / Verification / Self-check / Review Notes) — **deleting or omitting any section or checkbox fails the PR**.
+3. Open a Pull Request: the **title must also be Conventional Commits**; the body uses the five-section structure of `.github/PULL_REQUEST_TEMPLATE.md` (Summary / Scope of Changes / Verification / Self-check / Review Notes) — **deleting or omitting any section or checkbox fails the PR**. Checkbox lines (including full-width punctuation) are matched byte-exactly by CI — keep the template text as-is and only toggle `[ ]`/`[x]`; do not retype it from memory.
 4. Behavior changes **must be recorded in the Unreleased section of `CHANGELOG.md`** (both languages); ticking "Behavior changes recorded in CHANGELOG (Unreleased)" requires an actual CHANGELOG diff against the base (no fake self-checks).
 5. Doc changes must be **mirrored in both languages** (CI enforces a line-count difference ≤ 10; CoC excluded).
 
