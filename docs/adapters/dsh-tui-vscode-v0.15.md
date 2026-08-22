@@ -27,7 +27,7 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 ## 已知偏差
 
 - **D-1 entry 不可被 dsh 直接加载**：`out/extension.js` 是 VS Code Extension Host 入口，不能由 dsh/Cordis 直接加载。当前 `dsh-plugin.json` 是“声明性试点”，不是可执行插件。
-- **D-2 真实 Host Descriptor 已在运行时构建，但无可复验工件、未实测协商（2026-08-23 修订）**：dsh-TUI 主仓已落地 Host Descriptor 构建（`ctx.tuiPluginHost` 提供 runtime generationId，按运行代码真实挂载的契约动态声明，未挂载的 Command 契约剔除并告警）；但 spec 仓库 `registry/` 仍只有示例工件 `host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`），没有可供离线 `validate:manifest --host` 复验的「真实」descriptor 发布物，本扩展也尚未对运行中 dsh-tui 导出的 descriptor 实测协商。证据等级维持 `Declared` 的理由由「宿主侧不存在」修正为「尚未实测 + 工件未发布」。
+- **D-2 真实 Host Descriptor 已实测协商（2026-08-23 闭环）**：spec registry 无可离线复验的 descriptor 发布工件，但 dsh-TUI 已在运行时构建真实 Host Descriptor；本试点已于 2026-08-23 对运行中 dsh-tui 0.8.8 经 `/plugins check` 完成协商 → **`compatible`**（见证据节）。证据等级维持 `Declared` 的理由收窄为「entry 不可被 dsh 直接加载（D-1）+ 无 activation/lifecycle 接入（D-3）」，协商维度已实测。
 - **D-3 本插件侧未接入 effect ledger / lifecycle（2026-08-23 修订）**：宿主侧生命周期实体已实现——dsh-TUI 的效果台账（C-060，`~/.dsh-tui/effect-ledger.jsonl`，pluginId / activationInstance / runtimeGenerationId 三元组）与统一授权存储均已上线；偏差收窄为本扩展作为 VS Code companion 未声明 activation instance、未接入宿主台账，行为仍走 VS Code 终端与会话文件系统。
 - **D-4 与 Cordis bundle 双轨并存**：实际可运行层仍是 `package.json` 的 `dsh.bundle` + `cordis.patch.yml`；`dsh-plugin.json` 是额外试点声明，两者尚未统一。
 - **D-5 证据等级为 Declared**：试点 manifest 已通过上游 dsh-std v0.15 的 schema + 语义校验（`parseManifest` → `projectManifest` → `manifestDefinitions.validate`），并对上游仓库的示例(example)Host Descriptor（`registry/host-descriptor.tui.example.json`）协商出 **`compatible`**（无 required 缺失、无 denied permission）。2026-08-21 起该复核可经官方入口 `npm run validate:manifest` 一键复现（上游 PR #5）。但因 entry 不可被 dsh 直接加载（D-1）且真实 host 协商未发生，证据等级仍为 `Declared`，不能声称 `Tested` / `Verified`。
@@ -41,7 +41,8 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
   - `npm run test:standalone` 全量 suite 退出码 0（manifest/Host Descriptor/envelope/ledger/claim 正反 fixture 与五态协商矩阵全部符合预期）；
   - 官方入口 `npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`，exit 0；
   - 结论维持 **`compatible`**（结构 + 语义 + 协商全过；PR #5 将 admission 算法抽为共用核心 `admission-core.js` 后复核结论不变）。
-- 宿主侧复核（2026-08-23，headless 复刻 `/plugins check` 全链：parseManifest → projectManifest → createContractIndex(vendored registry/permissions) → validatePlugin → buildHostDescriptor → negotiate，dsh-tui 0.8.8 安装副本）：**TUI semantic validation PASS**，negotiate → **`compatible`**（host.dropped=[] / warnings=[]）；最小合规形态（单命令 `.start`）；真实终端留档待补。
+- 宿主侧复核（2026-08-23，headless 复刻 `/plugins check` 全链：parseManifest → projectManifest → createContractIndex(vendored registry/permissions) → validatePlugin → buildHostDescriptor → negotiate，dsh-tui 0.8.8 安装副本）：**TUI semantic validation PASS**，negotiate → **`compatible`**（host.dropped=[] / warnings=[]）；最小合规形态（单命令 `.start`）。
+- 真实宿主协商留档（2026-08-23，运行中 dsh-tui 0.8.8，真实终端 `/plugins check D:\...\dsh-plugin.json`）：C-070 信任横幅后输出 **「协商结果：compatible」**。headless 预测与真实宿主一致，negotiated 维度闭环。
 - 注：上游 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（conformance 加载对齐）已合并，修复早期「独立检出无法运行」问题；独立检出现在用 `npm run test:standalone`（等价 `node scripts/conformance.mjs --standalone`）。
 - 已合入上游：本 Note 已随 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) 合入 `adapters/dsh-tui-vscode-v0.15.md`（生态首篇 Adapter Note；曾列于 README「生态扩展一览表」首行，该表后被上游提交 `69052fd` 移除，见「上游演变跟踪」）。
 - 现有 CI：`npm test` / `npm run test:e2e` 覆盖 VS Code 扩展行为，不覆盖 v0.15 conformance。
@@ -59,7 +60,7 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 
 ## 收敛计划
 
-1. 以 `/plugins check` 对运行中 dsh-tui 完成真实宿主协商留档（headless 复刻链已 PASS + compatible，真实终端复核待补）；
+1. ✅ 2026-08-23 完成：真实宿主 `/plugins check` 协商 `compatible`（headless 复刻链先行预测一致，均已留档）；
 2. 上游裁决 Gap 3（多命令权限语义冲突）后恢复 `resume` 命令与第二条 invoke 授权声明；
 3. 等 Cordis 或 dsh loader 支持读取 `dsh-plugin.json` 作为包身份层；
 4. 再决定 entry 是否需要改为独立的 Node/Cordis 入口；
