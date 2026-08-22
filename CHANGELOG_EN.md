@@ -12,6 +12,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+## [0.6.4] - 2026-08-22
+
+> via PR [#12](https://github.com/baobaolaodie/dsh-tui-vscode/pull/12) / 经 PR #12 合并
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **Exactly-once session launch command**: `sendTextWhenReady` now carries a sent flag — previously, when shell integration activated late (slow PowerShell profile) or fired again after the 1.2 s fallback had already sent the launch command, the command was typed a second time into the running dsh-tui input box and submitted by its trailing Enter (reproduced in the wild); whichever readiness signal wins, the loser path is now a no-op.
 
 ## [0.6.3] - 2026-08-19
