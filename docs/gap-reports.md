@@ -86,3 +86,4 @@ AssertionError [ERR_ASSERTION]: storage.local schemaHash drifted
 
 - **维持本地记录**：按 2026-08 决策仅保留本文件记录，暂不提交上游 issue / PR；
 - 后续如上游进入 Candidate 验收需要示例插件，可再评估补提。
+- **2026-08-23 时效审计更新**：子项 2（`docs/plugins.md` 未提及 v0.15）已失效——该文档现含完整「社区互操作规范（Community Consensus v0.15）」章节且宿主侧实现（校验库 / Host Descriptor 构建 / 授权存储 / 效果台账 / `/plugins`）已落地；子项 3（全 GitHub 搜 `filename:dsh-plugin.json` 为 0）已失效——现命中约 200+（含 dsh-data-agent / dsh-lark-bot / dsh-deepread 等真实插件仓及第三方市场目录）。子项 1（plugin-template 缺 manifest）本轮未复核，状态不明。「规范强制后现存社区插件全不兼容」的风险判断随之显著下调。
