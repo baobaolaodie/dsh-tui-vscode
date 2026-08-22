@@ -18,8 +18,8 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 | `facets.host.entry` | `out/extension.js`（VS Code 扩展入口；**非 dsh 宿主可执行入口**，见偏差 D-1） |
 | `facets.host.apiVersion` | `v1alpha1`（试点值；尚未被 dsh-tui 运行时协商） |
 | `requires.contracts` | `commands.dsh/v1alpha1` + `Command`（启动/恢复命令的声明） |
-| `permissions` | `commands.invoke`（单条；scope = 插件命名空间，覆盖 start/resume；dsh-std 投影按 action 去重，同一 action 不允许重复声明） |
-| `contributes.commands` | `dsh-tui-vscode.start` / `dsh-tui-vscode.resume` |
+| `permissions` | `commands.invoke`（单条；scope 必须是已声明命令 id——宿主正向校验 scope∈commandIds、反向校验每命令必有对应授权，而 std 解析层按 name 去重禁止同 name 多条。当前仅声明 `.start`，`.resume` 待上游裁决后恢复，见 Gap 3） |
+| `contributes.commands` | 当前仅声明 `com.baobaolaodie.dsh-tui-vscode.start`（`.resume` 因 Gap 3 规则冲突暂缓，扩展本体仍提供该命令） |
 | `subscriptions` | 无（当前不订阅 messages.observe 等事件） |
 | Host Descriptor | 上游示例已发布：`registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，storage/commands/messages）；dsh-tui 已在运行时构建真实 descriptor 但无发布工件（见 D-2） |
 | effect ledger | 未实现；当前通过 VS Code 终端/会话文件系统读写，无标准 ledger |
@@ -41,6 +41,7 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
   - `npm run test:standalone` 全量 suite 退出码 0（manifest/Host Descriptor/envelope/ledger/claim 正反 fixture 与五态协商矩阵全部符合预期）；
   - 官方入口 `npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`，exit 0；
   - 结论维持 **`compatible`**（结构 + 语义 + 协商全过；PR #5 将 admission 算法抽为共用核心 `admission-core.js` 后复核结论不变）。
+- 宿主侧复核（2026-08-23，headless 复刻 `/plugins check` 全链：parseManifest → projectManifest → createContractIndex(vendored registry/permissions) → validatePlugin → buildHostDescriptor → negotiate，dsh-tui 0.8.8 安装副本）：**TUI semantic validation PASS**，negotiate → **`compatible`**（host.dropped=[] / warnings=[]）；最小合规形态（单命令 `.start`）；真实终端留档待补。
 - 注：上游 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（conformance 加载对齐）已合并，修复早期「独立检出无法运行」问题；独立检出现在用 `npm run test:standalone`（等价 `node scripts/conformance.mjs --standalone`）。
 - 已合入上游：本 Note 已随 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) 合入 `adapters/dsh-tui-vscode-v0.15.md`（生态首篇 Adapter Note；曾列于 README「生态扩展一览表」首行，该表后被上游提交 `69052fd` 移除，见「上游演变跟踪」）。
 - 现有 CI：`npm test` / `npm run test:e2e` 覆盖 VS Code 扩展行为，不覆盖 v0.15 conformance。
@@ -54,10 +55,13 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 - **2026-08-18~22 README 门面重写**：提交 `69052fd` 移除「生态扩展一览表」对本仓库与 Adapter Note 的直达链接，生态可见性转由 [tui 插件市场](https://dshtui.com/plugins/)承担（README 徽章口径收录 23 个）；Note 文件本身仍在 `adapters/` 且被上游 `package.json` 的 `files` 收录。同期规范本体零漂移（spec / registry / schemas / `vendor/dsh-std` @ `614dfa1` 均未动）。
 - **2026-08-23 时效审计：dsh-TUI 主仓已落地宿主侧**：[docs/plugins.md](https://github.com/ccch1mneyyy/dsh-TUI/blob/main/docs/plugins.md) 新增「社区互操作规范（Community Consensus v0.15）」章节——`src/plugin-spec/` 校验/协商纯库、vendored profile + `npm run verify:plugin-spec` 漂移检查、Host Descriptor 构建、统一授权存储（8 个注册权限，`commands.invoke` 默认允许）、效果台账与 `/plugins` 诊断面均标记为已落地；边界声明加载强制仍归 dsh CLI Loader。另：全网 `filename:dsh-plugin.json` 命中已达 200+（含多个真实社区插件仓），manifest 格式正在扩散。据此改写本 Note D-2/D-3。
 
+- **2026-08-23 实测发现上游规则缺陷（Gap 3）**：经运行中 dsh-tui（0.8.8，`/plugins check`）实测本试点 manifest 暴露——@dsh-std/manifest 0.1.0 解析层按 `community.dsh/v1alpha1␀Permission␀<name>` 去重（同 name 仅一条，scope 不参与），而 dsh-tui profile 层要求「每条 `commands.invoke` 的 scope 必须是已声明命令 id」且反向要求「每个已声明命令都有对应 invoke 授权」。三条规则合取下，**声明 ≥2 个命令的插件不存在可过审形态**。本试点暂以单命令（`.start`）最小合规形态保持双侧全绿；详见 `docs/gap-reports.md` Gap 3。
+
 ## 收敛计划
 
-1. 对运行中 dsh-tui 构建的真实 Host Descriptor 实测协商（spec registry 尚无可直接消费的发布工件，需经 `/plugins` 诊断面或宿主导出）；
-2. 等 Cordis 或 dsh loader 支持读取 `dsh-plugin.json` 作为包身份层；
-3. 再决定 entry 是否需要改为独立的 Node/Cordis 入口；
-4. 届时补 effect ledger 与 lifecycle 映射，并从 `Declared` 升级到更高证据等级；
-5. 本 Note 已作为第一篇 Adapter Note 随 T-Auto/dsh-ecosystem-spec PR #3 合入上游 `adapters/`（生态首个 VS Code companion 适配参考）；后续增量（证据升级、上游演变跟踪）再以小 PR 向上游同步。
+1. 以 `/plugins check` 对运行中 dsh-tui 完成真实宿主协商留档（headless 复刻链已 PASS + compatible，真实终端复核待补）；
+2. 上游裁决 Gap 3（多命令权限语义冲突）后恢复 `resume` 命令与第二条 invoke 授权声明；
+3. 等 Cordis 或 dsh loader 支持读取 `dsh-plugin.json` 作为包身份层；
+4. 再决定 entry 是否需要改为独立的 Node/Cordis 入口；
+5. 届时补 effect ledger 与 lifecycle 映射，并从 `Declared` 升级到更高证据等级；
+6. 本 Note 已作为第一篇 Adapter Note 随 T-Auto/dsh-ecosystem-spec PR #3 合入上游 `adapters/`（生态首个 VS Code companion 适配参考）；后续增量（证据升级、上游演变跟踪）再以小 PR 向上游同步。

@@ -21,8 +21,8 @@
   "permissions": [
     {
       "name": "commands.invoke",
-      "scope": "com.baobaolaodie.dsh-tui-vscode",
-      "reason": "启动/恢复 dsh-TUI 会话（覆盖 start/resume 两个已声明命令）"
+      "scope": "com.baobaolaodie.dsh-tui-vscode.start",
+      "reason": "启动新 dsh-TUI 会话；resume 因上游多命令权限语义冲突暂缓声明（见 docs/gap-reports.md Gap 3）"
     }
   ],
   "contributes": {
@@ -30,10 +30,6 @@
       {
         "id": "com.baobaolaodie.dsh-tui-vscode.start",
         "title": "Start new dsh-TUI session"
-      },
-      {
-        "id": "com.baobaolaodie.dsh-tui-vscode.resume",
-        "title": "Resume last dsh-TUI session"
       }
     ]
   },
