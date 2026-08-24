@@ -623,14 +623,15 @@ test('insertAtMention copies @-mention to clipboard when no session is running',
       await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
       assert.ok(infoShown?.includes('已复制'), `fallback must inform the user, got ${infoShown}`)
       if (!clipboardHealthy) {
-        // Windows 剪贴板服务偶发延迟：writeText 已解析但立即 readText 可能拿到空
-        // 串（本机复现的宿主级抖动，与产品无关——写入发生与否由上一行的「已复制」
-        // 消息断言锁定）。给读取侧一个短轮询窗口。
+        // OS 剪贴板被锁时诚实跳过内容比对（写入发生与否由上一行的「已复制」
+        // 消息断言锁定；健康环境下下方仍做短轮询内容断言）。
         console.log(
           '[e2e] SKIP clipboard content assertion: system clipboard unavailable (OS-level lock)',
         )
         return
       }
+      // Windows 剪贴板服务偶发延迟：writeText 已解析但立即 readText 可能拿到空
+      // 串（宿主级抖动，与产品无关）——给读取侧一个短轮询窗口。
       let clip: string | undefined
       for (let waited = 0; waited < 5000 && clip === undefined; waited += 200) {
         const content = await vscode.env.clipboard.readText()
