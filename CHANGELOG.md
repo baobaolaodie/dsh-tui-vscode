@@ -4,9 +4,17 @@
 
 ## Unreleased
 
+> ⚠️ **版本门槛 / Version gate**：本段功能需 **dsh-TUI ≥ 含 PR-A（#L 行区间）与 PR-B（IDE 选区通道）的版本**。搭配旧版 dsh-TUI 时，`@` 引用会因无法解析新语法而提示文件未找到（missing）——请先升级 dsh-TUI 再升级本扩展。
+
 ### Added
 
+- **IDE 选区通道（扩展侧 server，对齐官方 selection_changed 能力）**：激活时在 `127.0.0.1` 随机端口启动回环 WebSocket 服务端（`ws`），握手 token 鉴权；会话终端自动注入 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量（env 直连），同时以 lock 文件（`~/.dsh-tui/ide/<port>.lock`，JSON `{port, token, workspaceFolders, pid}`）广播自身供手动启动的 dsh-tui 发现（lock 扫描）。选区变化经 300ms 防抖后向连接的 dsh-tui 推送 `selection_changed` 坐标通知（仅 `{path, startLine, endLine, isEmpty}`，0-based，不含文本——dsh-TUI 提交消息时按坐标自行读取并附加 `<attached-file … selection>` 块）。服务端启动失败静默降级（其余功能不受影响），停用时清理 lock 与监听。
+- **e2e 覆盖 IDE 选区通道**：真实扩展宿主 e2e 新增两条用例——server 生命周期（终端 env 注入与 lock 广播值一致、注入临时 lockRoot 的实例验证写/清 lock 幂等生命周期）与 WS client 对连（lock 发现 → ide/hello 握手 → 收到 `selection_changed` 且 payload 坐标 only）。
+
 ### Changed
+
+- **`@` 引用输出格式迁移：相对路径 + `#L` 行区间**：`insertAtMention` 与选区自动引用的输出从 `@绝对路径 L起-止`（空格分隔纯文本提示，旧版 dsh-tui 不解析）改为 **`@相对路径#L起-止`**（相对化基准 = 扩展终端 cwd = VS Code 工作区根；单行 `#L12`、多行 `#L12-14`、空选区裸路径；路径含空白时 `@"路径"#L…` 形式；工作区外兜底正斜杠绝对路径仍带 `#L`）。dsh-TUI PR-A 起原生解析该语法并在提交时按行区间切片附加内容。
+- **autoInsertMention 升级为推送语义**：`autoInsertMention` 开启后不再把 `@…` 键入运行中的输入框（抢占输入框），而是经 IDE 选区通道把选区坐标推送给运行中的 dsh-tui（不占输入框，提交时自动附加上下文）；通道不可用（server 未起 / 连接失败）时回退为原键入行为。默认仍关闭。
 
 ### Fixed
 

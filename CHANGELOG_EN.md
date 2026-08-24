@@ -6,9 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## Unreleased
 
+> ⚠️ **Version gate**：features in this section require a **dsh-TUI build that includes PR-A (#L line ranges) and PR-B (IDE selection channel)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
+
 ### Added
 
+- **IDE selection channel (extension-side server, mirroring the official selection_changed capability)**: on activation the extension starts a loopback WebSocket server (`ws`) on a random `127.0.0.1` port with token handshake; session terminals automatically receive the `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` environment variables (env-direct discovery), and the server also advertises itself via a lock file (`~/.dsh-tui/ide/<port>.lock`, JSON `{port, token, workspaceFolders, pid}`) so manually launched dsh-tui instances can find it (lock scan). Selection changes are pushed after a 300 ms debounce as `selection_changed` coordinate notifications to connected dsh-tui clients (coordinates only — `{path, startLine, endLine, isEmpty}`, 0-based, never text; dsh-TUI reads the file itself at submit time and attaches an `<attached-file … selection>` block). Server startup failure degrades silently (everything else keeps working); deactivation clears the lock and listeners.
+- **e2e coverage for the IDE selection channel**: two new real-extension-host e2e tests — server lifecycle (terminal env injection consistent with the lock advertisement, plus an isolated instance with an injected temp lockRoot verifying the idempotent write/clear lock lifecycle) and WS client round-trip (lock discovery → ide/hello handshake → receives `selection_changed` with a coordinates-only payload).
+
 ### Changed
+
+- **`@` mention output format migration: relative path + `#L` line range**: the output of `insertAtMention` and the automatic selection mention changes from `@absolute/path Lstart-end` (space-separated plain-text hint, unparsed by old dsh-tui) to **`@relative/path#Lstart-end`** (relativized against the extension terminal cwd = VS Code workspace root; single line `#L12`, multi-line `#L12-14`, bare path when nothing is selected; `@"path"#L…` for paths with whitespace; outside the workspace it falls back to a forward-slash absolute path still carrying `#L`). From dsh-TUI PR-A on, this syntax is parsed natively and the submit-time attachment is sliced to the line range.
+- **autoInsertMention upgraded to push semantics**: with `autoInsertMention` enabled, selections are no longer typed into the running input box (which hijacks it) — they are pushed as coordinates to the running dsh-tui over the IDE selection channel (no input-box takeover; context attaches at submit time); when the channel is unavailable (server down / not connected) it falls back to the previous typing behavior. Still off by default.
 
 ### Fixed
 
