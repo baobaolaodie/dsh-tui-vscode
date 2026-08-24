@@ -17,6 +17,7 @@ import {
   createSendOnceGate,
   detectShellKind,
   formatLaunchPath,
+  formatWorkspaceTargetArg,
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
@@ -187,6 +188,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const resolved = resolveLaunchCommand(command, isWindows, shellKind)
     const parts = [formatLaunchPath(resolved ?? command, shellKind, isWindows)]
     for (const arg of cfg.extraArgs) parts.push(arg)
+    // T-FIX-02 (missing @mention fix): pin the session cwd to THIS workspace
+    // root via a trailing positional arg — the launcher turns it into
+    // DSH_TUI_WORKSPACE_TARGET and the TUI resolves it as its workspace, so
+    // the session's relativization baseline matches ours exactly. Same source
+    // as createTerminal's cwd: one truth for both.
+    const targetArg = formatWorkspaceTargetArg(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      shellKind,
+    )
 
     const existing = findTerminal()
     if (resumeSession) {
@@ -201,7 +211,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       })
       const terminal = createTerminal(env)
       terminal.show()
-      sendTextWhenReady(terminal, parts.join(' '))
+      sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
     }
     if (resume) {
@@ -209,7 +219,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       parts.push('--resume')
       const terminal = createTerminal(buildEnv(ideEnvPairs()))
       terminal.show()
-      sendTextWhenReady(terminal, parts.join(' '))
+      sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
     }
     // Multiple concurrent sessions (like Claude Code): every click opens a
@@ -218,7 +228,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     void existing
     const terminal = createTerminal(buildEnv(ideEnvPairs()))
     terminal.show()
-    sendTextWhenReady(terminal, parts.join(' '))
+    sendTextWhenReady(terminal, parts.join(' ') + targetArg)
   }
 
   const register = (id: string, fn: (...args: unknown[]) => void): void => {
@@ -278,12 +288,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     await vscode.env.clipboard.writeText(mention)
     void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
-  // 选区变化自动引用(experimental,默认关):官方语义是「编辑器选区实时出现在
-  // 会话引用」——本扩展经 IDE 选区通道(ide/server.ts)把选区坐标推送给运行中
-  // 的 dsh-tui(其提交时按坐标自行读文件,对齐上游 selection_changed 消费)。
+  // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
+  // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
+  // 把选区坐标推送给运行中的 dsh-tui(其提交时按坐标自行读文件并在 footer
+  // 实时显示 ⧉ 徽标,对齐上游 selection_changed 消费)。
   // server 缺席(启动失败/旧版 dsh-tui)时回退旧的敲字近似:把
   // `@相对路径#L起-止` 键入运行中的输入框(workspaceRoot 同 insertAtMention:
-  // 根内相对化,根外兜底绝对)。也因此必须:默认关闭、仅在有运行中会话时注入、
+  // 根内相对化,根外兜底绝对)。也因此必须:仅在有运行中会话时注入、
   // 对同一选区去重,避免抢占输入框/刷屏。推送分支无此副作用——不碰输入框。
   // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
@@ -293,7 +304,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const isEnabled = (): boolean =>
       vscode.workspace
         .getConfiguration('dsh-tui-vscode')
-        .get<boolean>('autoInsertMention', false)
+        .get<boolean>('autoInsertMention', true)
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
         if (!isEnabled()) return

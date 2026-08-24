@@ -161,6 +161,47 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
       return isWindows ? `& '${display}'` : `'${display}'`
   }
 }
+
+/**
+ * The trailing positional argument of the launch command: the opened
+ * workspace root, so the dsh-tui launcher can pin the session cwd to the
+ * SAME root this extension relativizes @mentions against (T-FIX-02).
+ *
+ * Why: the TUI's default session cwd crawls up to the nearest git worktree
+ * root (upstream issue #96), while mention relativization uses
+ * `workspaceFolders[0]` — in a subdirectory workspace of a git repo the two
+ * diverge and every submitted `@relative#L…` lands as "missing". Appending
+ * the workspace root makes the launcher set DSH_TUI_WORKSPACE_TARGET → the
+ * plugin resolves it directly (absolute paths short-circuit) → session cwd
+ * === extension baseline.
+ *
+ * Quoting follows formatLaunchPath's per-shell conventions (the launcher's
+ * arg scanner treats a quoted path with spaces as one token); an empty/absent
+ * root yields '' so callers append nothing. Pure — unit-tested without VS Code.
+ */
+export function formatWorkspaceTargetArg(
+  workspaceRoot: string | undefined,
+  shellKind: ShellKind,
+): string {
+  const root = workspaceRoot?.trim() ?? ''
+  if (root === '') return ''
+  if (!root.includes(' ')) return ` ${root}`
+  switch (shellKind) {
+    case 'cmd':
+      return ` "${root}"`
+    case 'powershell':
+      return `& '${root}'`
+    case 'bash':
+    case 'cygwin':
+    case 'wsl':
+      // windowsPathToPosix passes non-Windows paths through untouched, so a
+      // POSIX workspace root stays literal; Windows drive paths become the
+      // shell's mount form exactly like formatLaunchPath does.
+      return `'${windowsPathToPosix(root, shellKind)}'`
+    default:
+      return `& '${root}'`
+  }
+}
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
   base?: Record<string, string | undefined>

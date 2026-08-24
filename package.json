@@ -210,8 +210,8 @@
         },
         "dsh-tui-vscode.autoInsertMention": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "**Experimental** 选区变化时把选中代码的坐标推送给运行中的 dsh-TUI（IDE 选区通道，300ms 防抖；dsh-TUI 在提交消息时按坐标附加文件内容，不占用输入框）。需 dsh-TUI ≥ 支持 IDE 选区通道的版本（PR-B）；通道不可用时回退为把 `@相对路径#L起-止` 键入运行中的 dsh-tui 输入框。默认关闭以避免干扰。"
+          "default": true,
+          "markdownDescription": "选区变化时把选中代码的坐标推送给运行中的 dsh-TUI（IDE 选区通道，300ms 防抖；dsh-TUI 在提交消息时按坐标附加文件内容，并在输入框下方实时显示 `⧉ N lines selected`）。需 dsh-TUI ≥ 支持 IDE 选区通道的版本（PR-B）；通道不可用时回退为把 `@相对路径#L起-止` 键入运行中的 dsh-tui 输入框。默认开启以对齐官方 Claude Code 的选区体验。"
         }
       }
     }

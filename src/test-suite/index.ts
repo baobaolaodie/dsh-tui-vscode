@@ -24,6 +24,8 @@ import * as zstd from '@bokuweb/zstd-wasm'
 
 /** Selection payloads use forward-slash paths (the wire contract). */
 const normalizeWsPath = (fsPath: string): string => fsPath.replace(/\\/g, '/')
+/** Case-folded comparison form for cwd assertions (Windows drive letters). */
+const normalize = (p: string): string => normalizeWsPath(p).replace(/\/+$/, '').toLowerCase()
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
 const WS = join(__dirname, '..', '..', '.e2e-workspace')
@@ -739,6 +741,110 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
   } finally {
     await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
+})
+
+test('insertAtMention relativizes against the opened workspace root, not the git crawl root (subdirectory workspace)', async () => {
+  // T-FIX-02: the suite workspace now lives INSIDE a git repository (see
+  // run-tests.ts) — exactly the shape that used to break @mentions. The TUI
+  // crawls to the git root for its session cwd (upstream issue #96), so a
+  // mention relativized against the git PARENT instead of the opened
+  // subdirectory resolved to "missing" after submit. The extension must keep
+  // using workspaceFolders[0] as its baseline; the launch command pins the
+  // TUI's cwd to the same root.
+  const parent = join(WS, '..')
+  if (!existsSync(join(parent, '.git'))) {
+    console.log('[e2e] SKIP subdirectory-workspace: suite workspace is not inside a git repo (git init failed at setup)')
+    return
+  }
+  // Force the no-terminal fallback: dispose every DeepSeek terminal.
+  for (const t of [...vscode.window.terminals]) if (t.name === TERMINAL_NAME) t.dispose()
+  await poll(() => (findTuiTerminal() ? undefined : true), 8000)
+
+  const file = join(WS, 'e2e-subdir-insert.ts')
+  writeFileSync(file, 'line0\nline1\nline2\nline3\nline4\n')
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+    const editor = await vscode.window.showTextDocument(doc)
+    editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
+    const { normalizeMentionPath } = await import('../at-mention.js') as typeof import('../at-mention.js')
+    const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+    const expected =
+      '@' + normalizeMentionPath(file).replace(normalizeWsPath(wsRoot) + '/', '') + '#L2-4'
+    // The regression switch: a mention relativized against the GIT PARENT
+    // (the crawl root the TUI used to land on) carries that directory in its
+    // path — this form must NOT be produced anymore.
+    const wrongBaselineForm = '@' + normalizeWsPath(file).replace(normalizeWsPath(parent) + '/', '')
+
+    const origInfo = vscode.window.showInformationMessage
+    let infoShown: string | undefined
+    vscode.window.showInformationMessage = (async (message: string) => {
+      infoShown = String(message)
+    }) as typeof vscode.window.showInformationMessage
+
+    let clipboardHealthy = false
+    const PROBE = 'dsh-e2e-clipboard-probe-2'
+    await vscode.env.clipboard.writeText(PROBE)
+    clipboardHealthy = (await vscode.env.clipboard.readText()) === PROBE
+
+    try {
+      await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
+      assert.ok(infoShown?.includes('已复制'), `fallback must inform the user, got ${infoShown}`)
+      if (!clipboardHealthy) {
+        console.log(
+          '[e2e] SKIP clipboard content assertion: system clipboard unavailable (OS-level lock)',
+        )
+        return
+      }
+      let clip: string | undefined
+      for (let waited = 0; waited < 5000 && clip === undefined; waited += 200) {
+        const content = await vscode.env.clipboard.readText()
+        if (content === expected) clip = content
+        else await sleep(200)
+      }
+      assert.equal(clip, expected, `mention must be relative to the OPENED workspace root (${wsRoot})`)
+      assert.notEqual(clip, wrongBaselineForm, 'mention must NOT be relative to the git parent (crawl-root regression)')
+      // The opened root IS the subdirectory, not the git parent — mirror of
+      // upstream gitWorktreeRoot; guarded by the .git existsSync SKIP above.
+      assert.notEqual(
+        normalize(wsRoot),
+        normalize(parent),
+        'precondition broken: the workspace folder must be the SUBDIRECTORY',
+      )
+    } finally {
+      vscode.window.showInformationMessage = origInfo
+    }
+  } finally {
+    rmSync(file, { force: true })
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+  }
+})
+
+test('launch command carries the workspace root positional arg (DSH_TUI_WORKSPACE_TARGET chain)', async () => {
+  // T-FIX-02 missing-fix, extension-side half of the contract: the launch
+  // command must END with the opened workspace root as a positional argument.
+  // The REAL launcher (bin/dsh-tui.js) intercepts it into
+  // DSH_TUI_WORKSPACE_TARGET → the TUI pins its session cwd to that root
+  // (absolute paths short-circuit workspace resolution), so the @mention
+  // relativization baseline agrees with this extension's. The fake launcher
+  // does NOT intercept — the arg lands verbatim in ARGS=, which is exactly
+  // the seam pinned here; the interception half is upstream behavior covered
+  // by the upstream verifier.
+  await configureFakeLauncher()
+  rmSync(ENV_OUT, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  const text = await poll(() => {
+    const content = readFile(ENV_OUT)
+    return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
+  }, 20000)
+  const wsRoot = normalize(vscode.workspace.workspaceFolders![0]!.uri.fsPath)
+  const lines = text!.trim().split(/\r?\n/).map(line => line.trim())
+  assert.ok(
+    lines.some(line => {
+      if (!line.startsWith('ARGS=')) return false
+      return normalize(line.slice('ARGS='.length)).endsWith(wsRoot)
+    }),
+    `launch command must end with the opened workspace root: ${lines.join(' | ')}`,
+  )
 })
 
 // ---- IDE selection channel (AC-7 e2e) -------------------------------------

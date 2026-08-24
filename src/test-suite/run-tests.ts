@@ -5,13 +5,27 @@
  * platform, no cmd/sh quoting traps).
  */
 import { runTests } from '@vscode/test-electron'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 
 async function main(): Promise<void> {
   // out-test/test-suite -> repo root
   const root = join(__dirname, '..', '..')
-  const ws = join(root, '.e2e-workspace')
+  // T-FIX-02: the workspace must be a SUBDIRECTORY of a real git repository —
+  // the upstream TUI crawls to the git root for its session cwd (issue #96),
+  // so a plain folder can never reproduce the "missing @mention" bug this
+  // suite now pins. `git` is guaranteed on CI runners (this repo's own ci.yml
+  // uses it) and on dev machines; the suite asserts the .git presence and
+  // skips the affected cases honestly when absent.
+  const parent = join(root, '.e2e-git-parent')
+  try {
+    execFileSync('git', ['init', '-q', parent])
+  } catch {
+    // No git in PATH: fall back to a bare directory — the subdirectory-workspace
+    // assertions skip themselves (existsSync guard on parent/.git).
+  }
+  const ws = join(parent, '.e2e-workspace')
   mkdirSync(ws, { recursive: true })
   writeFileSync(join(ws, 'hello.ts'), 'export const answer = 42\n')
 
@@ -29,6 +43,7 @@ async function main(): Promise<void> {
       '  `DSH_HOME=${process.env.DSH_HOME ?? ""}`,',
       '  `RESUME_SESSION=${process.env.DSH_TUI_RESUME_SESSION ?? ""}`,',
       '  `ARGS=${process.argv.slice(2).join(" ")}`,',
+      '  `CWD=${process.cwd()}`,',
       '  "FAKE_LAUNCHER_RAN",',
       '].join("\\n") + "\\n")',
       'process.stdin.on("data", d => fs.appendFileSync(stdinOut, d))',

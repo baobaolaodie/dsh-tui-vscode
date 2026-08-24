@@ -25,3 +25,6 @@ docs/superpowers/
 .env
 .env.*
 !.env.example
+
+# e2e 临时 git 父仓库（run-tests.ts 构造的子目录工作区场景）
+.e2e-git-parent/
