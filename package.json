@@ -211,7 +211,7 @@
         "dsh-tui-vscode.autoInsertMention": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "**Experimental** 选区变化时自动把选中代码以 `@绝对值路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖，仅当存在运行中的 dsh-tui 会话时生效；默认关闭以避免抢占/刷屏）。官方 Claude Code 通过其原生 `selection_changed` 通道实现该能力，本项为其 dsh-tui 降级近似。"
+          "markdownDescription": "**Experimental** 选区变化时把选中代码的坐标推送给运行中的 dsh-TUI（IDE 选区通道，300ms 防抖；dsh-TUI 在提交消息时按坐标附加文件内容，不占用输入框）。需 dsh-TUI ≥ 支持 IDE 选区通道的版本（PR-B）；通道不可用时回退为把 `@相对路径#L起-止` 键入运行中的 dsh-tui 输入框。默认关闭以避免干扰。"
         }
       }
     }
@@ -219,17 +219,19 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"
   },
   "dependencies": {
-    "@bokuweb/zstd-wasm": "^0.0.27"
+    "@bokuweb/zstd-wasm": "^0.0.27",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.9.2",
     "typescript": "^5.6.0"

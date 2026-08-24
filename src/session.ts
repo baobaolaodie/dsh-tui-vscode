@@ -172,6 +172,13 @@ export interface LaunchEnvInput {
   editorCommand?: string
   /** Override $DSH_HOME for the session ('' keeps the inherited value). */
   dshHome?: string
+  /**
+   * Extra key/values merged over the computed env — last writer wins. The
+   * extension injects its IDE selection channel pair (DSH_TUI_IDE_PORT /
+   * DSH_TUI_IDE_TOKEN) here; keeping it generic avoids coupling the pure
+   * helper to that protocol.
+   */
+  extra?: Record<string, string>
 }
 
 export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
@@ -189,7 +196,7 @@ export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
   if (wantsEditor && !base.VISUAL && !base.EDITOR) {
     env.VISUAL = input.editorCommand?.trim() || 'code -w'
   }
-  return env
+  return { ...env, ...input.extra }
 }
 
 /**
