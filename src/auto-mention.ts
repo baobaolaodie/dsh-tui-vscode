@@ -35,6 +35,12 @@ export interface AutoMentionGates {
   snapshot: SelectionSnapshot
   /** 上一次真正注入过的引用原文(用于去重)。 */
   lastInserted: string | undefined
+  /**
+   * VS Code 工作区根(首个 workspaceFolder 的 fsPath,可缺省)。
+   * 提供时引用输出为工作区相对路径(`@src/a.ts#L12-14`),与 dsh-tui 会话
+   * cwd(即本扩展终端的工作区根)匹配;缺省时兜底绝对路径。
+   */
+  workspaceRoot?: string
 }
 
 export type AutoInsertOutcome =
@@ -52,18 +58,25 @@ export function decideAutoInsert(gates: AutoMentionGates): AutoInsertOutcome {
   if (!gates.enabled) return { action: 'skip', reason: 'disabled' }
   if (!gates.hasSelection) return { action: 'skip', reason: 'no-selection' }
   if (!gates.hasTerminal) return { action: 'skip', reason: 'no-terminal' }
-  const mention = buildMentionForSnapshot(gates.snapshot)
+  const mention = buildMentionForSnapshot(gates.snapshot, gates.workspaceRoot)
   if (gates.lastInserted !== undefined && gates.lastInserted === mention) {
     return { action: 'skip', reason: 'duplicate' }
   }
   return { action: 'insert', mention }
 }
 
-/** 由选区快照生成要键入的引用原文(归一化路径 + `@绝对路径 L起-止`)。 */
-export function buildMentionForSnapshot(snapshot: SelectionSnapshot): string {
-  return buildAtMention(normalizeMentionPath(snapshot.path), {
-    isEmpty: false,
-    startLine: snapshot.startLine,
-    endLine: snapshot.endLine,
-  })
+/** 由选区快照生成要键入的引用原文(归一化路径 + `@路径[#L起-止]`,根内相对化)。 */
+export function buildMentionForSnapshot(
+  snapshot: SelectionSnapshot,
+  workspaceRoot?: string,
+): string {
+  return buildAtMention(
+    normalizeMentionPath(snapshot.path),
+    {
+      isEmpty: false,
+      startLine: snapshot.startLine,
+      endLine: snapshot.endLine,
+    },
+    workspaceRoot,
+  )
 }

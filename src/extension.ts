@@ -211,11 +211,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   })
   // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
-  // 选中代码以 `@绝对路径 L起-止` 形式插入输入框。用「正斜杠绝对路径」是因为
-  // dsh-tui 的 @ 提及把相对路径按「会话自己 cwd」解析(不认 VS Code 工作区,
-  // 实测弹「未找到引用」),绝对路径则原样直通、与 cwd 无关;dsh-tui 不认 #L
-  // 行区间,所以 @ 引用止于路径、提交时附加整个文件,行区间作为空格分隔的
-  // 纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
+  // 选中代码以 `@相对路径#L起-止` 形式插入输入框。dsh-TUI PR-A 起 @ 提及原生
+  // 解析 `#L` 行区间(1-based、含端点);相对路径以「会话自己的 cwd」为基准,
+  // 而本扩展启动的终端 cwd 即工作区根(createTerminal 同款取法),所以传
+  // workspaceRoot 把路径相对化——消息更短且与会话 cwd 无关性等价;根外或无
+  // 工作区时兜底正斜杠绝对路径(dsh-tui 对绝对路径原样直通)。行区间为空格
+  // 分隔纯文本的旧形态已按上游新语法移除(design D10)。
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
@@ -224,11 +225,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
     const mentionPath = normalizeMentionPath(editor.document.uri.fsPath)
     const selection = editor.selection
-    const mention = buildAtMention(mentionPath, {
-      isEmpty: selection.isEmpty,
-      startLine: selection.start.line,
-      endLine: selection.end.line,
-    })
+    const mention = buildAtMention(
+      mentionPath,
+      {
+        isEmpty: selection.isEmpty,
+        startLine: selection.start.line,
+        endLine: selection.end.line,
+      },
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    )
     const terminal = findTerminal()
     if (terminal) {
       // 插入输入框而不自动提交:用户可继续补问题,回车后 dsh-tui 会把
@@ -243,7 +248,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   })
   // 选区变化自动引用(experimental,默认关):把官方「编辑器选区自动出现在会话
   // 引用」在 dsh-tui 上降级近似为——选区变化 → 300ms 防抖 → 自动把
-  // `@绝对路径 L起-止` 键入运行中的 dsh-tui 输入框。官方 true 机制走
+  // `@相对路径#L起-止` 键入运行中的 dsh-tui 输入框(workspaceRoot 同
+  // insertAtMention:根内相对化,根外兜底绝对)。官方 true 机制走
   // `~/.claude/ide` WebSocket(`selection_changed`),dsh-tui 不消费该通道,
   // 扩展只有 `terminal.sendText` 一条输入通道,故为降级近似;也因此必须：
   // 默认关闭、仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。
@@ -275,6 +281,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             endLine: selection.end.line,
           },
           lastInserted,
+          workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
         })
         if (outcome.action !== 'insert') return
         // 300ms 防抖:连续拖选/多点只收敛为最后一次。
