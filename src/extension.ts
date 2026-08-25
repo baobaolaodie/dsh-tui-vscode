@@ -314,6 +314,24 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         // 时事件仍应工作(且后台编辑器选区通常不会变化,误触发风险低)。
         if (editor.document.uri.scheme !== 'file') return
         const selection = editor.selection
+        // 清空选区(点一下/取消划行):广播 isEmpty 让 TUI 清掉 footer 徽标并
+        // 停止本次选区附加——否则 TUI 的 selection 快照永不被清,徽标残留、
+        // 再发消息仍带上旧选区索引(曾经静默失效的契约,autoInsertMention
+        // 默认开后暴露)。走同一 300ms 防抖(拖选中间态收敛为最终值);
+        // 无文本可敲所以不回退 sendText;server 缺席时静默(无可达听众)。
+        if (selection.isEmpty) {
+          if (postpone !== undefined) clearTimeout(postpone)
+          postpone = setTimeout(() => {
+            void broadcastSelection({
+              path: normalizeMentionPath(editor.document.uri.fsPath),
+              startLine: selection.start.line,
+              endLine: selection.end.line,
+              isEmpty: true,
+            })
+            lastInserted = undefined
+          }, 300)
+          return
+        }
         const outcome = decideAutoInsert({
           enabled: true,
           hasSelection: !selection.isEmpty,

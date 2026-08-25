@@ -1035,6 +1035,20 @@ test('IDE channel: a WS client connected to the live server receives selection_c
           Object.keys(received[0].params as Record<string, unknown>).sort(),
           ['endLine', 'isEmpty', 'path', 'startLine'],
         )
+        // 清空选区 → 必须广播一次 isEmpty:true，TUI 才能清掉徽标/停止附加。
+        // (曾经只发非空——TUI 侧 selection 快照永不失效，徽标残留 + 再发送
+        //  仍带旧索引。T-FIX 扩展侧补上这枚「清除」通知。)
+        const receivedLenAfterSelect = received.length
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0))
+        await poll(() => (received.length > receivedLenAfterSelect ? true : undefined), 10000)
+        const cleared = received[received.length - 1] as Record<string, unknown>
+        assert.equal(cleared.method, SELECTION_METHOD)
+        assert.deepEqual(cleared.params, {
+          path: normalizeWsPath(file),
+          startLine: 1,
+          endLine: 1,
+          isEmpty: true,
+        })
       } finally {
         rmSync(file, { force: true })
         await vscode.commands.executeCommand('workbench.action.closeAllEditors')
