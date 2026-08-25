@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## Unreleased
 
-> ⚠️ **Version gate**：features in this section require a **dsh-TUI build that includes PR-A (#L line ranges) and PR-B (IDE selection channel)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
+> ⚠️ **Version gate**: the `#L` line-range syntax requires a **dsh-TUI build that includes upstream #537** (that syntax is now implemented and merged upstream), and the IDE selection channel requires a dsh-TUI that includes **upstream #562 (the merge this extension's pushes are consumed by)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
 
 ### Added
 
@@ -15,8 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
-- **`@` mention output format migration: relative path + `#L` line range**: the output of `insertAtMention` and the automatic selection mention changes from `@absolute/path Lstart-end` (space-separated plain-text hint, unparsed by old dsh-tui) to **`@relative/path#Lstart-end`** (relativized against the extension terminal cwd = VS Code workspace root; single line `#L12`, multi-line `#L12-14`, bare path when nothing is selected; `@"path"#L…` for paths with whitespace; outside the workspace it falls back to a forward-slash absolute path still carrying `#L`). From dsh-TUI PR-A on, this syntax is parsed natively and the submit-time attachment is sliced to the line range.
-- **autoInsertMention upgraded to push semantics**: with `autoInsertMention` enabled, selections are no longer typed into the running input box (which hijacks it) — they are pushed as coordinates to the running dsh-tui over the IDE selection channel (no input-box takeover; context attaches at submit time); when the channel is unavailable (server down / not connected) it falls back to the previous typing behavior. Still off by default.
+- **`@` mention output format migration: relative path + `#L` line range**: the output of `insertAtMention` and the automatic selection mention changes from `@absolute/path Lstart-end` (space-separated plain-text hint, unparsed by old dsh-tui) to **`@relative/path#Lstart-end`** (relativized against the extension terminal cwd = VS Code workspace root; single line `#L12`, multi-line `#L12-14`, bare path when nothing is selected; `@"path"#L…` for paths with whitespace; outside the workspace it falls back to a forward-slash absolute path still carrying `#L`). This syntax is parsed natively by upstream dsh-TUI from #537 on, and the submit-time attachment is sliced to the line range.
+- **autoInsertMention upgraded to push semantics (on by default)**: with `autoInsertMention` enabled, selections are no longer typed into the running input box (which hijacks it) — they are pushed as coordinates to the running dsh-tui over the IDE selection channel (no input-box takeover; context attaches at submit time; clearing the selection pushes an `isEmpty` notification so the badge and pending attach clear immediately); when the channel is unavailable (server down / not connected) it falls back to the previous typing behavior. On by default.
 
 ### Fixed
 
