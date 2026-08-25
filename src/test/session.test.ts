@@ -110,8 +110,11 @@ test('formatWorkspaceTargetArg appends the workspace root as a positional arg', 
 
 test('formatWorkspaceTargetArg quotes paths with spaces per shell family', () => {
   const spaced = 'C:\\My Repos\\sub'
-  // PowerShell / bash-like: single-quote form (matches quoteLaunchPath style).
-  assert.equal(formatWorkspaceTargetArg(spaced, 'powershell'), `& '${spaced}'`)
+  // PowerShell / bash-like: single-quote string form. The arg lands AFTER the
+  // command (positional), so the & call operator must NOT prefix it — `& 'path'`
+  // here is a second use of & and PowerShell rejects it (ParserError), or when
+  // it IS first treats the path as a command to invoke (CommandNotFound).
+  assert.equal(formatWorkspaceTargetArg(spaced, 'powershell'), `'${spaced}'`)
   // Windows drive paths take the bash mount form (formatLaunchPath precedent).
   assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'bash'), "'/d/My Repo'")
   assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'wsl'), "'/mnt/d/My Repo'")

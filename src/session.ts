@@ -190,7 +190,11 @@ export function formatWorkspaceTargetArg(
     case 'cmd':
       return ` "${root}"`
     case 'powershell':
-      return `& '${root}'`
+      // Single-quoted string literal, NOT `& '...'`: this arg trails the
+      // command, so a leading & is a second use of the call operator →
+      // ParserError; as the first token it would invoke the path as a
+      // command. A quoted string alone is a literal positional argument.
+      return `'${root}'`
     case 'bash':
     case 'cygwin':
     case 'wsl':
@@ -199,7 +203,8 @@ export function formatWorkspaceTargetArg(
       // shell's mount form exactly like formatLaunchPath does.
       return `'${windowsPathToPosix(root, shellKind)}'`
     default:
-      return `& '${root}'`
+      // Same reasoning as powershell: positional arg position forbids &.
+      return `'${root}'`
   }
 }
 export interface LaunchEnvInput {
