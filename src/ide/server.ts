@@ -16,7 +16,7 @@
  * - Env keys: DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -266,8 +266,15 @@ export class IdeServer {
     const dir = join(this.lockRoot, IDE_LOCK_DIR_NAME)
     mkdirSync(dir, { recursive: true })
     this.lockPath = join(dir, lockFileName(port))
+    // Atomic write (maintainer review round 2, server side): write to a
+    // sibling temp file then rename over the target. A TUI scanning
+    // mid-write must never observe a half-written lock advertising a
+    // port/token the server doesn't bound yet — rename is atomic on the
+    // same filesystem, so either the old lock or the complete new one
+    // is seen, never a partial JSON.
+    const tmp = `${this.lockPath}.tmp`
     writeFileSync(
-      this.lockPath,
+      tmp,
       JSON.stringify(
         buildLockPayload({
           port,
@@ -278,6 +285,7 @@ export class IdeServer {
       ),
       'utf8',
     )
+    renameSync(tmp, this.lockPath)
   }
 
   private clearLock(): void {
