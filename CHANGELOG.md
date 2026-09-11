@@ -14,16 +14,6 @@
 
 - **多会话根与代际选择的配套修复**：删除命令与侧边栏文件监听覆盖 `$DSH_TUI_SESSION_ROOT` 和 `~/.dsh-tui/sessions`；代际日志选择在最高代际不是普通文件时回退到有效低代际；日志 header 的空白 cwd 视为缺失、继续走账本兜底；设置项说明「绝对**值**路径」更正为「绝对路径」。
 
-## [0.6.6] - 2026-09-12
-
-> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) 合并 / via PR #15
-
-### Added
-
-### Changed
-
-### Fixed
-
 - **侧边栏兼容 DSH 0.1.5 的 Session V3 会话日志**：日志文件按代际匹配（`session.jsonl` / `session.v3.jsonl` 等，可选 `.zstd`，最新代际优先），会话根按 `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` 顺序扫描——修复升级 dsh 0.1.5 后新建会话在侧边栏不可见的问题。
 
 ## [0.6.5] - 2026-09-12
