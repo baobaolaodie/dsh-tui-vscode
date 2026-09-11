@@ -12,16 +12,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
-## [0.6.6] - 2026-09-12
-
-> via PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / 经 PR #15 合并
-
-### Added
-
-### Changed
-
-### Fixed
-
 - **Sidebar now reads DSH 0.1.5 Session V3 logs**: log files are matched by generation (`session.jsonl` / `session.v3.jsonl`, optionally `.zstd`, newest generation winning) and session roots are scanned in the order `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` — fixes sessions created after upgrading to dsh 0.1.5 disappearing from the sidebar.
 
 ## [0.6.5] - 2026-09-12
