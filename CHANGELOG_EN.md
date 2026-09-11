@@ -14,7 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
-- **Multi-root follow-ups**: the delete command and the sidebar file watchers now cover `$DSH_TUI_SESSION_ROOT` and `~/.dsh-tui/sessions`; generation selection falls back to a valid lower generation when the highest name is not a regular file; the setting description typo "绝对值路径" is corrected to "绝对路径".
+- **Multi-root follow-ups**: the delete command and the sidebar file watchers now cover `$DSH_TUI_SESSION_ROOT` and `~/.dsh-tui/sessions`; generation selection falls back to a valid lower generation when the highest name is not a regular file; a blank header cwd is treated as missing so the ledger fallback still runs; the setting description typo "绝对值路径" is corrected to "绝对路径".
 
 ## [0.6.6] - 2026-09-12
 

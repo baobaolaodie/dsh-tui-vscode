@@ -1070,3 +1070,21 @@ test('deleteSessionLog accepts every discovered root', () => {
     rmSync(base, { recursive: true, force: true })
   }
 })
+test('listSessions: blank header cwd falls back to the ledger cwd', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger-cwd-'))
+  try {
+    const id = 'led-cwd'
+    const dir = join(root, 'sessions', '--g--', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'session.v3.jsonl'),
+      JSON.stringify({ type: 'session', version: 3, id, cwd: '   ', createdAt: 3 }) + '\n',
+    )
+    writeLedger(root, id, { record: { identity: { cwd: '/ledger/cwd' } } })
+    const list = await listSessions(root)
+    assert.equal(list[0]!.cwd, '/ledger/cwd')
+    assert.equal(list[0]!.project, 'cwd')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

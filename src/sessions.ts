@@ -1291,7 +1291,9 @@ function buildSessionList(
       const head = readSessionHead(sf.file, sf.group)
       if (head === undefined) return undefined
       const rec = head.rec
-      if (rec.cwd === undefined) {
+      // A header cwd can be present but blank (`""` / whitespace): treat that
+      // as missing so the ledger fallback still runs.
+      if (typeof rec.cwd !== 'string' || rec.cwd.trim() === '') {
         const ledgerCwd = ledgerOf(rec.id)?.cwd ?? storage.cwds[rec.id]
         if (ledgerCwd !== undefined) {
           rec.cwd = ledgerCwd
