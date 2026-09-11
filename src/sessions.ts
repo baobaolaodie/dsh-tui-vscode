@@ -318,17 +318,24 @@ export interface SessionRootDeps {
  * Session-log roots in priority order, mirroring the TUI's own reader
  * (`src/dsh-adapter/compat/sessionLog.ts`): `$DSH_TUI_SESSION_ROOT` first,
  * then `<dshHome>/sessions` (config override → `$DSH_HOME` → `~/.dsh`), then
- * the legacy `~/.dsh-tui/sessions` fallback. A non-empty explicit `dshHome`
- * pins the lookup to that home alone — an isolated profile stays isolated.
+ * the legacy `~/.dsh-tui/sessions` fallback. The env override outranks even an
+ * explicit `dshHome` pin because dsh-tui itself resolves its write target as
+ * `DSH_TUI_SESSION_ROOT ?? dshHomePath('sessions')` — a pinned home that
+ * ignored the env would list nothing while the TUI wrote elsewhere. The
+ * legacy fallback is skipped once a home is pinned (isolated profiles stay
+ * isolated).
  */
 export function sessionRoots(dshHome?: string, deps: SessionRootDeps = {}): string[] {
-  const pinned = dshHome?.trim()
-  if (pinned) return [join(pinned, 'sessions')]
   const env = deps.env ?? process.env
   const home = deps.home ?? homedir()
   const roots: string[] = []
   const envRoot = env.DSH_TUI_SESSION_ROOT?.trim()
   if (envRoot) roots.push(envRoot)
+  const pinned = dshHome?.trim()
+  if (pinned) {
+    roots.push(join(pinned, 'sessions'))
+    return [...new Set(roots)]
+  }
   const dshHomeEnv = env.DSH_HOME?.trim()
   roots.push(join(dshHomeEnv || join(home, '.dsh'), 'sessions'))
   roots.push(join(home, '.dsh-tui', 'sessions'))
@@ -1233,11 +1240,14 @@ export function deleteSessionLog(
     // (C:\...) — a case-sensitive prefix test would refuse every delete.
     const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
     // The session may live in ANY discovered root (env override, dsh home or
-    // the legacy TUI root), so containment is checked against every root.
+    // the legacy TUI root). Require the exact `<root>/<group>/<session>`
+    // shape: a canonical-looking log NAME at the wrong depth (e.g. directly
+    // under a root) must never turn this recursive delete into an `rm -rf`
+    // of the root or a group directory.
+    const sessionParent = dirname(dirname(realDir))
     const contained = sessionRoots(dshHome, deps).some(root => {
       try {
-        const realRoot = realpathSync(root)
-        return norm(realDir).startsWith(norm(realRoot) + sep)
+        return norm(sessionParent) === norm(realpathSync(root))
       } catch {
         return false
       }

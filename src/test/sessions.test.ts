@@ -832,9 +832,10 @@ test('sessionRoots: env override, DSH home, legacy fallback, explicit pin', () =
     sessionRoots(undefined, { env: {}, home }),
     [join(home, '.dsh', 'sessions'), join(home, '.dsh-tui', 'sessions')],
   )
+  // The env override outranks an explicit dshHome pin (the TUI writes there).
   assert.deepEqual(
     sessionRoots(join(tmpdir(), 'pinned'), { env: { DSH_TUI_SESSION_ROOT: join(tmpdir(), 'iso') }, home }),
-    [join(tmpdir(), 'pinned', 'sessions')],
+    [join(tmpdir(), 'iso'), join(tmpdir(), 'pinned', 'sessions')],
   )
 })
 
@@ -1117,6 +1118,21 @@ test('deleteSessionLog refuses a noncanonical target inside a root', () => {
     writeFileSync(file, '')
     assert.equal(deleteSessionLog(file, root), 'unavailable')
     assert.equal(existsSync(dir), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deleteSessionLog refuses a canonical log name at the wrong depth', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-deldepth-'))
+  try {
+    // A canonical log NAME placed directly under the root: deleting it would
+    // rm -rf the whole root, so it must be refused.
+    const file = join(root, 'session.v3.jsonl')
+    writeFileSync(file, '')
+    assert.equal(deleteSessionLog(file, root), 'unavailable')
+    assert.equal(existsSync(root), true)
+    assert.equal(existsSync(file), true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
