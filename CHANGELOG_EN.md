@@ -10,6 +10,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+### Fixed
+
+## [0.6.5] - 2026-09-12
+
+> via PR [#14](https://github.com/baobaolaodie/dsh-tui-vscode/pull/14) / 经 PR #14 合并
+
+### Added
+
+### Changed
+
 - **Docs and package tidy-up**: tightened wording in the design doc, README, and setting descriptions; `docs/` is no longer bundled into the extension package, reducing the published size.
 
 ### Fixed

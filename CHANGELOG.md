@@ -8,6 +8,16 @@
 
 ### Changed
 
+### Fixed
+
+## [0.6.5] - 2026-09-12
+
+> 经 PR [#14](https://github.com/baobaolaodie/dsh-tui-vscode/pull/14) 合并 / via PR #14
+
+### Added
+
+### Changed
+
 - **文档与发布包整理**：精简设计文档、README 与设置项说明中的冗余表述；`docs/` 不再随扩展包分发，发布体积相应减小。
 
 ### Fixed
