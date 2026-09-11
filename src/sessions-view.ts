@@ -5,8 +5,7 @@
  * terminal on the Beside column.
  */
 import * as vscode from 'vscode'
-import { watch, type FSWatcher } from 'node:fs'
-import { join } from 'node:path'
+import { SessionWatcherSet } from './session-watchers'
 import {
   listSessions,
   sessionLabel,
@@ -49,12 +48,9 @@ export class SessionsTreeProvider
   >()
   readonly onDidChangeTreeData = this.onChange.event
   private sessions: SessionRecord[] = []
-  private watchers: FSWatcher[] = []
-  private watchedDirs = new Set<string>()
+  private watcherSet: SessionWatcherSet | undefined
   private refreshTimer: NodeJS.Timeout | undefined
-  private missingRootTimer: NodeJS.Timeout | undefined
   private dshHome: string | undefined
-  private sessionRootsList: string[] = []
 
   refresh(): void {
     void this.reload()
@@ -72,83 +68,19 @@ export class SessionsTreeProvider
     this.refreshTimer = setTimeout(() => this.refresh(), 500)
   }
 
-  /** Watch the DSH sessions tree so new sessions appear automatically. */
+  /** Watch every session root so new sessions appear automatically. */
   startWatching(dshHome?: string): void {
     this.dshHome = dshHome
-    this.sessionRootsList = sessionRoots(dshHome)
-    this.syncWatchers()
-  }
-
-  /**
-   * Idempotently watch EVERY session root (dsh home plus any env override /
-   * legacy root) and each root's group directories. Called at startup AND
-   * after every reload: a group directory created after activation (a session
-   * launched in a brand-new working directory) is not covered by the root
-   * watcher (fs.watch is not recursive), so each reload picks up new groups.
-   */
-  private syncWatchers(): void {
-    if (this.sessionRootsList.length === 0) return
-    const unwatchedBefore = this.sessionRootsList.filter(root => !this.watchedDirs.has(root))
-    this.registerWatchers()
-    // A root that appeared since the previous probe has sessions no watcher
-    // event will announce — list them once.
-    if (unwatchedBefore.some(root => this.watchedDirs.has(root))) this.scheduleRefresh()
-    // A root that still does not exist cannot be watched (watch() and
-    // readdirSync() both fail). Probe again on a slow timer, re-running THIS
-    // method only: a full reload re-reads every session log (~2 s on a real
-    // 585-session home). Watching the nearest parent is deliberately avoided
-    // (the nearest parent may be $HOME).
-    const missing = this.sessionRootsList.some(root => !this.watchedDirs.has(root))
-    if (missing && this.missingRootTimer === undefined) {
-      this.missingRootTimer = setTimeout(() => {
-        this.missingRootTimer = undefined
-        this.syncWatchers()
-      }, 60_000)
-    }
-  }
-
-  /** Register watchers for every existing root and its group directories. */
-  private registerWatchers(): void {
-    const addWatcher = (dir: string): void => {
-      if (this.watchedDirs.has(dir)) return
-      try {
-        const w = watch(dir, { persistent: false }, () => this.scheduleRefresh())
-        this.watchers.push(w)
-        this.watchedDirs.add(dir)
-      } catch {
-        // absent / vanished — the probe timer (or the next reload) retries
-      }
-    }
-    const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
-    for (const root of this.sessionRootsList) {
-      addWatcher(root)
-      try {
-        for (const group of readdirSync(root)) {
-          const p = join(root, group)
-          try {
-            if (statSync(p).isDirectory()) addWatcher(p)
-          } catch {
-            // ignore
-          }
-        }
-      } catch {
-        // root absent — the probe timer retries
-      }
-    }
+    this.watcherSet?.dispose()
+    this.watcherSet = new SessionWatcherSet(sessionRoots(dshHome), {
+      onChange: () => this.scheduleRefresh(),
+    })
   }
 
   dispose(): void {
-    for (const w of this.watchers) {
-      try {
-        w.close()
-      } catch {
-        // already closed
-      }
-    }
-    this.watchers = []
-    this.watchedDirs.clear()
+    this.watcherSet?.dispose()
+    this.watcherSet = undefined
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
-    if (this.missingRootTimer) clearTimeout(this.missingRootTimer)
   }
 
   private async reload(): Promise<void> {
@@ -170,7 +102,7 @@ export class SessionsTreeProvider
       })
       // Pick up group directories created since the last pass (fs.watch on
       // the root is not recursive) so their log writes keep refreshing.
-      this.syncWatchers()
+      this.watcherSet?.update()
     } catch (error) {
       this.sessions = []
       console.error('dsh-tui: failed to list sessions', error)

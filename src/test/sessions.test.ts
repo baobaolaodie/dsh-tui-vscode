@@ -1137,3 +1137,65 @@ test('deleteSessionLog refuses a canonical log name at the wrong depth', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+test('listSessions: the new per-session ledger outranks the legacy flat ledger', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger-prio-'))
+  try {
+    const id = 'led-prio'
+    const dir = join(root, 'sessions', '--g--', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'session.v3.jsonl'),
+      JSON.stringify({ type: 'session', version: 3, id, cwd: '/w', createdAt: 1 }) + '\n',
+    )
+    writeLedger(root, id, { record: { rows: { title: { val: '新账本' } } } })
+    mkdirSync(join(root, 'storages'), { recursive: true })
+    writeFileSync(
+      join(root, 'storages', 'session_projcache.json'),
+      JSON.stringify({ tables: { sessions: { [id]: { rows: { title: { val: '旧账本' } } } } } }),
+    )
+    const list = await listSessions(root)
+    assert.equal(list[0]!.title, '新账本')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('readSessionLedgerEntry ignores files above the size cap', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger-big-'))
+  try {
+    const dir = join(root, 'storages', 'session_projcache', 'sessions')
+    mkdirSync(dir, { recursive: true })
+    const body = JSON.stringify({ record: { identity: { cwd: '/big' } } })
+    writeFileSync(join(dir, 'big-1.json'), body + ' '.repeat(8 * 1024 * 1024))
+    assert.equal(readSessionLedgerEntry(root, 'big-1'), undefined)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('sessionRoots dedupes an env root equal to the pinned home root', () => {
+  const home = join(tmpdir(), 'dsh-fake-home-2')
+  const pinned = join(tmpdir(), 'pinned-2')
+  assert.deepEqual(
+    sessionRoots(pinned, { env: { DSH_TUI_SESSION_ROOT: join(pinned, 'sessions') }, home }),
+    [join(pinned, 'sessions')],
+  )
+})
+
+test('findSessionFiles honors the real DSH_TUI_SESSION_ROOT process env', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-envroot-'))
+  const previous = process.env.DSH_TUI_SESSION_ROOT
+  try {
+    const iso = join(base, 'iso')
+    const pinned = join(base, 'pinned')
+    mkdirSync(join(iso, '--g--', 'env-1'), { recursive: true })
+    writeFileSync(join(iso, '--g--', 'env-1', 'session.v3.jsonl'), '')
+    process.env.DSH_TUI_SESSION_ROOT = iso
+    const files = findSessionFiles(pinned)
+    assert.deepEqual(files.map(f => f.id), ['env-1'])
+  } finally {
+    if (previous === undefined) delete process.env.DSH_TUI_SESSION_ROOT
+    else process.env.DSH_TUI_SESSION_ROOT = previous
+    rmSync(base, { recursive: true, force: true })
+  }
+})
