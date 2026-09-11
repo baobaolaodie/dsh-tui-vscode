@@ -52,6 +52,7 @@ export class SessionsTreeProvider
   private watchers: FSWatcher[] = []
   private watchedDirs = new Set<string>()
   private refreshTimer: NodeJS.Timeout | undefined
+  private missingRootTimer: NodeJS.Timeout | undefined
   private dshHome: string | undefined
   private sessionRootsList: string[] = []
 
@@ -113,6 +114,17 @@ export class SessionsTreeProvider
         // root absent — ignore
       }
     }
+    // A root that does not exist yet has no watcher (watch() and
+    // readdirSync() both fail). reload() re-runs this method, but without a
+    // refresh trigger the root would stay unwatched; probe on a slow timer
+    // instead of watching the nearest parent (which may be $HOME).
+    const missing = this.sessionRootsList.some(root => !this.watchedDirs.has(root))
+    if (missing && this.missingRootTimer === undefined) {
+      this.missingRootTimer = setTimeout(() => {
+        this.missingRootTimer = undefined
+        this.scheduleRefresh()
+      }, 60_000)
+    }
   }
 
   dispose(): void {
@@ -126,6 +138,7 @@ export class SessionsTreeProvider
     this.watchers = []
     this.watchedDirs.clear()
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    if (this.missingRootTimer) clearTimeout(this.missingRootTimer)
   }
 
   private async reload(): Promise<void> {
