@@ -1,7 +1,7 @@
 /**
  * 生成插入到 dsh-tui 输入框的 @-mention 引用。
  *
- * 基准算法沿用 Claude Code 官方 `insertAtMention`(行号 1-based),并按 dsh-tui
+ * 基准行为对齐 Claude Code 官方 `insertAtMention`(行号 1-based),并按 dsh-tui
  * 的 @ 提及语义适配(dsh-TUI PR-A 起原生解析 `#L` 行区间):
  * - **优先输出工作区相对路径**:dsh-tui 解析 `@路径` 时,相对路径以「会话自己的
  *   cwd」为基准,而扩展启动的终端 cwd 即 VS Code 工作区根。因此调用方传入

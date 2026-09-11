@@ -1,8 +1,13 @@
 /**
  * DSH session discovery for the sidebar session list.
  *
- * Sessions persist under `$DSH_HOME/sessions/<cwd-encoded>/<sessionId>/session.jsonl.zstd`
- * (dsh-session-persistence-jsonl), each log a CHAIN of zstd frames — one per
+ * Sessions persist under `<session root>/<cwd-encoded>/<sessionId>/<log file>`
+ * (dsh-session-persistence-jsonl). Roots are scanned in priority order — the
+ * `$DSH_TUI_SESSION_ROOT` override, `<dshHome>/sessions`, then the legacy
+ * `~/.dsh-tui/sessions` — and log names are generation-tagged
+ * (`session.jsonl` / `session.v<N>.jsonl`, optionally `.zstd`; DSH 0.1.5's
+ * Session V3 writes `session.v3.jsonl`), the newest generation winning with
+ * the compressed twin preferred on a tie. Each log is a CHAIN of zstd frames — one per
  * durable flush — decoded frame-by-frame below (a whole-buffer decompress
  * fails or truncates on multi-frame logs). Titles follow the TUI's contract
  * (src/dsh-adapter/compat/sessionLog.ts): the LAST `session/title` event wins,
@@ -303,41 +308,124 @@ function resolveDshHome(dshHome?: string): string {
   return dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh')
 }
 
-/** Walk the DSH sessions tree and return every session log file. */
-export function findSessionFiles(dshHome?: string): SessionFile[] {
-  const root = join(resolveDshHome(dshHome), 'sessions')
-  const out: SessionFile[] = []
-  let dirs: string[]
-  try {
-    dirs = readdirSync(root)
-  } catch {
-    return out
+/** Injectable lookup seams so root priority stays unit-testable hermetically. */
+export interface SessionRootDeps {
+  env?: { DSH_TUI_SESSION_ROOT?: string; DSH_HOME?: string }
+  home?: string
+}
+
+/**
+ * Session-log roots in priority order, mirroring the TUI's own reader
+ * (`src/dsh-adapter/compat/sessionLog.ts`): `$DSH_TUI_SESSION_ROOT` first,
+ * then `<dshHome>/sessions` (config override → `$DSH_HOME` → `~/.dsh`), then
+ * the legacy `~/.dsh-tui/sessions` fallback. A non-empty explicit `dshHome`
+ * pins the lookup to that home alone — an isolated profile stays isolated.
+ */
+export function sessionRoots(dshHome?: string, deps: SessionRootDeps = {}): string[] {
+  const pinned = dshHome?.trim()
+  if (pinned) return [join(pinned, 'sessions')]
+  const env = deps.env ?? process.env
+  const home = deps.home ?? homedir()
+  const roots: string[] = []
+  const envRoot = env.DSH_TUI_SESSION_ROOT?.trim()
+  if (envRoot) roots.push(envRoot)
+  const dshHomeEnv = env.DSH_HOME?.trim()
+  roots.push(join(dshHomeEnv || join(home, '.dsh'), 'sessions'))
+  roots.push(join(home, '.dsh-tui', 'sessions'))
+  return [...new Set(roots)]
+}
+
+/**
+ * Canonical log names: `session.jsonl` (generation 0) and
+ * `session.v<N>.jsonl` (N >= 1, no leading zero), optionally `.zstd`.
+ * Mirrors dsh-session-format's canonical-filename rule; noncanonical names
+ * never identify a committed generation and are ignored.
+ */
+const GENERATION_LOG_RE = /^session(?:\.v([1-9][0-9]*))?\.jsonl(\.zstd)?$/
+
+interface GenerationCandidate {
+  readonly name: string
+  readonly version: number
+  readonly compressed: boolean
+}
+
+function parseGenerationName(name: string): GenerationCandidate | undefined {
+  const match = GENERATION_LOG_RE.exec(name)
+  if (match === null) return undefined
+  return {
+    name,
+    version: match[1] === undefined ? 0 : Number(match[1]),
+    compressed: match[2] === '.zstd',
   }
-  for (const group of dirs) {
-    const groupPath = join(root, group)
-    let entries: string[]
+}
+
+/**
+ * Newest committed generation inside one session directory: the highest
+ * version wins, the compressed twin wins a same-version tie (stock encoding).
+ */
+function selectGenerationLog(dir: string): GenerationCandidate | undefined {
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return undefined
+  }
+  let best: GenerationCandidate | undefined
+  for (const name of entries) {
+    const candidate = parseGenerationName(name)
+    if (candidate === undefined) continue
+    if (
+      best === undefined ||
+      candidate.version > best.version ||
+      (candidate.version === best.version && candidate.compressed && !best.compressed)
+    ) {
+      best = candidate
+    }
+  }
+  if (best === undefined) return undefined
+  try {
+    if (!statSync(join(dir, best.name)).isFile()) return undefined
+  } catch {
+    return undefined
+  }
+  return best
+}
+
+/**
+ * Walk every session root and return one log per session — the newest
+ * generation in each session directory. A session id met in an
+ * earlier-priority root shadows duplicates in later roots.
+ */
+export function findSessionFiles(dshHome?: string, deps: SessionRootDeps = {}): SessionFile[] {
+  const out: SessionFile[] = []
+  const seen = new Set<string>()
+  for (const root of sessionRoots(dshHome, deps)) {
+    let groups: string[]
     try {
-      entries = readdirSync(groupPath)
+      groups = readdirSync(root)
     } catch {
       continue
     }
-    for (const entry of entries) {
-      const sessionDir = join(groupPath, entry)
+    for (const group of groups) {
+      const groupPath = join(root, group)
+      let entries: string[]
       try {
-        if (!statSync(sessionDir).isDirectory()) continue
+        entries = readdirSync(groupPath)
       } catch {
         continue
       }
-      for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
-        const file = join(sessionDir, name)
+      for (const entry of entries) {
+        if (seen.has(entry)) continue
+        const sessionDir = join(groupPath, entry)
         try {
-          if (statSync(file).isFile()) {
-            out.push({ id: entry, group, file })
-            break
-          }
+          if (!statSync(sessionDir).isDirectory()) continue
         } catch {
-          // try the next name
+          continue
         }
+        const best = selectGenerationLog(sessionDir)
+        if (best === undefined) continue
+        seen.add(entry)
+        out.push({ id: entry, group, file: join(sessionDir, best.name) })
       }
     }
   }

@@ -284,7 +284,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       terminal.sendText(mention, false)
       return
     }
-    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(官方未投递时的回退路径)。
+    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(未投递时的回退路径)。
     await vscode.env.clipboard.writeText(mention)
     void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
