@@ -21,6 +21,7 @@ import {
   pathBase,
   appendSessionTitle,
   deleteSessionLog,
+  readSessionLedgerEntry,
   readWorkspaceMeta,
   setSessionArchived,
   readStorageTitles,
@@ -938,5 +939,134 @@ test('listSessions reads a DSH 0.1.5 Session V3 log (generation filename)', asyn
     assert.equal(list[0]!.hasPrompt, true)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+
+/** Write one per-session ledger entry (DSH 0.1.5 format). */
+function writeLedger(home: string, id: string, body: unknown): void {
+  const dir = join(home, 'storages', 'session_projcache', 'sessions')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify(body))
+}
+
+test('listSessions: per-session ledger backs up title and cwd (DSH 0.1.5)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger-'))
+  try {
+    const id = 'session-led'
+    const dir = join(root, 'sessions', '--g--', id)
+    mkdirSync(dir, { recursive: true })
+    // V3 log with no `session/title` and no cwd in the header.
+    writeFileSync(
+      join(dir, 'session.v3.jsonl'),
+      [
+        JSON.stringify({ type: 'session', version: 3, id, createdAt: 7 }),
+        JSON.stringify({ type: 'model/selection', seq: 0, data: {} }),
+      ].join('\n') + '\n',
+    )
+    writeLedger(root, id, {
+      version: 7,
+      record: {
+        identity: { cwd: '/ledger/ws' },
+        rows: { title: { val: '账本标题' } },
+      },
+    })
+    const list = await listSessions(root)
+    assert.equal(list.length, 1)
+    assert.equal(list[0]!.title, '账本标题')
+    assert.equal(list[0]!.cwd, '/ledger/ws')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('listSessions: ledger titleInput backs up a missing title; log title still wins', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger2-'))
+  try {
+    const dirA = join(root, 'sessions', '--g--', 'led-input')
+    mkdirSync(dirA, { recursive: true })
+    writeFileSync(
+      join(dirA, 'session.v3.jsonl'),
+      JSON.stringify({ type: 'session', version: 3, id: 'led-input', cwd: '/w', createdAt: 1 }) + '\n',
+    )
+    writeLedger(root, 'led-input', {
+      record: { rows: { titleInput: { val: { first: { text: '首条输入' } } } } },
+    })
+
+    const dirB = join(root, 'sessions', '--g--', 'led-logwins')
+    mkdirSync(dirB, { recursive: true })
+    writeFileSync(
+      join(dirB, 'session.v3.jsonl'),
+      [
+        JSON.stringify({ type: 'session', version: 3, id: 'led-logwins', cwd: '/w', createdAt: 2 }),
+        JSON.stringify({ type: 'session/title', seq: 0, data: { title: '日志标题' } }),
+      ].join('\n') + '\n',
+    )
+    writeLedger(root, 'led-logwins', { record: { rows: { title: { val: '账本标题' } } } })
+
+    const list = await listSessions(root)
+    const byId = new Map(list.map(r => [r.id, r]))
+    assert.equal(byId.get('led-input')!.title, '首条输入')
+    assert.equal(byId.get('led-logwins')!.title, '日志标题')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('readSessionLedgerEntry: malformed JSON and unsafe ids are rejected', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger3-'))
+  try {
+    const dir = join(root, 'storages', 'session_projcache', 'sessions')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'broken.json'), '{not json')
+    assert.equal(readSessionLedgerEntry(root, 'broken'), undefined)
+    assert.equal(readSessionLedgerEntry(root, '../evil'), undefined)
+    assert.equal(readSessionLedgerEntry(root, 'a/b'), undefined)
+    assert.equal(readSessionLedgerEntry(root, ''), undefined)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('findSessionFiles falls back to a valid lower generation', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-genfb-'))
+  try {
+    const dir = join(root, 'sessions', '--g--', 's-fb')
+    mkdirSync(dir, { recursive: true })
+    // The newest canonical name is a DIRECTORY (impostor): v2 must win.
+    mkdirSync(join(dir, 'session.v3.jsonl'))
+    writeFileSync(join(dir, 'session.v2.jsonl'), '')
+    const files = findSessionFiles(root)
+    assert.equal(files.length, 1)
+    assert.equal(files[0]!.file.endsWith('session.v2.jsonl'), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deleteSessionLog accepts every discovered root', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-delroots-'))
+  try {
+    const iso = join(base, 'iso')
+    const home = join(base, 'home')
+    const put = (sessionsRoot: string, id: string): string => {
+      const dir = join(sessionsRoot, '--g--', id)
+      mkdirSync(dir, { recursive: true })
+      const file = join(dir, 'session.v3.jsonl')
+      writeFileSync(file, '')
+      return file
+    }
+    const isoFile = put(iso, 'iso-1')
+    const legacyFile = put(join(home, '.dsh-tui', 'sessions'), 'legacy-1')
+    const deps = { env: { DSH_TUI_SESSION_ROOT: iso }, home }
+    assert.equal(deleteSessionLog(isoFile, undefined, deps), 'deleted')
+    assert.equal(deleteSessionLog(legacyFile, undefined, deps), 'deleted')
+    const stray = join(base, 'stray', '--g--', 'x')
+    mkdirSync(stray, { recursive: true })
+    const strayFile = join(stray, 'session.v3.jsonl')
+    writeFileSync(strayFile, '')
+    assert.equal(deleteSessionLog(strayFile, undefined, deps), 'unavailable')
+  } finally {
+    rmSync(base, { recursive: true, force: true })
   }
 })

@@ -6,9 +6,13 @@
  */
 import * as vscode from 'vscode'
 import { watch, type FSWatcher } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { listSessions, sessionLabel, type SessionRecord } from './sessions'
+import {
+  listSessions,
+  sessionLabel,
+  sessionRoots,
+  type SessionRecord,
+} from './sessions'
 
 /** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
 function relativeTime(epochMs: number): string {
@@ -49,7 +53,7 @@ export class SessionsTreeProvider
   private watchedDirs = new Set<string>()
   private refreshTimer: NodeJS.Timeout | undefined
   private dshHome: string | undefined
-  private sessionsRoot: string | undefined
+  private sessionRootsList: string[] = []
 
   refresh(): void {
     void this.reload()
@@ -70,22 +74,19 @@ export class SessionsTreeProvider
   /** Watch the DSH sessions tree so new sessions appear automatically. */
   startWatching(dshHome?: string): void {
     this.dshHome = dshHome
-    this.sessionsRoot = join(
-      dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh'),
-      'sessions',
-    )
+    this.sessionRootsList = sessionRoots(dshHome)
     this.syncWatchers()
   }
 
   /**
-   * Idempotently watch the sessions root and every group directory under it.
-   * Called at startup AND after every reload: a group directory created
-   * after activation (a session launched in a brand-new working directory)
-   * is not covered by the root watcher (fs.watch is not recursive), so each
-   * reload picks up newly appeared groups.
+   * Idempotently watch EVERY session root (dsh home plus any env override /
+   * legacy root) and each root's group directories. Called at startup AND
+   * after every reload: a group directory created after activation (a session
+   * launched in a brand-new working directory) is not covered by the root
+   * watcher (fs.watch is not recursive), so each reload picks up new groups.
    */
   private syncWatchers(): void {
-    if (this.sessionsRoot === undefined) return
+    if (this.sessionRootsList.length === 0) return
     const addWatcher = (dir: string): void => {
       if (this.watchedDirs.has(dir)) return
       try {
@@ -96,19 +97,21 @@ export class SessionsTreeProvider
         // dir vanished — ignore
       }
     }
-    addWatcher(this.sessionsRoot)
-    try {
-      const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
-      for (const group of readdirSync(this.sessionsRoot)) {
-        const p = join(this.sessionsRoot, group)
-        try {
-          if (statSync(p).isDirectory()) addWatcher(p)
-        } catch {
-          // ignore
+    const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
+    for (const root of this.sessionRootsList) {
+      addWatcher(root)
+      try {
+        for (const group of readdirSync(root)) {
+          const p = join(root, group)
+          try {
+            if (statSync(p).isDirectory()) addWatcher(p)
+          } catch {
+            // ignore
+          }
         }
+      } catch {
+        // root absent — ignore
       }
-    } catch {
-      // ignore
     }
   }
 

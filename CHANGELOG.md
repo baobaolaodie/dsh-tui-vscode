@@ -6,9 +6,13 @@
 
 ### Added
 
+- **标题/cwd 兜底支持 DSH 0.1.5 的逐会话账本**：`storages/session_projcache/sessions/<id>.json` 的 `rows.title` / `rows.titleInput.first` / `identity.cwd` 在日志缺标题或缺 cwd 时兜底（懒读、按需只读一次；旧 `session_projcache.json` 仍作 legacy 兜底）。
+
 ### Changed
 
 ### Fixed
+
+- **多会话根与代际选择的配套修复**：删除命令与侧边栏文件监听覆盖 `$DSH_TUI_SESSION_ROOT` 和 `~/.dsh-tui/sessions`；代际日志选择在最高代际不是普通文件时回退到有效低代际；设置项说明「绝对**值**路径」更正为「绝对路径」。
 
 ## [0.6.6] - 2026-09-12
 

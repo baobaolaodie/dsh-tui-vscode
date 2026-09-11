@@ -8,9 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Title/cwd fallback now reads the DSH 0.1.5 per-session ledger**: `rows.title` / `rows.titleInput.first` / `identity.cwd` from `storages/session_projcache/sessions/<id>.json` back up logs without a title or cwd (lazy — one read only when needed; the legacy `session_projcache.json` stays as fallback).
+
 ### Changed
 
 ### Fixed
+
+- **Multi-root follow-ups**: the delete command and the sidebar file watchers now cover `$DSH_TUI_SESSION_ROOT` and `~/.dsh-tui/sessions`; generation selection falls back to a valid lower generation when the highest name is not a regular file; the setting description typo "绝对值路径" is corrected to "绝对路径".
 
 ## [0.6.6] - 2026-09-12
 
