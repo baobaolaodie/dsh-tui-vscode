@@ -115,7 +115,7 @@ flowchart LR
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
-| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | 选区变化时自动把选中代码以 `@绝对路径 L起-止` 插入运行中的 dsh-tui 输入框（300ms 防抖；仅当有运行中的会话时生效；默认关闭避免抢占/刷屏）。官方经原生 `selection_changed` 通道实现，本项为其 dsh-tui 降级近似，待上游补丁后升级 |
+| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | 选区变化时自动把选中代码以 `@绝对路径 L起-止` 插入运行中的 dsh-tui 输入框（300ms 防抖；仅当有运行中的会话时生效；默认关闭避免抢占/刷屏）。本项为 dsh-tui 上的降级近似，待上游补丁后升级 |
 
 ## 目录结构
 

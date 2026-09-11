@@ -115,7 +115,7 @@ Key points:
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
-| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | On selection change, auto-insert the selected code as `@absolute/path Lstart-end` into the running dsh-tui input box (300 ms debounce; only when a session is running; disabled by default to avoid hijacking/spam). The official extension implements this via its native `selection_changed` channel; this is the dsh-tui degraded approximation, upgraded once the upstream patch lands |
+| `dsh-tui-vscode.autoInsertMention` `*(experimental)*` | `false` | On selection change, auto-insert the selected code as `@absolute/path Lstart-end` into the running dsh-tui input box (300 ms debounce; only when a session is running; disabled by default to avoid hijacking/spam). This is the dsh-tui degraded approximation, upgraded once the upstream patch lands |
 
 ## Directory Structure
 

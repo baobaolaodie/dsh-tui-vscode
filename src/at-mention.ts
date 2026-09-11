@@ -1,7 +1,7 @@
 /**
  * 生成插入到 dsh-tui 输入框的 @-mention 引用。
  *
- * 基准算法沿用 Claude Code 官方 `insertAtMention`(行号 1-based),但做了
+ * 基准行为对齐 Claude Code 官方 `insertAtMention`(行号 1-based),但做了
  * dsh-tui 适配:
  * - **dsh-tui 解析 `@路径` 时,相对路径以「会话自己的 cwd」为基准**,不认 VS Code
  *   工作区(实测=弹「未找到引用」)。因此调用方应传入 **归一化为正斜杠的绝对路径**

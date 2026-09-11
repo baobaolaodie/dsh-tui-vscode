@@ -1,13 +1,12 @@
 /**
  * 选区变化自动引用(experimental)的纯函数决策层。
  *
- * 背景:Claude Code 官方「编辑器选区自动出现在会话引用」在 webview 与终端模式
- * 都走 `~/.claude/ide` WebSocket(`selection_changed`)通道,由 CLI 消费后显示。
- * dsh-tui 是独立 TUI,不消费该通道,`dsh-tui-vscode` 又只有 `terminal.sendText`
+ * 背景:「编辑器选区自动进入会话上下文」需要扩展与终端程序之间的专用通道;
+ * dsh-tui 是独立 TUI,没有该通道,`dsh-tui-vscode` 又只有 `terminal.sendText`
  * 一条输入通道,因此只能做「降级近似」:监听选区变化 → 防抖后把
  * `@绝对路径 L起-止` 自动键入运行中的 dsh-tui 输入框。
  *
- * 因为这是实打实地往终端输入框敲字(不是官方那种"更新上下文标记"),
+ * 因为这是实打实地往终端输入框敲字(不是独立的上下文注入),
  * 默认**关闭**,需用户在设置里显式开启;本模块只做决策(是否插 / 插什么),
  * 计时与实际 `sendText` 由 extension.ts 接线负责——决策保持纯函数,便于全量单测。
  */
