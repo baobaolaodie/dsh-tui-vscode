@@ -403,9 +403,23 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', customItem)
       assert.equal(sessionsMod.readSessionRecord(logFile)?.title, 'e2e-自定义字段标题')
 
-      await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', fakeItem)
-      assert.equal(warnShown, true, 'delete must ask for confirmation')
-      assert.ok(!existsSync(join(home, 'sessions', '--g--', 'cmd-1')), 'delete must remove the session dir')
+      // deleteSession resolves the session root through the tree's configured
+      // dshHome. Keep it UNPINNED ('' — the original contract) so the command
+      // falls back to $DSH_HOME, which this test points at the temp home; a
+      // pinned temp home would leave the global tree watching a dir we delete.
+      // The pinned-home path is covered by the dedicated e2e below.
+      const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+      const savedCfgHome = cfg.get<string>('dshHome', '')
+      await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+      await sleep(300)
+      try {
+        await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', fakeItem)
+        assert.equal(warnShown, true, 'delete must ask for confirmation')
+        assert.ok(!existsSync(join(home, 'sessions', '--g--', 'cmd-1')), 'delete must remove the session dir')
+      } finally {
+        await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+        await sleep(200)
+      }
     } finally {
       vscode.window.showInputBox = origInput
       vscode.window.showWarningMessage = origWarn
@@ -413,7 +427,9 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       else process.env.DSH_HOME = savedHome
     }
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    // The global tree briefly watched this temp home (config dshHome change);
+    // Windows may hold the directory handle a little longer than the close.
+    await rmTempDir(home)
   }
 })
 
@@ -525,15 +541,9 @@ function treeRecords(children: unknown[]): Array<{ id: string; title?: string }>
 
 /** Windows may hold a directory handle briefly after watchers close. */
 async function rmTempDir(dir: string): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      rmSync(dir, { recursive: true, force: true })
-      return
-    } catch (error) {
-      if (attempt >= 20) throw error
-      await sleep(100)
-    }
-  }
+  // Node retries EBUSY/ENOTEMPTY/EPERM internally; Windows watcher handles can
+  // outlive close() briefly, so give it up to ~6 s.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 })
 }
 
 test('SessionsTreeProvider discovers sessions from DSH_TUI_SESSION_ROOT and the pinned dshHome', async () => {
@@ -611,6 +621,7 @@ test('deleteSession removes sessions from the configured dshHome and the env roo
   const savedWarn = vscode.window.showWarningMessage
   const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const savedCfgHome = cfg.get<string>('dshHome', '')
   const provider = new SessionsTreeProvider()
   try {
     await makeE2eSession(home, '--g--', 'del-pin', [headerEvent('del-pin', ws, 200), userEvent('配置根待删')])
@@ -642,8 +653,8 @@ test('deleteSession removes sessions from the configured dshHome and the env roo
     else process.env.DSH_TUI_SESSION_ROOT = savedEnv
     // Re-point the GLOBAL tree AFTER restoring the env so its watcher set no
     // longer holds the temp env root (startWatching disposes the old set).
-    await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
-    await sleep(300)
+    await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+    await sleep(500)
     await rmTempDir(home)
     await rmTempDir(isoRoot)
   }
@@ -702,6 +713,12 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
     )
     const savedHome = process.env.DSH_HOME
     process.env.DSH_HOME = home
+    // Unpinned ('' — original contract): the archive commands fall back to
+    // $DSH_HOME, so the temp home is never watched by the global tree.
+    const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+    const savedCfgHome = cfg.get<string>('dshHome', '')
+    await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+    await sleep(300)
     try {
       // Real argument shape: the SessionRecord element.
       const item: Record<string, unknown> = { id: 'arch-1', file: logFile, title: '待归档', hasPrompt: true, createdAt: 1, cwd: ws }
@@ -752,9 +769,11 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
     } finally {
       if (savedHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = savedHome
+      await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+      await sleep(200)
     }
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    await rmTempDir(home)
   }
 })
 
