@@ -40,9 +40,21 @@ export interface SessionTreeItem extends vscode.TreeItem {
   sessionFile?: string
 }
 
+export interface SessionsTreeProviderOptions {
+  /** Retry interval for session roots that do not exist yet (tests shorten
+   *  it; production keeps 60 s). Forwarded to SessionWatcherSet. */
+  retryMs?: number
+}
+
 export class SessionsTreeProvider
   implements vscode.TreeDataProvider<SessionRecord | ProjectNode>
 {
+  private readonly retryMs: number
+
+  constructor(options: SessionsTreeProviderOptions = {}) {
+    this.retryMs = options.retryMs ?? 60_000
+  }
+
   private readonly onChange = new vscode.EventEmitter<
     SessionRecord | ProjectNode | undefined
   >()
@@ -74,6 +86,7 @@ export class SessionsTreeProvider
     this.watcherSet?.dispose()
     this.watcherSet = new SessionWatcherSet(sessionRoots(dshHome), {
       onChange: () => this.scheduleRefresh(),
+      retryMs: this.retryMs,
     })
   }
 
