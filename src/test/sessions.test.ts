@@ -8,6 +8,7 @@ import { gzipSync } from 'node:zlib'
 import * as zstd from '@bokuweb/zstd-wasm'
 import {
   findSessionFiles,
+  sessionRoots,
   readSessionRecord,
   readSessionSummary,
   listSessions,
@@ -812,6 +813,129 @@ test('deleteSessionLog containment follows platform case semantics', async () =>
       assert.equal(deleteSessionLog(file, bogusRoot), 'unavailable')
       assert.ok(existsSync(join(root, 'sessions', '--group--', id)), 'session must be untouched')
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('sessionRoots: env override, DSH home, legacy fallback, explicit pin', () => {
+  const home = join(tmpdir(), 'dsh-fake-home')
+  assert.deepEqual(
+    sessionRoots(undefined, {
+      env: { DSH_TUI_SESSION_ROOT: join(tmpdir(), 'iso'), DSH_HOME: join(tmpdir(), 'dh') },
+      home,
+    }),
+    [join(tmpdir(), 'iso'), join(tmpdir(), 'dh', 'sessions'), join(home, '.dsh-tui', 'sessions')],
+  )
+  assert.deepEqual(
+    sessionRoots(undefined, { env: {}, home }),
+    [join(home, '.dsh', 'sessions'), join(home, '.dsh-tui', 'sessions')],
+  )
+  assert.deepEqual(
+    sessionRoots(join(tmpdir(), 'pinned'), { env: { DSH_TUI_SESSION_ROOT: join(tmpdir(), 'iso') }, home }),
+    [join(tmpdir(), 'pinned', 'sessions')],
+  )
+})
+
+test('findSessionFiles picks the newest generation (numeric), compressed twin on a tie', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-gen-'))
+  try {
+    const dir = join(root, 'sessions', '--g--', 's-gen')
+    mkdirSync(dir, { recursive: true })
+    for (const name of [
+      'session.jsonl.zstd',
+      'session.v1.jsonl',
+      'session.v2.jsonl',
+      'session.v2.jsonl.zstd',
+      'session.v10.jsonl',
+    ]) {
+      writeFileSync(join(dir, name), '')
+    }
+    let files = findSessionFiles(root)
+    assert.equal(files.length, 1)
+    // v10 (numeric, not lexicographic) beats every lower generation.
+    assert.equal(files[0]!.file.endsWith('session.v10.jsonl'), true)
+    rmSync(join(dir, 'session.v10.jsonl'))
+    files = findSessionFiles(root)
+    // Same version: the compressed twin wins.
+    assert.equal(files[0]!.file.endsWith('session.v2.jsonl.zstd'), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('findSessionFiles ignores noncanonical generation names', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-badgen-'))
+  try {
+    const dir = join(root, 'sessions', '--g--', 's-bad')
+    mkdirSync(dir, { recursive: true })
+    for (const name of [
+      'session.V3.jsonl',
+      'session.v0.jsonl',
+      'session.v01.jsonl',
+      'session.v3.jsonl.bak',
+      'session.jsonl.gz',
+      'session.v3.jsonl.zstd.tmp',
+    ]) {
+      writeFileSync(join(dir, name), '')
+    }
+    assert.deepEqual(findSessionFiles(root), [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('findSessionFiles scans every root; an earlier root shadows a duplicate id', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-roots-'))
+  try {
+    const iso = join(base, 'iso')
+    const dshHome = join(base, 'dh')
+    const home = join(base, 'home')
+    // DSH_TUI_SESSION_ROOT is the sessions root itself (group dirs live here).
+    const put = (sessionsRoot: string, id: string, name: string): void => {
+      const dir = join(sessionsRoot, '--g--', id)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, name), '')
+    }
+    put(iso, 'dup', 'session.v3.jsonl')
+    put(join(dshHome, 'sessions'), 'dup', 'session.jsonl.zstd')
+    put(join(dshHome, 'sessions'), 'fresh', 'session.jsonl')
+    const legacyDir = join(home, '.dsh-tui', 'sessions', '--g--', 'legacy')
+    mkdirSync(legacyDir, { recursive: true })
+    writeFileSync(join(legacyDir, 'session.jsonl'), '')
+    const files = findSessionFiles(undefined, {
+      env: { DSH_TUI_SESSION_ROOT: iso, DSH_HOME: dshHome },
+      home,
+    })
+    assert.deepEqual(files.map(f => f.id).sort(), ['dup', 'fresh', 'legacy'])
+    assert.equal(files.find(f => f.id === 'dup')!.file.startsWith(iso), true)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('listSessions reads a DSH 0.1.5 Session V3 log (generation filename)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-v3-'))
+  try {
+    const id = 'session-abc'
+    const dir = join(root, 'sessions', '--g--', id)
+    mkdirSync(dir, { recursive: true })
+    const frame = (line: string): Buffer =>
+      Buffer.from(zstd.compress(Buffer.from(line + '\n', 'utf8'), 3))
+    writeFileSync(
+      join(dir, 'session.v3.jsonl.zstd'),
+      Buffer.concat([
+        frame(JSON.stringify({ type: 'session', version: 3, id, createdAt: 42, cwd: 'C:\ws', isSeeded: false })),
+        frame(JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: 'V3 first' }] } })),
+        frame(JSON.stringify({ type: 'session/title', seq: 1, data: { title: 'V3 标题' } })),
+      ]),
+    )
+    const list = await listSessions(root)
+    assert.equal(list.length, 1)
+    assert.equal(list[0]!.id, id)
+    assert.equal(list[0]!.title, 'V3 标题')
+    assert.equal(list[0]!.cwd, 'C:\ws')
+    assert.equal(list[0]!.hasPrompt, true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
