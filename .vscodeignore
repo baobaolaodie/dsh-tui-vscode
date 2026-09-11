@@ -17,6 +17,7 @@ package-lock.json
 *.vsix
 *.log
 .gh-log/
+docs/**
 CLAUDE.md
 .scratch/
 .tmp-audit/

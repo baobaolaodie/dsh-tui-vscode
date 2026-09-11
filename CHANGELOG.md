@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **文档与发布包整理**：精简设计文档、README 与设置项说明中的冗余表述；`docs/` 不再随扩展包分发，发布体积相应减小。
+
 ### Fixed
 
 ## [0.6.4] - 2026-08-22
@@ -28,7 +30,7 @@
 
 ### Added
 
-- **选区变化自动引用（experimental，默认关）**：新增配置 `dsh-tui-vscode.autoInsertMention`（默认 `false`），开启后在编辑器选中代码时自动以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖、仅当存在运行中会话、对同一选区去重、无会话静默忽略）。官方 Claude Code 经其原生 `selection_changed` 通道实现该能力，本项为其 dsh-tui 降级近似；与 dsh-TUI 上游 issue #359（相对路径 + #L 行区间）解耦，待上游落地后升级。
+- **选区变化自动引用（experimental，默认关）**：新增配置 `dsh-tui-vscode.autoInsertMention`（默认 `false`），开启后在编辑器选中代码时自动以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖、仅当存在运行中会话、对同一选区去重、无会话静默忽略）。本项为 dsh-tui 上的降级近似；与 dsh-TUI 上游 issue #359（相对路径 + #L 行区间）解耦，待上游落地后升级。
 - **快捷键冲突说明**：README 增加默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）与 opencode 等扩展撞键时的重绑方法（「键盘快捷方式」`Ctrl+K Ctrl+S`），右键/命令面板入口不受影响。
 
 ### Changed
@@ -119,7 +121,7 @@
 
 > 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
 
-- **改为真实集成终端（对齐 Claude Code 官方终端模式源码）**：
+- **改为真实集成终端（对齐 Claude Code 官方终端模式）**：
   - 删除全部 webview/PTY 基础设施（node-pty、xterm、esbuild、OSC、webview 面板）——vsix 从 3.7MB 缩至 327KB；
   - `createTerminal({ name: 'DeepSeek', location: { viewColumn: Beside }, env, iconPath, isTransient })` + shell 就绪后运行 CLI——与官方扩展同构；
   - 打开位置 = 编辑器区**另一侧**新列；终端标签带鲸鱼图标、标题 DeepSeek；

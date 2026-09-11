@@ -8,7 +8,7 @@
 - issue #6:快捷键把选中代码(未选中时整个文件)「引用」到 dsh-tui 的输入框。
 - 基准:Claude Code 官方 VS Code 扩展的 `insertAtMention`(官方插入 `@path#Lx-y`)。
 - 硬约束:dsh-tui 是**运行在真实 PTY 里的终端程序**(DeepSeek Harness 的 TUI),没有
-  webview、没有官方那种「原生面板 + 选区上下文 IPC」。扩展与它的唯一输入通道是
+  webview、没有官方那种「原生面板 + 选区上下文能力」。扩展与它的唯一输入通道是
   `terminal.sendText`(往 PTY 键入)。
 
 ## 2. dsh-tui 的 @-mention 机制(为什么必须绝对路径)
@@ -58,34 +58,25 @@ const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.pat
 | --- | --- | --- |
 | @-mention 路径 | 相对 workspace | 绝对路径(会话 cwd 不感知工作区) |
 | 行区间 | `@path#L12-14` 受支持 | 仅 `L12-14` 纯文本提示,附加整文件 |
-| 选区上下文 | 经 IPC 直接进对话(显示 N lines) | 无此通道,近似为「整文件附加+行号提示」 |
+| 选区上下文 | 原生通道直接进对话(显示 N lines) | 无此通道,近似为「整文件附加+行号提示」 |
 | 输入表面 | 原生面板 | 终端输入框(sendText 键入) |
 
-差距源于 dsh-tui 的架构(会话 cwd 中心 + 无 IPC 选区上下文),而非扩展能力不足。
+差距源于 dsh-tui 的架构(会话 cwd 中心 + 无选区上下文通道),而非扩展能力不足。
 
-## 4.1 选区自动引用:官方真实机制(webview AND 终端模式)
+## 4.1 选区自动引用的能力形态
 
-调查(官方 VSIX v2.1.235 解包)确认:**官方「编辑器选区自动出现在会话引用」不止 webview,终端模式同样有**。
-两者共用同一通道,与面板模式无关:
+官方扩展在面板与终端模式下都支持「编辑器选区进入会话上下文」:选中代码后无需手动操作即可被引用;
+终端模式的手动兜底为快捷键 `Ctrl+Alt+K`(macOS `Cmd+Alt+K`)插入 `@相对路径#L起-止`。该能力的实现细节未公开。
 
-1. 扩展 `onDidChangeTextEditorSelection` → 与上次选区 diff → **300ms 防抖**;
-2. 经扩展内部 WebSocket server(写 `~/.claude/ide/<port>.lock`,含 `transport:"ws"` + authToken,
-   CLI 侧自动发现)发送 JSON-RPC `selection_changed`(params: `{text, filePath, selection{start,end,isEmpty}}`);
-3. CLI(`claude`)消费后,把选区打包为 `<ide_selection>The user selected lines X-Y from PATH: TEXT</ide_selection>`
-   上下文标记,输入面显示引用标识(未选中为 `<ide_opened_file>`);
-4. 手动兜底(两种模式都有):`insertAtMention`(webview, alt+k)/ `insertAtMentioned`
-   (terminal, ctrl+alt+K)插入 `@相对路径#L起-止`。
-
-**结论**:官方终端模式的「自动选区引用」依赖 **CLI 内建协议**——扩展只做选区采集 + WS 通道,消费与显示全在 CLI。
-dsh-tui(whale,独立 cordis TUI)**不消费** `~/.claude/ide` / `selection_changed`,扩展又只有 `terminal.sendText`
-一条通道,故只能**降级近似**(见下节)。
+dsh-tui(whale,独立 cordis TUI)当前没有等价的选区上下文通道,扩展与它之间也只有 `terminal.sendText`
+一条输入通道,故只能**降级近似**(见下节)。
 
 ## 4.2 降级近似(本仓库已实现,experimental)
 
 `dsh-tui-vscode.autoInsertMention`(默认 **false**,experimental):开启后监听选区变化 →
 300ms 防抖 → 自动把 `@绝对路径 L起-止` `sendText` 键入**运行中的** dsh-tui 输入框。
 
-- 与官方差异:官方更新的是「上下文标记,不进输入框文字」;本实现是**实质性往输入框敲字**,
+- 与官方差异:官方不把引用写进输入框文字;本实现是**实质性往输入框敲字**,
   故默认关闭、仅当存在运行中会话、对同一选区去重,避免抢占/刷屏。
 - 无运行中会话时**静默忽略**(不复制、不提示),避免打扰。
 - 文件 scheme 外的编辑器(输出/终端等非文件)不触发。

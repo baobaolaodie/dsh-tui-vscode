@@ -237,15 +237,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       terminal.sendText(mention, false)
       return
     }
-    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(官方未投递时的回退路径)。
+    // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(未投递时的回退路径)。
     await vscode.env.clipboard.writeText(mention)
     void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
-  // 选区变化自动引用(experimental,默认关):把官方「编辑器选区自动出现在会话
-  // 引用」在 dsh-tui 上降级近似为——选区变化 → 300ms 防抖 → 自动把
-  // `@绝对路径 L起-止` 键入运行中的 dsh-tui 输入框。官方 true 机制走
-  // `~/.claude/ide` WebSocket(`selection_changed`),dsh-tui 不消费该通道,
-  // 扩展只有 `terminal.sendText` 一条输入通道,故为降级近似;也因此必须：
+  // 选区变化自动引用(experimental,默认关):选区变化 → 300ms 防抖 → 自动把
+  // `@绝对路径 L起-止` 键入运行中的 dsh-tui 输入框。dsh-tui 没有接收选区
+  // 上下文的专用通道,扩展只有 `terminal.sendText` 一条输入通道,故为降级近似;
+  // 也因此必须：
   // 默认关闭、仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。
   // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
