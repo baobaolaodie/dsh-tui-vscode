@@ -10,6 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **Docs and package tidy-up**: tightened wording in the design doc, README, and setting descriptions; `docs/` is no longer bundled into the extension package, reducing the published size.
+
 ### Fixed
 
 ## [0.6.4] - 2026-08-22
