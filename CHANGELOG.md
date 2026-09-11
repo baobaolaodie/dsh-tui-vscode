@@ -10,6 +10,16 @@
 
 ### Fixed
 
+## [0.6.6] - 2026-09-12
+
+> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) 合并 / via PR #15
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **侧边栏兼容 DSH 0.1.5 的 Session V3 会话日志**：日志文件按代际匹配（`session.jsonl` / `session.v3.jsonl` 等，可选 `.zstd`，最新代际优先），会话根按 `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` 顺序扫描——修复升级 dsh 0.1.5 后新建会话在侧边栏不可见的问题。
 
 ## [0.6.5] - 2026-09-12
