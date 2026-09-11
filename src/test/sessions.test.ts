@@ -1088,3 +1088,36 @@ test('listSessions: blank header cwd falls back to the ledger cwd', async () => 
     rmSync(root, { recursive: true, force: true })
   }
 })
+test('listSessions: ledger first-input title is capped at 80 chars', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-ledger-cap-'))
+  try {
+    const id = 'led-cap'
+    const dir = join(root, 'sessions', '--g--', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'session.v3.jsonl'),
+      JSON.stringify({ type: 'session', version: 3, id, cwd: '/w', createdAt: 1 }) + '\n',
+    )
+    writeLedger(root, id, {
+      record: { rows: { titleInput: { val: { first: { text: 'A'.repeat(500) } } } } },
+    })
+    const list = await listSessions(root)
+    assert.equal(list[0]!.title, 'A'.repeat(80))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deleteSessionLog refuses a noncanonical target inside a root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-delguard-'))
+  try {
+    const dir = join(root, 'sessions', '--g--', 'guard-1')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'notes.txt')
+    writeFileSync(file, '')
+    assert.equal(deleteSessionLog(file, root), 'unavailable')
+    assert.equal(existsSync(dir), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

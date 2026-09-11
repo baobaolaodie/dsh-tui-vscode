@@ -1028,6 +1028,8 @@ export function readSessionLedgerEntry(
       'sessions',
       `${id}.json`,
     )
+    // Defense in depth: never read a pathological ledger file whole.
+    if (statSync(file).size > 8 * 1024 * 1024) return undefined
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
       record?: {
         identity?: { cwd?: unknown }
@@ -1045,7 +1047,10 @@ export function readSessionLedgerEntry(
       out.title = title.trim()
     } else {
       const first = parsed?.record?.rows?.titleInput?.val?.first?.text
-      if (typeof first === 'string' && first.trim()) out.title = first.trim()
+      // The first input is a RAW prompt (measured up to ~6.5 KB): mirror the
+      // log fallback's 80-char cap so a TreeItem label never carries a wall
+      // of text.
+      if (typeof first === 'string' && first.trim()) out.title = first.trim().slice(0, 80)
     }
     return out.cwd === undefined && out.title === undefined ? undefined : out
   } catch {
@@ -1216,6 +1221,10 @@ export function deleteSessionLog(
   deps: SessionRootDeps = {},
 ): 'deleted' | 'unavailable' {
   try {
+    // Defense in depth before a recursive delete: the target must be a
+    // canonical session log, not just some entry that happens to sit under a
+    // session root.
+    if (parseGenerationName(basename(file)) === undefined) return 'unavailable'
     const dir = dirname(file)
     const realDir = realpathSync(dir)
     // Case-insensitive containment on Windows: the file argument arrives

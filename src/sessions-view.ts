@@ -88,6 +88,27 @@ export class SessionsTreeProvider
    */
   private syncWatchers(): void {
     if (this.sessionRootsList.length === 0) return
+    const unwatchedBefore = this.sessionRootsList.filter(root => !this.watchedDirs.has(root))
+    this.registerWatchers()
+    // A root that appeared since the previous probe has sessions no watcher
+    // event will announce — list them once.
+    if (unwatchedBefore.some(root => this.watchedDirs.has(root))) this.scheduleRefresh()
+    // A root that still does not exist cannot be watched (watch() and
+    // readdirSync() both fail). Probe again on a slow timer, re-running THIS
+    // method only: a full reload re-reads every session log (~2 s on a real
+    // 585-session home). Watching the nearest parent is deliberately avoided
+    // (the nearest parent may be $HOME).
+    const missing = this.sessionRootsList.some(root => !this.watchedDirs.has(root))
+    if (missing && this.missingRootTimer === undefined) {
+      this.missingRootTimer = setTimeout(() => {
+        this.missingRootTimer = undefined
+        this.syncWatchers()
+      }, 60_000)
+    }
+  }
+
+  /** Register watchers for every existing root and its group directories. */
+  private registerWatchers(): void {
     const addWatcher = (dir: string): void => {
       if (this.watchedDirs.has(dir)) return
       try {
@@ -95,7 +116,7 @@ export class SessionsTreeProvider
         this.watchers.push(w)
         this.watchedDirs.add(dir)
       } catch {
-        // dir vanished — ignore
+        // absent / vanished — the probe timer (or the next reload) retries
       }
     }
     const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
@@ -111,19 +132,8 @@ export class SessionsTreeProvider
           }
         }
       } catch {
-        // root absent — ignore
+        // root absent — the probe timer retries
       }
-    }
-    // A root that does not exist yet has no watcher (watch() and
-    // readdirSync() both fail). reload() re-runs this method, but without a
-    // refresh trigger the root would stay unwatched; probe on a slow timer
-    // instead of watching the nearest parent (which may be $HOME).
-    const missing = this.sessionRootsList.some(root => !this.watchedDirs.has(root))
-    if (missing && this.missingRootTimer === undefined) {
-      this.missingRootTimer = setTimeout(() => {
-        this.missingRootTimer = undefined
-        this.scheduleRefresh()
-      }, 60_000)
     }
   }
 
