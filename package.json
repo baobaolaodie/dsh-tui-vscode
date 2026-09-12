@@ -219,7 +219,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js out/test/session-watchers.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"

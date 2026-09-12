@@ -22,13 +22,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [0.6.6] - 2026-09-12
 
-> via PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / 经 PR #15 合并
+> via PRs [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) / 经 PR #15、#16 合并
 
 ### Added
+
+- **Title/cwd fallback now reads the DSH 0.1.5 per-session ledger**: `rows.title` / `rows.titleInput.first` / `identity.cwd` from `storages/session_projcache/sessions/<id>.json` back up logs without a title or cwd (lazy — one read only when needed; the first-input fallback is capped at 80 chars like the log's first-message title; the legacy `session_projcache.json` stays as fallback).
 
 ### Changed
 
 ### Fixed
+
+- **Multi-root follow-ups**: the delete command and the sidebar file watchers now cover `$DSH_TUI_SESSION_ROOT` and `~/.dsh-tui/sessions`; generation selection falls back to a valid lower generation when the highest name is not a regular file; a blank header cwd is treated as missing so the ledger fallback still runs; session roots that do not exist yet are re-probed on a 60 s timer so they get watched once created; the delete path verifies the target is a canonical session-log name at the exact `<root>/<group>/<session>` depth (defense in depth); `$DSH_TUI_SESSION_ROOT` still outranks an explicit dshHome pin (matching how dsh-tui itself resolves its write root); the delete/archive commands resolve roots through the configured `dshHome`, which now also takes effect live (no window reload needed); the setting description typo "绝对值路径" is corrected to "绝对路径".
 
 - **Sidebar now reads DSH 0.1.5 Session V3 logs**: log files are matched by generation (`session.jsonl` / `session.v3.jsonl`, optionally `.zstd`, newest generation winning) and session roots are scanned in the order `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` — fixes sessions created after upgrading to dsh 0.1.5 disappearing from the sidebar.
 

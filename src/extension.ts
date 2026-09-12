@@ -80,6 +80,16 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     sessionsTree,
   )
   sessionsTree.startWatching(readSettings().dshHome)
+  // Re-point the tree (and the commands that resolve through it) when the
+  // configured DSH home changes: without this, a live config change would keep
+  // listing the old home while delete/archive still resolved against it.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(event => {
+      if (!event.affectsConfiguration('dsh-tui-vscode.dshHome')) return
+      sessionsTree.startWatching(readSettings().dshHome)
+      sessionsTree.refresh()
+    }),
+  )
 
   function hasTerminal(): boolean {
     return vscode.window.terminals.some(t => t.name === TERMINAL_NAME)
@@ -449,7 +459,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // dsh-native archive: the session joins the workspace domain's archive
     // set (the same set the dsh web list reads) — hidden from the sidebar
     // while its log and accounting slot are retained, recoverable anytime.
-    if (setSessionArchived(session.id, true) === 'ok') {
+    if (setSessionArchived(session.id, true, sessionsTree.dshHomeForCommands()) === 'ok') {
       sessionsTree.refresh()
     } else {
       void vscode.window.showErrorMessage('归档失败：无法写入会话域存储')
@@ -490,7 +500,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     )
     if (!action) return
     if (action.label.includes('恢复')) {
-      if (setSessionArchived(picked.detail, false) === 'ok') {
+      if (setSessionArchived(picked.detail, false, dshHome) === 'ok') {
         sessionsTree.refresh()
         void vscode.window.showInformationMessage('会话已恢复')
       } else {
@@ -506,9 +516,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       '永久删除',
     )
     if (confirm !== '永久删除') return
-    if (deleteSessionLog(rec.file) === 'deleted') {
+    if (deleteSessionLog(rec.file, dshHome) === 'deleted') {
       // Drop the id from the archive set too (its log is gone).
-      void setSessionArchived(picked.detail, false)
+      void setSessionArchived(picked.detail, false, dshHome)
       sessionsTree.refresh()
     }
   })
@@ -521,7 +531,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       '永久删除',
     )
     if (answer !== '永久删除') return
-    if (deleteSessionLog(session.file) === 'deleted') sessionsTree.refresh()
+    if (deleteSessionLog(session.file, sessionsTree.dshHomeForCommands()) === 'deleted') {
+      sessionsTree.refresh()
+    }
   })
 
   sessionsTree.refresh()

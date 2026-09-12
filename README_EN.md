@@ -28,7 +28,6 @@
 # dsh-tui-vscode
 
 **dsh-tui-vscode** runs [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI) inside a REAL VS Code integrated terminal (a new editor column beside the active one; default shell — PowerShell on Windows) — **the same shape as the terminal mode of the official Claude Code VS Code extension** (`createTerminal` + run the CLI inside it), with no webview and no xterm emulation.
-This is the implementation of [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161).
 
 ## Screenshot
 

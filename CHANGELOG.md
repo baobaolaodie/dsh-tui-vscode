@@ -20,13 +20,17 @@
 
 ## [0.6.6] - 2026-09-12
 
-> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) 合并 / via PR #15
+> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) 合并 / via PRs #15 and #16
 
 ### Added
+
+- **标题/cwd 兜底支持 DSH 0.1.5 的逐会话账本**：`storages/session_projcache/sessions/<id>.json` 的 `rows.title` / `rows.titleInput.first` / `identity.cwd` 在日志缺标题或缺 cwd 时兜底（懒读、按需只读一次；首条输入兜底截断为 80 字符，与日志首条消息一致；旧 `session_projcache.json` 仍作 legacy 兜底）。
 
 ### Changed
 
 ### Fixed
+
+- **多会话根与代际选择的配套修复**：删除命令与侧边栏文件监听覆盖 `$DSH_TUI_SESSION_ROOT` 和 `~/.dsh-tui/sessions`；代际日志选择在最高代际不是普通文件时回退到有效低代际；日志 header 的空白 cwd 视为缺失、继续走账本兜底；当时不存在的会话根会以 60s 慢速重试注册监听；删除前校验目标必须是规范会话日志名且处于 `<根>/<分组>/<会话>` 精确层级（纵深防御）；`$DSH_TUI_SESSION_ROOT` 在显式 dshHome 配置下仍优先（与 dsh-tui 自身的写入解析一致）；删除/归档命令改用配置的 `dshHome` 解析会话根，且修改该配置即时生效（无需重载窗口）；设置项说明「绝对**值**路径」更正为「绝对路径」。
 
 - **侧边栏兼容 DSH 0.1.5 的 Session V3 会话日志**：日志文件按代际匹配（`session.jsonl` / `session.v3.jsonl` 等，可选 `.zstd`，最新代际优先），会话根按 `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` 顺序扫描——修复升级 dsh 0.1.5 后新建会话在侧边栏不可见的问题。
 

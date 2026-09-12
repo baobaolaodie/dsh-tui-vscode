@@ -5,10 +5,13 @@
  * terminal on the Beside column.
  */
 import * as vscode from 'vscode'
-import { watch, type FSWatcher } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { listSessions, sessionLabel, type SessionRecord } from './sessions'
+import { SessionWatcherSet } from './session-watchers'
+import {
+  listSessions,
+  sessionLabel,
+  sessionRoots,
+  type SessionRecord,
+} from './sessions'
 
 /** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
 function relativeTime(epochMs: number): string {
@@ -37,19 +40,29 @@ export interface SessionTreeItem extends vscode.TreeItem {
   sessionFile?: string
 }
 
+export interface SessionsTreeProviderOptions {
+  /** Retry interval for session roots that do not exist yet (tests shorten
+   *  it; production keeps 60 s). Forwarded to SessionWatcherSet. */
+  retryMs?: number
+}
+
 export class SessionsTreeProvider
   implements vscode.TreeDataProvider<SessionRecord | ProjectNode>
 {
+  private readonly retryMs: number
+
+  constructor(options: SessionsTreeProviderOptions = {}) {
+    this.retryMs = options.retryMs ?? 60_000
+  }
+
   private readonly onChange = new vscode.EventEmitter<
     SessionRecord | ProjectNode | undefined
   >()
   readonly onDidChangeTreeData = this.onChange.event
   private sessions: SessionRecord[] = []
-  private watchers: FSWatcher[] = []
-  private watchedDirs = new Set<string>()
+  private watcherSet: SessionWatcherSet | undefined
   private refreshTimer: NodeJS.Timeout | undefined
   private dshHome: string | undefined
-  private sessionsRoot: string | undefined
 
   refresh(): void {
     void this.reload()
@@ -67,61 +80,19 @@ export class SessionsTreeProvider
     this.refreshTimer = setTimeout(() => this.refresh(), 500)
   }
 
-  /** Watch the DSH sessions tree so new sessions appear automatically. */
+  /** Watch every session root so new sessions appear automatically. */
   startWatching(dshHome?: string): void {
     this.dshHome = dshHome
-    this.sessionsRoot = join(
-      dshHome?.trim() || process.env.DSH_HOME || join(homedir(), '.dsh'),
-      'sessions',
-    )
-    this.syncWatchers()
-  }
-
-  /**
-   * Idempotently watch the sessions root and every group directory under it.
-   * Called at startup AND after every reload: a group directory created
-   * after activation (a session launched in a brand-new working directory)
-   * is not covered by the root watcher (fs.watch is not recursive), so each
-   * reload picks up newly appeared groups.
-   */
-  private syncWatchers(): void {
-    if (this.sessionsRoot === undefined) return
-    const addWatcher = (dir: string): void => {
-      if (this.watchedDirs.has(dir)) return
-      try {
-        const w = watch(dir, { persistent: false }, () => this.scheduleRefresh())
-        this.watchers.push(w)
-        this.watchedDirs.add(dir)
-      } catch {
-        // dir vanished — ignore
-      }
-    }
-    addWatcher(this.sessionsRoot)
-    try {
-      const { readdirSync, statSync } = require('node:fs') as typeof import('node:fs')
-      for (const group of readdirSync(this.sessionsRoot)) {
-        const p = join(this.sessionsRoot, group)
-        try {
-          if (statSync(p).isDirectory()) addWatcher(p)
-        } catch {
-          // ignore
-        }
-      }
-    } catch {
-      // ignore
-    }
+    this.watcherSet?.dispose()
+    this.watcherSet = new SessionWatcherSet(sessionRoots(dshHome), {
+      onChange: () => this.scheduleRefresh(),
+      retryMs: this.retryMs,
+    })
   }
 
   dispose(): void {
-    for (const w of this.watchers) {
-      try {
-        w.close()
-      } catch {
-        // already closed
-      }
-    }
-    this.watchers = []
-    this.watchedDirs.clear()
+    this.watcherSet?.dispose()
+    this.watcherSet = undefined
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
   }
 
@@ -144,7 +115,7 @@ export class SessionsTreeProvider
       })
       // Pick up group directories created since the last pass (fs.watch on
       // the root is not recursive) so their log writes keep refreshing.
-      this.syncWatchers()
+      this.watcherSet?.update()
     } catch (error) {
       this.sessions = []
       console.error('dsh-tui: failed to list sessions', error)

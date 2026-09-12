@@ -28,7 +28,6 @@
 # dsh-tui-vscode
 
 **dsh-tui-vscode** 让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI) 跑在 VS Code **真实的集成终端**里（编辑器区另一侧新开一列，Windows 默认 PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构**（`createTerminal` + 在终端内运行 CLI），没有 webview、没有 xterm 模拟层。
-这是 [ccch1mneyyy/dsh-TUI#161](https://github.com/ccch1mneyyy/dsh-TUI/issues/161) 的实现。
 
 ## 展示
 
