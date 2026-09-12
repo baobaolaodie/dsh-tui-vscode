@@ -318,17 +318,24 @@ export interface SessionRootDeps {
  * Session-log roots in priority order, mirroring the TUI's own reader
  * (`src/dsh-adapter/compat/sessionLog.ts`): `$DSH_TUI_SESSION_ROOT` first,
  * then `<dshHome>/sessions` (config override → `$DSH_HOME` → `~/.dsh`), then
- * the legacy `~/.dsh-tui/sessions` fallback. A non-empty explicit `dshHome`
- * pins the lookup to that home alone — an isolated profile stays isolated.
+ * the legacy `~/.dsh-tui/sessions` fallback. The env override outranks even an
+ * explicit `dshHome` pin because dsh-tui itself resolves its write target as
+ * `DSH_TUI_SESSION_ROOT ?? dshHomePath('sessions')` — a pinned home that
+ * ignored the env would list nothing while the TUI wrote elsewhere. The
+ * legacy fallback is skipped once a home is pinned (isolated profiles stay
+ * isolated).
  */
 export function sessionRoots(dshHome?: string, deps: SessionRootDeps = {}): string[] {
-  const pinned = dshHome?.trim()
-  if (pinned) return [join(pinned, 'sessions')]
   const env = deps.env ?? process.env
   const home = deps.home ?? homedir()
   const roots: string[] = []
   const envRoot = env.DSH_TUI_SESSION_ROOT?.trim()
   if (envRoot) roots.push(envRoot)
+  const pinned = dshHome?.trim()
+  if (pinned) {
+    roots.push(join(pinned, 'sessions'))
+    return [...new Set(roots)]
+  }
   const dshHomeEnv = env.DSH_HOME?.trim()
   roots.push(join(dshHomeEnv || join(home, '.dsh'), 'sessions'))
   roots.push(join(home, '.dsh-tui', 'sessions'))
@@ -374,6 +381,14 @@ function selectGenerationLog(dir: string): GenerationCandidate | undefined {
   for (const name of entries) {
     const candidate = parseGenerationName(name)
     if (candidate === undefined) continue
+    // Only regular files are committed logs: a directory (or an unreadable
+    // entry) that happens to carry a canonical name must never shadow a
+    // valid lower generation.
+    try {
+      if (!statSync(join(dir, name)).isFile()) continue
+    } catch {
+      continue
+    }
     if (
       best === undefined ||
       candidate.version > best.version ||
@@ -381,12 +396,6 @@ function selectGenerationLog(dir: string): GenerationCandidate | undefined {
     ) {
       best = candidate
     }
-  }
-  if (best === undefined) return undefined
-  try {
-    if (!statSync(join(dir, best.name)).isFile()) return undefined
-  } catch {
-    return undefined
   }
   return best
 }
@@ -997,6 +1006,66 @@ export function readStorageMeta(dshHome?: string): StorageMeta {
   return out
 }
 
+/** Title / cwd read from the new per-session ledger (DSH 0.1.5+). */
+export interface SessionLedgerEntry {
+  title?: string
+  cwd?: string
+}
+
+/**
+ * New per-session ledger, `storages/session_projcache/sessions/<id>.json`
+ * (DSH 0.1.5+): `record.rows.title.val` (generated title) or
+ * `record.rows.titleInput.val.first.text` (first human input), plus
+ * `record.identity.cwd`. Read LAZILY — callers touch it only for sessions
+ * whose log has no title/cwd, so the bounded log reads stay the primary path;
+ * the legacy flat `session_projcache.json` remains the fallback for
+ * pre-0.1.5 sessions.
+ */
+export function readSessionLedgerEntry(
+  dshHome: string | undefined,
+  id: string,
+): SessionLedgerEntry | undefined {
+  // The id becomes a path segment: session ids are UUIDs or `session-<uuid>`.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) return undefined
+  try {
+    const file = join(
+      resolveDshHome(dshHome),
+      'storages',
+      'session_projcache',
+      'sessions',
+      `${id}.json`,
+    )
+    // Defense in depth: never read a pathological ledger file whole.
+    if (statSync(file).size > 8 * 1024 * 1024) return undefined
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      record?: {
+        identity?: { cwd?: unknown }
+        rows?: {
+          title?: { val?: unknown }
+          titleInput?: { val?: { first?: { text?: unknown } } }
+        }
+      }
+    }
+    const out: SessionLedgerEntry = {}
+    const cwd = parsed?.record?.identity?.cwd
+    if (typeof cwd === 'string' && cwd.trim()) out.cwd = cwd.trim()
+    const title = parsed?.record?.rows?.title?.val
+    if (typeof title === 'string' && title.trim()) {
+      out.title = title.trim()
+    } else {
+      const first = parsed?.record?.rows?.titleInput?.val?.first?.text
+      // The first input is a RAW prompt (measured up to ~6.5 KB): mirror the
+      // log fallback's 80-char cap so a TreeItem label never carries a wall
+      // of text.
+      if (typeof first === 'string' && first.trim()) out.title = first.trim().slice(0, 80)
+    }
+    return out.cwd === undefined && out.title === undefined ? undefined : out
+  } catch {
+    // absent / malformed — the log and the legacy ledger remain the sources
+    return undefined
+  }
+}
+
 /**
  * Session titles from the dsh-storage ledger — kept for callers/tests that
  * want titles only (see {@link readStorageMeta} for the full read).
@@ -1153,18 +1222,37 @@ export function appendSessionTitle(
  * @returns 'deleted', or 'unavailable' when the log is absent or the path
  *   escapes the sessions root.
  */
-export function deleteSessionLog(file: string, dshHome?: string): 'deleted' | 'unavailable' {
+export function deleteSessionLog(
+  file: string,
+  dshHome?: string,
+  deps: SessionRootDeps = {},
+): 'deleted' | 'unavailable' {
   try {
-    const root = join(resolveDshHome(dshHome), 'sessions')
+    // Defense in depth before a recursive delete: the target must be a
+    // canonical session log, not just some entry that happens to sit under a
+    // session root.
+    if (parseGenerationName(basename(file)) === undefined) return 'unavailable'
     const dir = dirname(file)
     const realDir = realpathSync(dir)
-    const realRoot = realpathSync(root)
     // Case-insensitive containment on Windows: the file argument arrives
     // from vscode.Uri.file(...).fsPath, which normalizes the drive letter
     // to LOWER case (c:\...) while $DSH_HOME keeps its original case
     // (C:\...) — a case-sensitive prefix test would refuse every delete.
     const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
-    if (!norm(realDir).startsWith(norm(realRoot) + sep)) return 'unavailable'
+    // The session may live in ANY discovered root (env override, dsh home or
+    // the legacy TUI root). Require the exact `<root>/<group>/<session>`
+    // shape: a canonical-looking log NAME at the wrong depth (e.g. directly
+    // under a root) must never turn this recursive delete into an `rm -rf`
+    // of the root or a group directory.
+    const sessionParent = dirname(dirname(realDir))
+    const contained = sessionRoots(dshHome, deps).some(root => {
+      try {
+        return norm(sessionParent) === norm(realpathSync(root))
+      } catch {
+        return false
+      }
+    })
+    if (!contained) return 'unavailable'
     rmSync(dir, { recursive: true, force: true })
     return 'deleted'
   } catch {
@@ -1206,6 +1294,13 @@ function buildSessionList(
   storage: StorageMeta,
   archivedIds: ReadonlySet<string>,
 ): SessionRecord[] {
+  // New per-session ledger entries are read lazily: only sessions whose log
+  // has no cwd / no `session/title` pay for one small file read.
+  const ledgerCache = new Map<string, SessionLedgerEntry | undefined>()
+  const ledgerOf = (id: string): SessionLedgerEntry | undefined => {
+    if (!ledgerCache.has(id)) ledgerCache.set(id, readSessionLedgerEntry(dshHome, id))
+    return ledgerCache.get(id)
+  }
   return findSessionFiles(dshHome)
     .map(sf => {
       // Bounded head read only (64 KB): header fields, first human prompt,
@@ -1215,8 +1310,10 @@ function buildSessionList(
       const head = readSessionHead(sf.file, sf.group)
       if (head === undefined) return undefined
       const rec = head.rec
-      if (rec.cwd === undefined) {
-        const ledgerCwd = storage.cwds[rec.id]
+      // A header cwd can be present but blank (`""` / whitespace): treat that
+      // as missing so the ledger fallback still runs.
+      if (typeof rec.cwd !== 'string' || rec.cwd.trim() === '') {
+        const ledgerCwd = ledgerOf(rec.id)?.cwd ?? storage.cwds[rec.id]
         if (ledgerCwd !== undefined) {
           rec.cwd = ledgerCwd
           rec.project = projectNameOf(ledgerCwd, sf.group)
@@ -1234,11 +1331,11 @@ function buildSessionList(
       }
       const used = lastUsed[rec.id]
       if (typeof used === 'number') rec.lastUsed = used
-      const storageTitle = storage.titles[rec.id]
-      if (storageTitle !== undefined && rec.eventTitle === undefined) {
-        // The web session list shows the storage-ledger title; let it win
-        // over the raw first-human-prompt fallback.
-        rec.title = storageTitle
+      if (rec.eventTitle === undefined) {
+        // Ledger titles win over the raw first-human-prompt fallback: the new
+        // per-session ledger first (DSH 0.1.5+), then the legacy flat ledger.
+        const ledgerTitle = ledgerOf(rec.id)?.title ?? storage.titles[rec.id]
+        if (ledgerTitle !== undefined) rec.title = ledgerTitle
       }
       if (storage.blanks[rec.id] === true && rec.hasPrompt) {
         // The ledger watched the session live and saw no prompt at all.

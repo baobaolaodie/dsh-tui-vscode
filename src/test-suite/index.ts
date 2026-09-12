@@ -272,15 +272,8 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
  * non-frame bytes) — a fresh module load + init recovers, so a failed
  * frame is retried exactly like the product's rename path does.
  */
-async function makeE2eSession(
-  home: string,
-  group: string,
-  id: string,
-  events: Record<string, unknown>[],
-): Promise<string> {
-  const dir = join(home, 'sessions', group, id)
-  mkdirSync(dir, { recursive: true })
-  const file = join(dir, 'session.jsonl.zstd')
+/** Compress `events` into a round-trip-verified zstd frame and write it. */
+async function writeE2eLog(file: string, events: Record<string, unknown>[]): Promise<void> {
   const payload = Buffer.from(events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8')
   // Round-trip verification: a corrupt module can emit a frame with a valid
   // magic whose content does not decompress — only frames that decompress
@@ -305,6 +298,38 @@ async function makeE2eSession(
   }
   if (frame === undefined) throw new Error('cannot produce a zstd frame in this host')
   writeFileSync(file, frame)
+}
+
+/** Write one real session log under `<home>/sessions/<group>/<id>/`. */
+async function makeE2eSession(
+  home: string,
+  group: string,
+  id: string,
+  events: Record<string, unknown>[],
+): Promise<string> {
+  const dir = join(home, 'sessions', group, id)
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'session.jsonl.zstd')
+  await writeE2eLog(file, events)
+  return file
+}
+
+/**
+ * Write one real session log DIRECTLY under a sessions ROOT (the directory
+ * holding the group dirs) - used for the DSH_TUI_SESSION_ROOT override - with
+ * a chosen generation filename (Session V3 by default).
+ */
+async function makeE2eSessionAtRoot(
+  sessionsRoot: string,
+  group: string,
+  id: string,
+  events: Record<string, unknown>[],
+  fileName = 'session.v3.jsonl.zstd',
+): Promise<string> {
+  const dir = join(sessionsRoot, group, id)
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, fileName)
+  await writeE2eLog(file, events)
   return file
 }
 
@@ -378,9 +403,23 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       await vscode.commands.executeCommand('dsh-tui-vscode.renameSession', customItem)
       assert.equal(sessionsMod.readSessionRecord(logFile)?.title, 'e2e-自定义字段标题')
 
-      await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', fakeItem)
-      assert.equal(warnShown, true, 'delete must ask for confirmation')
-      assert.ok(!existsSync(join(home, 'sessions', '--g--', 'cmd-1')), 'delete must remove the session dir')
+      // deleteSession resolves the session root through the tree's configured
+      // dshHome. Keep it UNPINNED ('' — the original contract) so the command
+      // falls back to $DSH_HOME, which this test points at the temp home; a
+      // pinned temp home would leave the global tree watching a dir we delete.
+      // The pinned-home path is covered by the dedicated e2e below.
+      const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+      const savedCfgHome = cfg.get<string>('dshHome', '')
+      await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+      await sleep(300)
+      try {
+        await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', fakeItem)
+        assert.equal(warnShown, true, 'delete must ask for confirmation')
+        assert.ok(!existsSync(join(home, 'sessions', '--g--', 'cmd-1')), 'delete must remove the session dir')
+      } finally {
+        await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+        await sleep(200)
+      }
     } finally {
       vscode.window.showInputBox = origInput
       vscode.window.showWarningMessage = origWarn
@@ -388,7 +427,9 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
       else process.env.DSH_HOME = savedHome
     }
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    // The global tree briefly watched this temp home (config dshHome change);
+    // Windows may hold the directory handle a little longer than the close.
+    await rmTempDir(home)
   }
 })
 
@@ -460,6 +501,196 @@ test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group 
   }
 })
 
+const headerEventV3 = (id: string, cwd: string, createdAt: number): Record<string, unknown> => ({
+  type: 'session', version: 3, id, cwd, createdAt, isSeeded: false,
+})
+
+/** Per-session ledger (DSH 0.1.5): generated title. */
+function writeE2eLedger(home: string, id: string, title: string): void {
+  const dir = join(home, 'storages', 'session_projcache', 'sessions')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, `${id}.json`),
+    JSON.stringify({ version: 7, record: { rows: { title: { val: title } } } }),
+  )
+}
+
+/** Per-session ledger (DSH 0.1.5): first-input text fallback. */
+function writeE2eLedgerInput(home: string, id: string, text: string): void {
+  const dir = join(home, 'storages', 'session_projcache', 'sessions')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, `${id}.json`),
+    JSON.stringify({ version: 7, record: { rows: { titleInput: { val: { first: { text } } } } } }),
+  )
+}
+
+/** Session ids of every project group the tree currently shows. */
+function treeSessionIds(children: unknown[]): string[] {
+  return children.flatMap(node =>
+    ((node as { sessions?: Array<{ id: string }> }).sessions ?? []).map(s => s.id),
+  )
+}
+
+/** Session records of every project group the tree currently shows. */
+function treeRecords(children: unknown[]): Array<{ id: string; title?: string }> {
+  return children.flatMap(
+    node => (node as { sessions?: Array<{ id: string; title?: string }> }).sessions ?? [],
+  )
+}
+
+/** Windows may hold a directory handle briefly after watchers close. */
+async function rmTempDir(dir: string): Promise<void> {
+  // Node retries EBUSY/ENOTEMPTY/EPERM internally; Windows watcher handles can
+  // outlive close() briefly, so give it up to ~6 s.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 })
+}
+
+test('SessionsTreeProvider discovers sessions from DSH_TUI_SESSION_ROOT and the pinned dshHome', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const isoRoot = mkdtempSync(join(tmpdir(), 'dsh-e2e-iso-'))
+  const pinned = mkdtempSync(join(tmpdir(), 'dsh-e2e-pin-'))
+  const savedEnv = process.env.DSH_TUI_SESSION_ROOT
+  const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+  const provider = new SessionsTreeProvider()
+  try {
+    await makeE2eSessionAtRoot(isoRoot, '--g1--', 'env-a', [
+      headerEventV3('env-a', ws, 300),
+      userEvent('env 根会话'),
+    ])
+    await makeE2eSession(pinned, '--g1--', 'pin-b', [headerEvent('pin-b', ws, 200), userEvent('配置根会话')])
+    process.env.DSH_TUI_SESSION_ROOT = isoRoot
+    provider.startWatching(pinned)
+    provider.refresh()
+    const ids = await poll(() => {
+      const found = treeSessionIds(provider.getChildren(undefined))
+      return found.length >= 2 ? found : undefined
+    }, 8000)
+    assert.deepEqual([...ids].sort(), ['env-a', 'pin-b'], 'both the env root and the pinned home must be listed')
+  } finally {
+    provider.dispose()
+    if (savedEnv === undefined) delete process.env.DSH_TUI_SESSION_ROOT
+    else process.env.DSH_TUI_SESSION_ROOT = savedEnv
+    await rmTempDir(isoRoot)
+    await rmTempDir(pinned)
+  }
+})
+
+test('SessionsTreeProvider uses the per-session ledger for titles (label path, 80-char cap)', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-ledger-'))
+  const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+  const provider = new SessionsTreeProvider()
+  try {
+    // V3 logs with a first message but NO `session/title`: the ledger supplies
+    // the title, outranking the first-message fallback.
+    await makeE2eSessionAtRoot(join(home, 'sessions'), '--g--', 'led-1', [
+      headerEventV3('led-1', ws, 300),
+      userEvent('首条消息'),
+    ])
+    writeE2eLedger(home, 'led-1', '账本标题')
+    await makeE2eSessionAtRoot(join(home, 'sessions'), '--g--', 'led-2', [
+      headerEventV3('led-2', ws, 200),
+      userEvent('首条消息'),
+    ])
+    writeE2eLedgerInput(home, 'led-2', 'B'.repeat(500))
+    provider.startWatching(home)
+    provider.refresh()
+    const records = await poll(() => {
+      const found = treeRecords(provider.getChildren(undefined))
+      return found.length >= 2 ? found : undefined
+    }, 8000)
+    const byId = new Map(records.map(r => [r.id, r]))
+    const labelOf = (id: string): string => {
+      const item = provider.getTreeItem(byId.get(id) as never)
+      return typeof item.label === 'string' ? item.label : (item.label?.label ?? '')
+    }
+    assert.equal(labelOf('led-1'), '账本标题', 'ledger title must win over the first message')
+    assert.equal(labelOf('led-2'), 'B'.repeat(80), 'raw first-input fallback must be capped at 80 chars')
+  } finally {
+    provider.dispose()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('deleteSession removes sessions from the configured dshHome and the env root', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-delhome-'))
+  const isoRoot = mkdtempSync(join(tmpdir(), 'dsh-e2e-deliso-'))
+  const savedEnv = process.env.DSH_TUI_SESSION_ROOT
+  const savedWarn = vscode.window.showWarningMessage
+  const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const savedCfgHome = cfg.get<string>('dshHome', '')
+  const provider = new SessionsTreeProvider()
+  try {
+    await makeE2eSession(home, '--g--', 'del-pin', [headerEvent('del-pin', ws, 200), userEvent('配置根待删')])
+    await makeE2eSessionAtRoot(isoRoot, '--g--', 'del-env', [
+      headerEventV3('del-env', ws, 100),
+      userEvent('env 根待删'),
+    ])
+    process.env.DSH_TUI_SESSION_ROOT = isoRoot
+    await cfg.update('dshHome', home, vscode.ConfigurationTarget.Global)
+    // The config-change listener re-points the global tree asynchronously.
+    await sleep(300)
+    // Headless confirmation (restored below).
+    vscode.window.showWarningMessage = (async () => '永久删除') as typeof vscode.window.showWarningMessage
+    provider.startWatching(home)
+    provider.refresh()
+    const records = await poll(() => {
+      const found = treeRecords(provider.getChildren(undefined))
+      return found.length >= 2 ? found : undefined
+    }, 8000)
+    const byId = new Map(records.map(r => [r.id, r]))
+    await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', byId.get('del-pin'))
+    assert.ok(!existsSync(join(home, 'sessions', '--g--', 'del-pin')), 'delete must honor the configured dshHome')
+    await vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', byId.get('del-env'))
+    assert.ok(!existsSync(join(isoRoot, '--g--', 'del-env')), 'delete must honor the env session root')
+  } finally {
+    vscode.window.showWarningMessage = savedWarn
+    provider.dispose()
+    if (savedEnv === undefined) delete process.env.DSH_TUI_SESSION_ROOT
+    else process.env.DSH_TUI_SESSION_ROOT = savedEnv
+    // Re-point the GLOBAL tree AFTER restoring the env so its watcher set no
+    // longer holds the temp env root (startWatching disposes the old set).
+    await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+    await sleep(500)
+    await rmTempDir(home)
+    await rmTempDir(isoRoot)
+  }
+})
+
+test('SessionsTreeProvider registers a session root that appears after startup (probe timer)', async () => {
+  const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-probe-home-'))
+  const parent = mkdtempSync(join(tmpdir(), 'dsh-e2e-probe-'))
+  const lateRoot = join(parent, 'late-root')
+  const savedEnv = process.env.DSH_TUI_SESSION_ROOT
+  const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+  const provider = new SessionsTreeProvider({ retryMs: 50 })
+  try {
+    await makeE2eSession(home, '--g--', 'early', [headerEvent('early', ws, 100), userEvent('先有会话')])
+    process.env.DSH_TUI_SESSION_ROOT = lateRoot
+    provider.startWatching(home)
+    provider.refresh()
+    await poll(() => (treeSessionIds(provider.getChildren(undefined)).includes('early') ? true : undefined), 8000)
+    // The env root did not exist at startup: the probe timer must discover it
+    // and refresh exactly enough for the new session to show up.
+    await makeE2eSessionAtRoot(lateRoot, '--g--', 'late', [headerEventV3('late', ws, 200), userEvent('后到会话')])
+    const seen = await poll(
+      () => (treeSessionIds(provider.getChildren(undefined)).includes('late') ? true : undefined),
+      10000,
+    )
+    assert.equal(seen, true, 'a root created after startup must be watched without a manual refresh')
+  } finally {
+    provider.dispose()
+    if (savedEnv === undefined) delete process.env.DSH_TUI_SESSION_ROOT
+    else process.env.DSH_TUI_SESSION_ROOT = savedEnv
+    await rmTempDir(home)
+    await rmTempDir(parent)
+  }
+})
+
 test('archiveSession archives via the dsh web archive set; manageArchived restores', async () => {
   const sessionsMod = await import('../sessions.js') as typeof import('../sessions.js')
   const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-arch-'))
@@ -482,6 +713,12 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
     )
     const savedHome = process.env.DSH_HOME
     process.env.DSH_HOME = home
+    // Unpinned ('' — original contract): the archive commands fall back to
+    // $DSH_HOME, so the temp home is never watched by the global tree.
+    const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+    const savedCfgHome = cfg.get<string>('dshHome', '')
+    await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+    await sleep(300)
     try {
       // Real argument shape: the SessionRecord element.
       const item: Record<string, unknown> = { id: 'arch-1', file: logFile, title: '待归档', hasPrompt: true, createdAt: 1, cwd: ws }
@@ -532,9 +769,11 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
     } finally {
       if (savedHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = savedHome
+      await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+      await sleep(200)
     }
   } finally {
-    rmSync(home, { recursive: true, force: true })
+    await rmTempDir(home)
   }
 })
 

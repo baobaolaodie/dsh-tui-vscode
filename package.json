@@ -211,7 +211,7 @@
         "dsh-tui-vscode.autoInsertMention": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "**Experimental** 选区变化时自动把选中代码以 `@绝对值路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖，仅当存在运行中的 dsh-tui 会话时生效；默认关闭以避免抢占/刷屏）。本项为 dsh-tui 上的降级近似。"
+          "markdownDescription": "**Experimental** 选区变化时自动把选中代码以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖，仅当存在运行中的 dsh-tui 会话时生效；默认关闭以避免抢占/刷屏）。本项为 dsh-tui 上的降级近似。"
         }
       }
     }
@@ -219,7 +219,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/session-watchers.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"
