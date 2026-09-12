@@ -6,6 +6,16 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.6.6] - 2026-09-12
+
+> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) 合并 / via PRs #15 and #16
+
+### Added
+
 - **标题/cwd 兜底支持 DSH 0.1.5 的逐会话账本**：`storages/session_projcache/sessions/<id>.json` 的 `rows.title` / `rows.titleInput.first` / `identity.cwd` 在日志缺标题或缺 cwd 时兜底（懒读、按需只读一次；首条输入兜底截断为 80 字符，与日志首条消息一致；旧 `session_projcache.json` 仍作 legacy 兜底）。
 
 ### Changed

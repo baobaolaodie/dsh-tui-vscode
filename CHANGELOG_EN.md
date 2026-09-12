@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.6.6] - 2026-09-12
+
+> via PRs [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) / 经 PR #15、#16 合并
+
+### Added
+
 - **Title/cwd fallback now reads the DSH 0.1.5 per-session ledger**: `rows.title` / `rows.titleInput.first` / `identity.cwd` from `storages/session_projcache/sessions/<id>.json` back up logs without a title or cwd (lazy — one read only when needed; the first-input fallback is capped at 80 chars like the log's first-message title; the legacy `session_projcache.json` stays as fallback).
 
 ### Changed
