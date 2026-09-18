@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Configurable terminal placement**: new `dsh-tui-vscode.terminalLocation` (`editor`/`active`/`panel`, default `editor`) — `editor` keeps the historical behavior (a new column beside the active one in the central editor area), `active` reuses the current editor column, and `panel` opens in the bottom panel next to ordinary terminals; the setting applies to the next launched session.
+
 ### Changed
 
 ### Fixed

@@ -6,6 +6,8 @@
 
 ### Added
 
+- **终端位置可配置**：新增 `dsh-tui-vscode.terminalLocation`（`editor`/`active`/`panel`，默认 `editor`）——`editor` 保持历史行为（在中间编辑区活动列旁新开一列），`active` 复用当前编辑列，`panel` 开在底部面板与普通终端并列；配置在下一次启动会话时生效。
+
 ### Changed
 
 ### Fixed

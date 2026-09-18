@@ -178,6 +178,21 @@
           "default": [],
           "description": "Extra CLI arguments appended to every dsh-tui launch, e.g. [\"--lang\", \"en\"]."
         },
+        "dsh-tui-vscode.terminalLocation": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "active",
+            "panel"
+          ],
+          "enumDescriptions": [
+            "Open the session terminal in the central editor area, in a new column beside the active one (historical behavior).",
+            "Open the session terminal in the currently active editor column.",
+            "Open the session terminal in the bottom panel, next to ordinary terminals."
+          ],
+          "default": "editor",
+          "description": "Where a new dsh-tui session terminal opens."
+        },
         "dsh-tui-vscode.lang": {
           "type": "string",
           "enum": [

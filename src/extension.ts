@@ -16,6 +16,7 @@ import {
   createSendOnceGate,
   detectShellKind,
   formatLaunchPath,
+  normalizeTerminalLocation,
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
@@ -41,6 +42,7 @@ interface Settings {
   injectEditor: boolean
   editorCommand: string
   dshHome: string
+  terminalLocation: string
 }
 
 function readSettings(): Settings {
@@ -52,6 +54,7 @@ function readSettings(): Settings {
     injectEditor: cfg.get<boolean>('injectEditor', true),
     editorCommand: cfg.get<string>('editorCommand', 'code -w'),
     dshHome: cfg.get<string>('dshHome', ''),
+    terminalLocation: cfg.get<string>('terminalLocation', 'editor'),
   }
 }
 
@@ -70,7 +73,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // official Claude Code sessions sidebar. The session itself runs in a REAL
   // VS Code integrated terminal (default shell — PowerShell on Windows),
   // exactly like the official extension: createTerminal({ name, location:
-  // Editor/Beside, env, isTransient }) + run the CLI inside it.
+  // Editor/Beside by default — configurable, env, isTransient }) + run the
+  // CLI inside it.
   const sessionsTree = new SessionsTreeProvider()
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('dsh-tui-vscode.sessions', sessionsTree),
@@ -120,14 +124,23 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 
   function createTerminal(env: Record<string, string>): vscode.Terminal {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? homedir()
+    // Placement is configurable (dsh-tui-vscode.terminalLocation), read per
+    // launch so a settings change applies to the next session immediately:
+    // 'editor' keeps the historical default — a NEW column beside the
+    // active one (ViewColumn.Beside), never taking over the user's current
+    // column; 'active' reuses the current column; 'panel' parks the session
+    // in the bottom panel next to ordinary terminals.
+    const kind = normalizeTerminalLocation(readSettings().terminalLocation)
+    const location: vscode.TerminalOptions['location'] =
+      kind === 'panel'
+        ? vscode.TerminalLocation.Panel
+        : { viewColumn: kind === 'active' ? vscode.ViewColumn.Active : vscode.ViewColumn.Beside }
     return vscode.window.createTerminal({
       name: TERMINAL_NAME,
       cwd,
       env,
       iconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg'),
-      // A NEW column beside the active one — like the official extension
-      // (ViewColumn.Beside) — never taking over the user's current column.
-      location: { viewColumn: vscode.ViewColumn.Beside },
+      location,
       isTransient: true,
     })
   }
