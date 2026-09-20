@@ -39,16 +39,33 @@ test('buildLockPayload carries port, token, workspaceFolders, pid — nothing el
   assert.deepEqual(keys, ['pid', 'port', 'token', 'workspaceFolders'])
 })
 
-test('buildSelectionChanged sends coordinates only (no text content)', () => {
+test('buildSelectionChanged carries the editor buffer text and version (protocol 2)', () => {
   const message = JSON.parse(
     JSON.stringify(
-      buildSelectionChanged({ path: 'src/a.ts', startLine: 11, endLine: 13, isEmpty: false }),
+      buildSelectionChanged({
+        path: 'src/a.ts',
+        startLine: 11,
+        endLine: 13,
+        isEmpty: false,
+        text: 'const a = 1\nconst b = 2\nconst c = 3',
+        documentVersion: 7,
+      }),
     ),
   )
   assert.equal(message.method, 'selection_changed')
-  assert.deepEqual(message.params, { path: 'src/a.ts', startLine: 11, endLine: 13, isEmpty: false })
-  // 坐标 only：params 键集合固定，禁止文本泄漏
-  assert.deepEqual(Object.keys(message.params).sort(), ['endLine', 'isEmpty', 'path', 'startLine'])
+  assert.deepEqual(message.params, {
+    path: 'src/a.ts',
+    startLine: 11,
+    endLine: 13,
+    isEmpty: false,
+    text: 'const a = 1\nconst b = 2\nconst c = 3',
+    documentVersion: 7,
+  })
+  // params 键集合固定（协议字段一览）
+  assert.deepEqual(
+    Object.keys(message.params).sort(),
+    ['documentVersion', 'endLine', 'isEmpty', 'path', 'startLine', 'text'],
+  )
 })
 
 test('envForSession uses DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN key names', () => {
@@ -117,7 +134,7 @@ test('start failure does not leave a stale lock behind', async () => {
   }
 })
 
-test('broadcastSelection reaches a connected ws client after hello handshake', async () => {
+test('hello handshake: valid token gets hello_ack, wrong token gets dropped (protocol 2)', async () => {
   const lockRoot = makeLockRoot()
   try {
     const server = new IdeServer({
@@ -128,40 +145,68 @@ test('broadcastSelection reaches a connected ws client after hello handshake', a
     const env = await server.start()
     const port = Number(env.DSH_TUI_IDE_PORT)
 
+    // ── 错误 token：无 ACK，socket 被关闭，client 不注册 ──────────────────
     const WebSocket = (await import('ws')).WebSocket
+    const wrong = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve, reject) => {
+      wrong.on('open', resolve)
+      wrong.on('error', reject)
+    })
+    const wrongFrames: Array<Record<string, unknown>> = []
+    let wrongClosed = false
+    wrong.on('message', raw => wrongFrames.push(JSON.parse(String(raw))))
+    wrong.on('close', () => { wrongClosed = true })
+    wrong.send(JSON.stringify({ method: 'ide/hello', params: { token: 'WRONG', protocolVersion: 2 } }))
+    for (let waited = 0; !wrongClosed && waited < 1000; waited += 10) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.ok(wrongClosed, 'wrong token must be dropped')
+    assert.deepEqual(wrongFrames, [], 'wrong token must get no ack frame')
+    assert.equal(server.clientCount, 0)
+
+    // ── 正确 token：第一帧是 hello_ack（版本 + workspaceFolders）──────────
     const socket = new WebSocket(`ws://127.0.0.1:${port}`)
     await new Promise<void>((resolve, reject) => {
       socket.on('open', resolve)
       socket.on('error', reject)
     })
-    socket.send(JSON.stringify({ method: 'ide/hello', params: { token: 'tok-hs' } }))
-    // 握手静默接受：无 ack 帧；轮询等待 server 注册该 client（消除时序竞态）
-    for (let waited = 0; server.clientCount === 0 && waited < 1000; waited += 10) {
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-    assert.equal(server.clientCount, 1)
-
     const received: Array<Record<string, unknown>> = []
     socket.on('message', raw => {
       received.push(JSON.parse(String(raw)))
     })
+    socket.send(JSON.stringify({ method: 'ide/hello', params: { token: 'tok-hs', protocolVersion: 2 } }))
+    // 轮询等第一帧（hello_ack）到达，消除时序竞态（本文件既有惯例）
+    for (let waited = 0; received.length === 0 && waited < 1000; waited += 10) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(received[0].method, 'ide/hello_ack')
+    assert.deepEqual(received[0].params, { protocolVersion: 2, workspaceFolders: ['D:/ws'] })
+    // ACK 之后 client 才注册
+    for (let waited = 0; server.clientCount === 0 && waited < 1000; waited += 10) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(server.clientCount, 1)
 
     const pushed = server.broadcastSelection({
       path: 'src/b.ts',
       startLine: 0,
       endLine: 2,
       isEmpty: false,
+      text: 'l1\nl2\nl3',
+      documentVersion: 4,
     })
     assert.ok(pushed)
 
     await new Promise(resolve => setTimeout(resolve, 100))
-    assert.equal(received.length, 1)
-    assert.equal(received[0].method, 'selection_changed')
-    assert.deepEqual(received[0].params, {
+    assert.equal(received.length, 2)
+    assert.equal(received[1].method, 'selection_changed')
+    assert.deepEqual(received[1].params, {
       path: 'src/b.ts',
       startLine: 0,
       endLine: 2,
       isEmpty: false,
+      text: 'l1\nl2\nl3',
+      documentVersion: 4,
     })
 
     socket.close()
@@ -177,9 +222,30 @@ test('broadcastSelection with no clients returns false without throwing', async 
     const server = new IdeServer({ token: 't', lockRoot, workspaceFolders: () => [] })
     await server.start()
     assert.equal(
-      server.broadcastSelection({ path: 'x.ts', startLine: 0, endLine: 0, isEmpty: true }),
+      server.broadcastSelection({ path: 'x.ts', startLine: 0, endLine: 0, isEmpty: true, text: '', documentVersion: 1 }),
       false,
     )
+    await server.stop()
+  } finally {
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
+
+test('lock file is written owner-only on POSIX (0600 file under 0700 dir)', async () => {
+  if (process.platform === 'win32') {
+    // Windows 无 POSIX mode 位——权限断言只在 Unix 跑（先例：上游 TUI 的
+    // verify-standalone-cache-guard 平台守卫）。
+    return
+  }
+  const lockRoot = makeLockRoot()
+  try {
+    const server = new IdeServer({ token: 't-perm', lockRoot, workspaceFolders: () => [] })
+    const env = await server.start()
+    const port = Number(env.DSH_TUI_IDE_PORT)
+    const lockPath = join(lockRoot, 'ide', `${port}.lock`)
+    const { statSync } = await import('node:fs')
+    assert.equal(statSync(lockPath).mode & 0o777, 0o600, 'lock file must be 0600')
+    assert.equal(statSync(join(lockRoot, 'ide')).mode & 0o777, 0o700, 'lock dir must be 0700')
     await server.stop()
   } finally {
     rmSync(lockRoot, { recursive: true, force: true })

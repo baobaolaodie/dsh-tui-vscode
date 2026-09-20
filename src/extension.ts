@@ -147,7 +147,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 
   /** Push one selection snapshot to connected dsh-tui sessions. */
   const broadcastSelection = (
-    selection: { path: string; startLine: number; endLine: number; isEmpty: boolean },
+    selection: {
+      path: string
+      startLine: number
+      endLine: number
+      isEmpty: boolean
+      text: string
+      documentVersion: number
+    },
   ): boolean => ideServer.broadcastSelection(selection)
 
   function createTerminal(env: Record<string, string>): vscode.Terminal {
@@ -337,6 +344,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               startLine: selection.start.line,
               endLine: selection.end.line,
               isEmpty: true,
+              text: '',
+              documentVersion: editor.document.version,
             })
             lastInserted = undefined
           }, 300)
@@ -358,15 +367,18 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         // 300ms 防抖:连续拖选/多点只收敛为最后一次(复用 postpone 先例)。
         if (postpone !== undefined) clearTimeout(postpone)
         postpone = setTimeout(() => {
-          // 首选:IDE 通道坐标推送(不占输入框;server 未起则 false 回退)。
-          // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约,
-          // TUI 端按坐标自行 resolve+读文件,不吃 @/#L 文本形态。
+          // 首选:IDE 通道推送(不占输入框;server 未起则 false 回退)。
+          // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约;
+          // 协议 v2 同时携带编辑器缓冲区自己的选区文本(含未保存修改),
+          // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
           if (
             broadcastSelection({
               path: normalizeMentionPath(editor.document.uri.fsPath),
               startLine: selection.start.line,
               endLine: selection.end.line,
               isEmpty: false,
+              text: editor.document.getText(selection),
+              documentVersion: editor.document.version,
             })
           ) {
             lastInserted = outcome.mention
