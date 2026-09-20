@@ -14,13 +14,13 @@
 
 import { buildAtMention, normalizeMentionPath } from './at-mention'
 
-/** 一次编辑器选区事件的快照(0-based 行号,VS Code 语义)。 */
+/** 一次编辑器选区事件的快照(0-based 行区间,**含端**——见 selectionLineRange)。 */
 export interface SelectionSnapshot {
   /** 文件路径(尚未归一化,保持 as-is;决策时会用 normalizeMentionPath)。 */
   path: string
   /** 选区起始行(0-based)。 */
   startLine: number
-  /** 选区结束行(0-based)。 */
+  /** 选区最后一个被覆盖的行(0-based 含端)。 */
   endLine: number
 }
 

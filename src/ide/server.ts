@@ -59,6 +59,30 @@ export type SelectionBroadcast = {
   documentVersion: number
 }
 
+/**
+ * 把编辑器选区归一化为 0-based **含端** 行区间——协议契约的唯一口径。
+ *
+ * VS Code 的 `selection.end` 是「最后一个被选中字符之后」的位置:当选区收在
+ * 下一行行首(列 0)——整行选区最典型的三种手势 Shift+Down / 三击选整行 /
+ * 拖到左边距——`end.line` 比最后一个被覆盖的行大 1(且 `getText()` 会带上
+ * 那一行的换行符)。`SelectionBroadcast`、上游 @-mention 的 `#L起-止` 与
+ * dsh-tui 的徽标/磁盘回退都按「含端」消费,直接推原始 `end.line` 会让 footer
+ * 徽标比实际附加的正文多算一行(徽标说 4 行、transcript 指示行说 3 行)。
+ * 归一化收在推送源头,消费端不必知道 VS Code 的 end 语义。
+ */
+export function selectionLineRange(selection: {
+  start: { line: number, character: number }
+  end: { line: number, character: number }
+}): { startLine: number, endLine: number } {
+  const startLine = selection.start.line
+  const { line, character } = selection.end
+  return {
+    startLine,
+    // 空选区 start === end,`line > startLine` 恒假 → 原样返回。
+    endLine: character === 0 && line > startLine ? line - 1 : line,
+  }
+}
+
 /** Build the `<port>.lock` file name for one bound port. */
 export function lockFileName(port: number): string {
   return `${port}.lock`
@@ -317,8 +341,9 @@ export class IdeServer {
           pid: process.pid,
         }),
       ),
-      'utf8',
-      { mode: 0o600 },
+      // encoding 与 mode 必须同在一个 options 对象里:Node 的 writeFileSync
+      // 只接受 (file, data, options),多传一个参数 TS 直接报 TS2554。
+      { encoding: 'utf8', mode: 0o600 },
     )
     renameSync(tmp, this.lockPath)
   }

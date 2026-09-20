@@ -10,7 +10,9 @@ import {
   buildLockPayload,
   buildSelectionChanged,
   envForSession,
+  selectionLineRange,
 } from '../ide/server.js'
+import { buildAtMention } from '../at-mention.js'
 
 /** mkdtemp 临时 lockRoot——绝不写真实 ~/.dsh-tui（DESIGN §7 隔离策略）。 */
 function makeLockRoot(): string {
@@ -66,6 +68,58 @@ test('buildSelectionChanged carries the editor buffer text and version (protocol
     Object.keys(message.params).sort(),
     ['documentVersion', 'endLine', 'isEmpty', 'path', 'startLine', 'text'],
   )
+})
+
+test('selectionLineRange keeps the last covered line for whole-line selections', () => {
+  // 整行选区最典型的三种手势(Shift+Down / 三击选整行 / 拖到左边距)都把 end
+  // 停在下一行行首:末覆盖行是 end.line - 1,推原始 end.line 会让 TUI 徽标
+  // 比实际附加的正文多算一行。
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 5, character: 0 }, end: { line: 8, character: 0 } }),
+    { startLine: 5, endLine: 7 },
+  )
+  // 三击选单行:整行 5,收在 (6,0)
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 5, character: 0 }, end: { line: 6, character: 0 } }),
+    { startLine: 5, endLine: 5 },
+  )
+  // 反向拖选(从 (7,0) 往上到 (5,0)):start/end 已是 VS Code 归一化后的顺序,
+  // 覆盖 L5、L6,末覆盖行同样是 6
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 5, character: 0 }, end: { line: 7, character: 0 } }),
+    { startLine: 5, endLine: 6 },
+  )
+})
+
+test('selectionLineRange keeps end.line when the selection ends mid-line', () => {
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 5, character: 3 }, end: { line: 7, character: 10 } }),
+    { startLine: 5, endLine: 7 },
+  )
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 5, character: 3 }, end: { line: 5, character: 10 } }),
+    { startLine: 5, endLine: 5 },
+  )
+})
+
+test('selectionLineRange leaves an empty selection (start === end) untouched', () => {
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 4, character: 0 }, end: { line: 4, character: 0 } }),
+    { startLine: 4, endLine: 4 },
+  )
+  assert.deepEqual(
+    selectionLineRange({ start: { line: 4, character: 7 }, end: { line: 4, character: 7 } }),
+    { startLine: 4, endLine: 4 },
+  )
+})
+
+test('normalized coordinates agree with the text the wire carries', () => {
+  // 契约回归:同一手势下 mention 的行区间必须等于 getText() 的实际行数
+  // (v2 推 text 时曾经多一行——footer 徽标 4 行 / transcript 3 行)。
+  const range = selectionLineRange({ start: { line: 5, character: 0 }, end: { line: 8, character: 0 } })
+  const text = 'L6\nL7\nL8\n' // getText() 对同一选区的返回:含末尾换行
+  assert.equal(text.replace(/\n$/, '').split('\n').length, range.endLine - range.startLine + 1)
+  assert.equal(buildAtMention('src/a.ts', { isEmpty: false, ...range }), '@src/a.ts#L6-8')
 })
 
 test('envForSession uses DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN key names', () => {

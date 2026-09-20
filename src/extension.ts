@@ -22,7 +22,7 @@ import {
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
 import { decideAutoInsert } from './auto-mention'
-import { IdeServer } from './ide/server'
+import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -288,8 +288,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       mentionPath,
       {
         isEmpty: selection.isEmpty,
-        startLine: selection.start.line,
-        endLine: selection.end.line,
+        ...selectionLineRange(selection),
       },
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     )
@@ -331,6 +330,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         // 时事件仍应工作(且后台编辑器选区通常不会变化,误触发风险低)。
         if (editor.document.uri.scheme !== 'file') return
         const selection = editor.selection
+        // 行区间归一化一次,下面三处消费(清空广播/自动引用快照/通道推送)共用:
+        // 整行选区的 VS Code end.line 是「末覆盖行 + 1」,协议按含端消费。
+        const range = selectionLineRange(selection)
         // 清空选区(点一下/取消划行):广播 isEmpty 让 TUI 清掉 footer 徽标并
         // 停止本次选区附加——否则 TUI 的 selection 快照永不被清,徽标残留、
         // 再发消息仍带上旧选区索引(曾经静默失效的契约,autoInsertMention
@@ -341,8 +343,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           postpone = setTimeout(() => {
             void broadcastSelection({
               path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: selection.start.line,
-              endLine: selection.end.line,
+              startLine: range.startLine,
+              endLine: range.endLine,
               isEmpty: true,
               text: '',
               documentVersion: editor.document.version,
@@ -357,8 +359,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           hasTerminal: hasTerminal(),
           snapshot: {
             path: editor.document.uri.fsPath,
-            startLine: selection.start.line,
-            endLine: selection.end.line,
+            startLine: range.startLine,
+            endLine: range.endLine,
           },
           lastInserted,
           workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -374,8 +376,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (
             broadcastSelection({
               path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: selection.start.line,
-              endLine: selection.end.line,
+              startLine: range.startLine,
+              endLine: range.endLine,
               isEmpty: false,
               text: editor.document.getText(selection),
               documentVersion: editor.document.version,
