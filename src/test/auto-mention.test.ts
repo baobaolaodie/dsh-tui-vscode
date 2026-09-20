@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildMentionForSnapshot,
   decideAutoInsert,
+  shouldBroadcastSelection,
 } from '../auto-mention.js'
 
 // ---------- 门控:默认关闭 ----------
@@ -76,6 +77,21 @@ test('same path but different range is NOT a duplicate (new mention)', () => {
   })
   assert.equal(result.action, 'insert')
   assert.equal(result.mention, '@D:/repo/src/a.ts#L12-14')
+})
+
+// ---------- 推送判定:去重只挡「键入回退」 ----------
+// 两次手势的行区间归一化后可能相同而正文不同(先把末尾拖到 (7,1),再拖成整行):
+// mention 相同 → decideAutoInsert 判 duplicate → 若拿它挡推送,TUI 会停在上一次
+// 的正文上。推送是幂等状态更新,不受去重约束。
+test('duplicate still broadcasts to the IDE channel (dedupe only gates typing)', () => {
+  assert.equal(shouldBroadcastSelection({ action: 'skip', reason: 'duplicate' }), true)
+  assert.equal(shouldBroadcastSelection({ action: 'insert', mention: '@a.ts#L2' }), true)
+})
+
+test('other skip reasons never broadcast (disabled / no-selection / no-terminal)', () => {
+  for (const reason of ['disabled', 'no-selection', 'no-terminal'] as const) {
+    assert.equal(shouldBroadcastSelection({ action: 'skip', reason }), false)
+  }
 })
 
 // ---------- 正常注入:mention 构造 ----------

@@ -80,3 +80,17 @@ export function buildMentionForSnapshot(
     workspaceRoot,
   )
 }
+
+/**
+ * 是否仍应把本次选区推给 IDE 通道(协议 v2 的推送路径)——与「是否往输入框
+ * 敲字」分开判定。
+ *
+ * 「与上次相同」(duplicate)只该挡住**键入回退**:推送是幂等的状态更新,不占
+ * 输入框也不会刷屏。若拿它挡推送,两次行区间相同、正文不同的手势(整行选区按
+ * 含端归一化后很常见:先把末尾拖到 (7,1),再拖成整行)就会停在**上一次**的正文
+ * 上——徽标与 transcript 指示行都按行数显示,屏幕上看不出差别。
+ * disabled / no-selection / no-terminal 一律不推。
+ */
+export function shouldBroadcastSelection(outcome: AutoInsertOutcome): boolean {
+  return outcome.action === 'insert' || outcome.reason === 'duplicate'
+}

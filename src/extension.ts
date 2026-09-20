@@ -21,7 +21,7 @@ import {
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
-import { decideAutoInsert } from './auto-mention'
+import { buildMentionForSnapshot, decideAutoInsert, shouldBroadcastSelection } from './auto-mention'
 import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
@@ -353,19 +353,28 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           }, 300)
           return
         }
+        const snapshot = {
+          path: editor.document.uri.fsPath,
+          startLine: range.startLine,
+          endLine: range.endLine,
+        }
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        // 引用原文自己算一次(与 decideAutoInsert 内部同一个纯函数):推送分支
+        // 也可能在「重复」状态下发生,那时 outcome 里没有 mention 可用。
+        const mention = buildMentionForSnapshot(snapshot, workspaceRoot)
         const outcome = decideAutoInsert({
           enabled: true,
           hasSelection: !selection.isEmpty,
           hasTerminal: hasTerminal(),
-          snapshot: {
-            path: editor.document.uri.fsPath,
-            startLine: range.startLine,
-            endLine: range.endLine,
-          },
+          snapshot,
           lastInserted,
-          workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+          workspaceRoot,
         })
-        if (outcome.action !== 'insert') return
+        // 「与上次相同」只该挡住往输入框敲字那条回退:通道推送是幂等的状态更新,
+        // 不占输入框也不会刷屏。用它挡推送会让两次行区间相同、正文不同的手势
+        // (整行选区按含端归一化后很常见:先拖到 (7,1) 再拖成整行)停在旧正文上
+        // ——TUI 侧徽标/指示行按行数看不出差别,模型收到的却是上一次的内容。
+        if (!shouldBroadcastSelection(outcome)) return
         // 300ms 防抖:连续拖选/多点只收敛为最后一次(复用 postpone 先例)。
         if (postpone !== undefined) clearTimeout(postpone)
         postpone = setTimeout(() => {
@@ -383,15 +392,17 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               documentVersion: editor.document.version,
             })
           ) {
-            lastInserted = outcome.mention
+            lastInserted = mention
             return
           }
-          // 回退:旧行为——键入运行中的 dsh-tui 输入框。
+          // 回退:旧行为——键入运行中的 dsh-tui 输入框。去重与「无终端」都只
+          // 影响这条回退(duplicate 蕴含 hasTerminal 为真,顺序见 decideAutoInsert)。
+          if (outcome.action !== 'insert') return
           const terminal = findTerminal()
           if (!terminal) return
           terminal.show()
-          terminal.sendText(outcome.mention, false)
-          lastInserted = outcome.mention
+          terminal.sendText(mention, false)
+          lastInserted = mention
         }, 300)
       }),
       {
