@@ -214,6 +214,27 @@ export function formatWorkspaceTargetArg(
       return ` '${display}'`
   }
 }
+
+/**
+ * Where a new dsh-tui session terminal opens:
+ * - `editor` — the central editor area, in a NEW column beside the active
+ *   one (ViewColumn.Beside; the historical default);
+ * - `active` — the currently active editor column (ViewColumn.Active);
+ * - `panel`  — the bottom panel, next to ordinary terminals.
+ */
+export type TerminalLocationKind = 'editor' | 'active' | 'panel'
+
+/**
+ * Normalize the `dsh-tui-vscode.terminalLocation` setting. Empty, unknown,
+ * or differently-cased values fall back to 'editor' so a mistyped setting
+ * can never break the launch path.
+ */
+export function normalizeTerminalLocation(value: string | undefined): TerminalLocationKind {
+  const v = (value ?? '').trim().toLowerCase()
+  if (v === 'active' || v === 'panel') return v
+  return 'editor'
+}
+
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
   base?: Record<string, string | undefined>

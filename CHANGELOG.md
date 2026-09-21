@@ -2,6 +2,16 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。版本记录在 git tag 与本文件中。
 
+## Unreleased
+
+### Added
+
+- **终端位置可配置**：新增 `dsh-tui-vscode.terminalLocation`（`editor`/`active`/`panel`，默认 `editor`）——`editor` 保持历史行为（在中间编辑区活动列旁新开一列），`active` 复用当前编辑列，`panel` 开在底部面板与普通终端并列；配置在下一次启动会话时生效。
+
+### Changed
+
+### Fixed
+
 ## [0.7.0] - 2026-09-21
 
 > 经 PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19) 合并 / via PR #19

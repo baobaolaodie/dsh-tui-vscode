@@ -113,6 +113,7 @@ Key points:
 | --- | --- | --- |
 | `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved to an absolute path against the HOST PATH before being sent) |
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
+| `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
