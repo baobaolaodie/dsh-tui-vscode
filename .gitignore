@@ -16,6 +16,9 @@ npm-cache/
 *.vsix
 *.log
 
+# 本地 VS Code 配置（调试启动配置等属于个人环境，不入库）
+.vscode/
+
 CLAUDE.md
 
 docs/superpowers/
