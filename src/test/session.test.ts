@@ -225,6 +225,35 @@ test('quoteShellArg escapes each shell’s own quote character', () => {
   assert.equal(quoteShellArg('plain', 'bash'), "'plain'")
 })
 
+// 回归锁(独立审查实测):`,` 与 `=` 看着像普通路径标点,却是 cmd.exe 的命令名
+// 分词符——白名单化时漏掉的恰恰是这两个。真机对照:`C:\work\a,b\...` 被 cmd
+// 从逗号处截断,报「不是内部或外部命令」;`a+b` 等对照组正常。触发场景很现实:
+// Windows 账号名带逗号(C:\Users\Doe, John\AppData\Roaming\npm\...)。
+test('cmd command-name metacharacters force quoting (issue #21 review)', () => {
+  assert.equal(
+    formatLaunchPath('C:\\work\\a,b\\dsh-tui.cmd', 'cmd', true),
+    '"C:\\work\\a,b\\dsh-tui.cmd"',
+  )
+  assert.equal(
+    formatLaunchPath('C:\\work\\a=b\\dsh-tui.cmd', 'cmd', true),
+    '"C:\\work\\a=b\\dsh-tui.cmd"',
+  )
+  assert.equal(
+    formatLaunchPath('C:\\work\\a,b\\dsh-tui.cmd', 'powershell', true),
+    "& 'C:\\work\\a,b\\dsh-tui.cmd'",
+  )
+})
+
+// 回归锁(Sourcery):POSIX 文件名可以含 `\`,而 bash 把它当转义符吃掉
+// (/tmp/foo\bar → /tmp/foobar)。Windows 路径不受影响——windowsPathToPosix
+// 在抵达 shell 之前就已经把它换成 `/` 了。
+test('a literal backslash is never safe unquoted for bash-like shells', () => {
+  assert.equal(formatLaunchPath('/tmp/foo\\bar', 'bash', false), "'/tmp/foo\\bar'")
+  assert.equal(formatLaunchPath('/tmp/foo\\bar', 'wsl', false), "'/tmp/foo\\bar'")
+  // Windows + bash-like:转换后已无反斜杠,仍走不加引号的快路径
+  assert.equal(formatLaunchPath('D:\\repo\\dsh-tui', 'bash', true), '/d/repo/dsh-tui')
+})
+
 // 回归锁:createSendOnceGate 防「双发启动命令」。实测场景:shell integration
 // 晚于 1.2s 回退到达(慢 PowerShell profile)或再次触发时,旧实现把启动命令
 // 第二次敲进已运行的 dsh-tui 输入框并被尾随回车提交。

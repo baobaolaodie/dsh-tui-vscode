@@ -134,15 +134,35 @@ export function resolveLaunchCommand(
 }
 
 /**
- * Characters that may be handed to a shell unquoted: letters, digits, and the
- * punctuation ordinary file paths are made of. Everything else — whitespace
- * and the metacharacters `; & | < > $ \` " ' ( ) * ? ! ^ %` — forces quoting.
+ * Characters that are unambiguous in EVERY shell we target. Everything else
+ * forces quoting.
  *
- * Testing "contains a space" is NOT enough (issue #21): a workspace path such
- * as `/tmp/repo;id` reached the shell as two commands, and `D:\repo&calc`
- * would do the same on cmd.
+ * Testing "contains a space" is NOT enough (issue #21): `/tmp/repo;id` reached
+ * the shell as two commands. But an allow-list has to be conservative in the
+ * other direction too — `,` and `=` look like ordinary path punctuation and
+ * are exactly that on POSIX, yet cmd.exe splits command names on `,`, `;` and
+ * `=`, and PowerShell reads `,` as the array operator. Leaving them here made
+ * `C:\Users\Doe, John\...\dsh-tui.cmd` fail with "not recognized as an
+ * internal or external command" (verified on a real cmd).
+ *
+ * `\` stays because Windows paths are made of it and `windowsPathToPosix`
+ * removes it before a bash-like shell ever sees the value; see
+ * {@link isSafeUnquoted} for the one case that still needs guarding.
  */
-const SAFE_UNQUOTED = /^[A-Za-z0-9_\-./\\:@+=,]+$/
+const SAFE_UNQUOTED = /^[A-Za-z0-9_\-./\\:@+]+$/
+
+/**
+ * Whether `value` can go to `shellKind` without quoting. Beyond the shared
+ * allow-list, bash-like shells treat a backslash as an escape character, so a
+ * literal one must be quoted — that only happens on a POSIX host (on Windows
+ * the path is converted first), where a filename containing `\` is legal but
+ * vanishingly rare.
+ */
+function isSafeUnquoted(value: string, shellKind: ShellKind): boolean {
+  if (!SAFE_UNQUOTED.test(value)) return false
+  if (isBashLike(shellKind) && value.includes('\\')) return false
+  return true
+}
 
 /**
  * Quote a value for the target shell, escaping that shell's own quote
@@ -177,7 +197,7 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
   const display = isWindows && isBashLike(shellKind) ? windowsPathToPosix(path, shellKind) : path
   // Quote on anything outside the safe set, not merely on spaces: the path
   // also has to survive `;`, `&` and friends (issue #21).
-  if (SAFE_UNQUOTED.test(display)) return display
+  if (isSafeUnquoted(display, shellKind)) return display
   const quoted = quoteShellArg(display, shellKind)
   switch (shellKind) {
     case 'cmd':
@@ -226,7 +246,7 @@ export function formatWorkspaceTargetArg(
   // returns a bare quoted literal glues the target to the previous token —
   // `dsh-tui'D:\my repo'` (no extra args) or `--resume'D:\my repo'` — and the
   // launcher is never found / never receives the root.
-  if (SAFE_UNQUOTED.test(display)) return ` ${display}`
+  if (isSafeUnquoted(display, shellKind)) return ` ${display}`
   // A single-quoted literal, never `& '…'`: this arg trails the command, so a
   // leading & is a second use of the call operator → ParserError; as the first
   // token it would invoke the path as a command. quoteShellArg returns the

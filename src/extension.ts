@@ -150,6 +150,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   context.subscriptions.push({
     dispose: () => {
       // Deactivate must clear the lock file so stale locks never accumulate.
+      // 先同步停一次：清锁就在 stop() 的同步段里，而 dispose 之后宿主可能
+      // 立刻退出、不保证排空 microtask 队列。start 尚未落定时这次是 no-op，
+      // 落定后的第二次 stop() 才是真正收尾。
+      void ideServer.stop()
       void ideServerStartup.then(() => ideServer.stop())
     },
   })
@@ -444,6 +448,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.workspace.onDidChangeConfiguration(event => {
         if (!event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')) return
         if (isEnabled()) return
+        // 先撤掉已排定的推送：否则「选区变化 → 300ms 内禁用」时，那颗定时器
+        // 会补推一帧**非空**选区，刚清掉的快照又被装回 TUI（CodeRabbit 与独立
+        // 审查各自指出同一处）。
+        if (postpone !== undefined) {
+          clearTimeout(postpone)
+          postpone = undefined
+        }
         // TUI 在 isEmpty 时不渲染 path,但协议要求它非空(parseSelectionChanged
         // 丢弃空 path 的帧),所以没有活动编辑器时给一个明确的占位。
         const path =
