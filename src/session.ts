@@ -31,16 +31,18 @@ export function detectShellKind(shell: string | undefined): ShellKind {
   if (!base) return 'unknown'
   if (base.includes('powershell') || base.includes('pwsh')) return 'powershell'
   if (base === 'cmd' || base.endsWith('.cmd') || base.endsWith('cmd.exe')) return 'cmd'
+  // Nushell: exact basename match, and it must precede EVERY path-level test
+  // below — `base.includes('wsl')` and `value.includes('cygwin')` are far looser
+  // and would otherwise swallow a Nushell installed under such a directory
+  // (`C:\cygwin64\bin\nu.exe` → 'cygwin', `C:\wsl\nu.exe` → 'wsl'; CodeRabbit
+  // review). Exact matching also avoids the old `base.includes('nu')` over-reach.
+  if (base === 'nu' || base === 'nu.exe' || base === 'nushell' || base === 'nushell.exe') {
+    return 'nu'
+  }
   if (base.includes('wsl')) return 'wsl'
   // C:\Windows\System32\bash.exe is the WSL bash launcher, not Git Bash.
   if (base === 'bash.exe' && value.includes('/windows/system32/')) return 'wsl'
   if (value.includes('cygwin')) return 'cygwin'
-  // Nushell must be tested BEFORE the bash family: it is not a POSIX shell, and
-  // the old `base.includes('nu')` test below is what swallowed it (issue #25).
-  // Matched exactly — a loose `includes` would also catch unrelated names.
-  if (base === 'nu' || base === 'nu.exe' || base === 'nushell' || base === 'nushell.exe') {
-    return 'nu'
-  }
   if (
     base.includes('bash') ||
     base.includes('zsh') ||

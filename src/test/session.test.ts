@@ -80,6 +80,11 @@ test('detectShellKind recognizes Nushell as its own kind (issue #25)', () => {
   assert.equal(detectShellKind('nushell'), 'nu')
   // 精确匹配:旧实现 base.includes('nu') 会把任何含 "nu" 的名字算进 bash 家族
   assert.equal(detectShellKind('nushell-wrapper'), 'unknown')
+  // 顺序无关的路径:**cygwin / wsl 是路径级匹配**,比 basename 精确匹配宽松;
+  // 若把 nu 的检查排在其后,装在那些目录下的 nu 会被截走(CodeRabbit review)。
+  assert.equal(detectShellKind('C:\\cygwin64\\bin\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\wsl\\bin\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\wsl\\bin\\nushell.exe'), 'nu')
 })
 
 // Nushell 必须走扩展名查找,不能进 isBashLike:实测 nu 执行不了 npm 的无扩展名
