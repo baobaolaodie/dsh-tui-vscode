@@ -4,7 +4,9 @@ All notable changes to this project are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/). Versions are recorded in git tags and this document.
 
-## Unreleased
+## [0.7.0] - 2026-09-21
+
+> via PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19)
 
 > ⚠️ **Version gate**: the `#L` line-range syntax requires a **dsh-TUI build that includes upstream #537** (that syntax is now implemented and merged upstream), and the IDE selection channel requires a dsh-TUI that includes **upstream #562 (the merge this extension's pushes are consumed by)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
 
