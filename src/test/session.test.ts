@@ -138,9 +138,12 @@ test('Nushell quoting uses raw strings, not POSIX splicing (issue #25)', () => {
 
 // issue #25 的**真正不变量**:nu 的路径不做 POSIX 改写。若有人把 nu 归进
 // isBashLike,windowsPathToPosix 会把 `C:\Users\...` 变成 `/c/Users/...`,而那正是
-// 真实 nu 拒绝执行的形态。此前所有 nu 用例都用 POSIX 路径 + isWindows=false,这一
-// 层完全没有覆盖——第二轮独立审查指出:这样的回归会让 128 条测试全绿,而 Windows
-// 的 nu 用户(本 PR 的目标人群)全坏。
+// 真实 nu 拒绝执行的形态(实测该形态 exit=1)。
+//
+// 补的是哪个缺口(第三轮独立审查实测):把 isBashLike 放行 nu 后失败的只有本测试与
+// `resolveLaunchCommand picks .cmd` 两条——后者只守着 resolveLaunchCommand 那条
+// 路径,而 formatLaunchPath / formatWorkspaceTargetArg 这两处 isBashLike 门当时没
+// 有任何断言。本测试补的正是这两处。
 test('Nushell paths are never rewritten to POSIX form on Windows (issue #25)', () => {
   assert.equal(
     formatLaunchPath('C:\\Users\\u\\AppData\\Roaming\\npm\\dsh-tui.cmd', 'nu', true),
