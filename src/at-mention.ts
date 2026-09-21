@@ -38,17 +38,37 @@ export interface MentionSelection {
 }
 
 /**
- * 把路径相对化到工作区根;根外或未给根时兜底返回归一化后的原路径。
- * 匹配大小写不敏感(Windows 盘符/目录大小写漂移),结果保留路径原有大小写。
+ * 路径比较是否忽略大小写:Windows 与 macOS 的文件系统默认不区分大小写
+ * (盘符/目录大小写漂移),Linux 区分。
+ *
+ * 早先的实现是**无条件**小写化,与「为 Windows 漂移而做」的本意不符:在
+ * 区分大小写的系统上,`/work/Repo/a.ts` 会被当成 `/work/repo` 工作区内的
+ * 文件,产出 `@a.ts#L…`——TUI 以会话 cwd 解析它,指向的是另一个文件
+ * (issue #21 第 3 条)。判定与上游 dsh-TUI 的 platformCaseInsensitive 一致。
  */
-export function relativeToWorkspace(path: string, workspaceRoot?: string): string {
+function platformCaseInsensitive(): boolean {
+  return process.platform === 'win32' || process.platform === 'darwin'
+}
+
+/**
+ * 把路径相对化到工作区根;根外或未给根时兜底返回归一化后的原路径。
+ * 匹配是否忽略大小写由平台决定(见 {@link platformCaseInsensitive}),结果
+ * 一律保留路径原有大小写。`caseInsensitive` 可注入,便于在单一平台上把两个
+ * 分支都测到。
+ */
+export function relativeToWorkspace(
+  path: string,
+  workspaceRoot?: string,
+  caseInsensitive: boolean = platformCaseInsensitive(),
+): string {
   const normalized = normalizeMentionPath(path)
   if (!workspaceRoot) return normalized
   const root = normalizeMentionPath(workspaceRoot).replace(/\/+$/, '')
-  const lowerPath = normalized.toLowerCase()
-  const lowerRoot = root.toLowerCase()
+  const fold = (value: string): string => (caseInsensitive ? value.toLowerCase() : value)
+  const matchPath = fold(normalized)
+  const matchRoot = fold(root)
   const relative =
-    lowerPath === lowerRoot || !lowerPath.startsWith(`${lowerRoot}/`)
+    matchPath === matchRoot || !matchPath.startsWith(`${matchRoot}/`)
       ? undefined
       : normalized.slice(root.length + 1)
   // 恰好等于根本身没有可引用的相对形态,兜底绝对路径。

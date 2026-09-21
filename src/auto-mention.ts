@@ -99,3 +99,34 @@ export function shouldBroadcastSelection(outcome: AutoInsertOutcome): boolean {
   if (outcome.action === 'insert') return true
   return outcome.reason === 'duplicate' || outcome.reason === 'no-terminal'
 }
+
+/**
+ * 推送给 IDE 通道的选区文本上限(issue #21 第 9 条,上游 #562 点名要求)。
+ *
+ * TUI 侧附件有它自己的上限 `MENTION_MAX_FILE_CHARS`(50k),且**只在收到的
+ * 文本超过该值时才**截断并渲染 `[… truncated]` 标记。因此这里的值必须**高于
+ * 50k**,否则:
+ *  - 截断发生在扩展侧,TUI 观察不到「超限」,用户看到的是一份静默残缺的上下文;
+ *  - 封顶形同虚设地变成内容策略,而不是帧保护。
+ *
+ * 存在的理由:兜住极端选区(例如整选一个几十 MB 的文件),不让编辑器缓冲区的
+ * 全部内容整段推出去。
+ *
+ * **实测澄清**:2MB 的帧仍能完整抵达 dsh-tui 且连接存活——`ws` 的默认接收上限
+ * 是 100 MiB。所以这层封顶是**带宽/内存的防御**,不是「超大帧会断链」的防线;
+ * 早先的注释把它说成后者,与实测不符。它依然值得留:推送无上限没有意义,而一旦
+ * 真的越过 ws 上限,dsh-tui 会静默降级且不重连,该会话的选区通道就此永久失效。
+ *
+ * **值的依据**:只有**区间约束**——必须 > 50k(理由见上),且远低于 ws 的
+ * 100 MiB 接收上限。200k 是区间里取的一个圆整数,**不是推导出来的量纲**,换成
+ * 区间内其他值同样成立。(上游另有一个 `MENTION_MAX_TOTAL_CHARS = 200_000`,
+ * 那是单条消息全部附件的总预算——与本值数值巧合但用途不同,并非有意对齐。)
+ */
+export const MAX_PUSHED_SELECTION_CHARS = 200_000
+
+/** 把即将推给 IDE 通道的选区文本封顶到 {@link MAX_PUSHED_SELECTION_CHARS}。 */
+export function capSelectionText(text: string): string {
+  return text.length > MAX_PUSHED_SELECTION_CHARS
+    ? text.slice(0, MAX_PUSHED_SELECTION_CHARS)
+    : text
+}

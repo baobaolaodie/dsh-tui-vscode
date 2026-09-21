@@ -133,10 +133,60 @@ export function resolveLaunchCommand(
   return undefined
 }
 
-/** Quote a resolved path for the terminal shell when it contains spaces. */
-export function quoteLaunchPath(path: string, isWindows: boolean): string {
-  if (!path.includes(' ')) return path
-  return isWindows ? `& '${path}'` : `'${path}'`
+/**
+ * Characters that are unambiguous in EVERY shell we target. Everything else
+ * forces quoting.
+ *
+ * Testing "contains a space" is NOT enough (issue #21): `/tmp/repo;id` reached
+ * the shell as two commands. But an allow-list has to be conservative in the
+ * other direction too — `,` and `=` look like ordinary path punctuation and
+ * are exactly that on POSIX, yet cmd.exe splits command names on `,`, `;` and
+ * `=`, and PowerShell reads `,` as the array operator. Leaving them here made
+ * `C:\Users\Doe, John\...\dsh-tui.cmd` fail with "not recognized as an
+ * internal or external command" (verified on a real cmd).
+ *
+ * `\` stays because Windows paths are made of it and `windowsPathToPosix`
+ * removes it before a bash-like shell ever sees the value; see
+ * {@link isSafeUnquoted} for the one case that still needs guarding.
+ */
+const SAFE_UNQUOTED = /^[A-Za-z0-9_\-./\\:@+]+$/
+
+/**
+ * Whether `value` can go to `shellKind` without quoting. Beyond the shared
+ * allow-list, bash-like shells treat a backslash as an escape character, so a
+ * literal one must be quoted — that only happens on a POSIX host (on Windows
+ * the path is converted first), where a filename containing `\` is legal but
+ * vanishingly rare.
+ */
+function isSafeUnquoted(value: string, shellKind: ShellKind): boolean {
+  if (!SAFE_UNQUOTED.test(value)) return false
+  if (isBashLike(shellKind) && value.includes('\\')) return false
+  return true
+}
+
+/**
+ * Quote a value for the target shell, escaping that shell's own quote
+ * character so the literal cannot be closed early. Every path interpolated
+ * into a launch command goes through here.
+ */
+export function quoteShellArg(value: string, shellKind: ShellKind): string {
+  switch (shellKind) {
+    case 'cmd':
+      // cmd.exe: "" inside a quoted string is one literal ".
+      return `"${value.replace(/"/g, '""')}"`
+    case 'bash':
+    case 'cygwin':
+    case 'wsl':
+      // POSIX: close, escaped quote, reopen — ' becomes '\''
+      return `'${value.replace(/'/g, "'\\''")}'`
+    default:
+      // PowerShell (and unknown): '' inside a single-quoted string is one '.
+      // 注意 cmd.exe 并不把 ' 当引号字符（实测：cmd 下 'C:\x y\a.cmd' 报
+      // 「文件名、目录名或卷标语法不正确」而非执行），所以这个分支对 cmd 而言
+      // 不是「合法转义」而是「原样输出」。它只是 unknown 时的保守兜底——现实中
+      // detectShellKind 判不出来又恰好是 cmd 的概率很低，并非有意为 cmd 设计。
+      return `'${value.replace(/'/g, "''")}'`
+  }
 }
 
 /**
@@ -147,18 +197,21 @@ export function quoteLaunchPath(path: string, isWindows: boolean): string {
  */
 export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: boolean): string {
   const display = isWindows && isBashLike(shellKind) ? windowsPathToPosix(path, shellKind) : path
-  if (!display.includes(' ')) return display
+  // Quote on anything outside the safe set, not merely on spaces: the path
+  // also has to survive `;`, `&` and friends (issue #21).
+  if (isSafeUnquoted(display, shellKind)) return display
+  const quoted = quoteShellArg(display, shellKind)
   switch (shellKind) {
     case 'cmd':
-      return `"${display}"`
-    case 'powershell':
-      return `& '${display}'`
     case 'bash':
     case 'cygwin':
     case 'wsl':
-      return `'${display}'`
+      return quoted
+    case 'powershell':
+      return `& ${quoted}`
     default:
-      return isWindows ? `& '${display}'` : `'${display}'`
+      // `&` is the call operator; only a Windows default shell needs it.
+      return isWindows ? `& ${quoted}` : quoted
   }
 }
 
@@ -195,24 +248,12 @@ export function formatWorkspaceTargetArg(
   // returns a bare quoted literal glues the target to the previous token —
   // `dsh-tui'D:\my repo'` (no extra args) or `--resume'D:\my repo'` — and the
   // launcher is never found / never receives the root.
-  if (!display.includes(' ')) return ` ${display}`
-  switch (shellKind) {
-    case 'cmd':
-      return ` "${display}"`
-    case 'powershell':
-      // Single-quoted string literal, NOT `& '...'`: this arg trails the
-      // command, so a leading & is a second use of the call operator →
-      // ParserError; as the first token it would invoke the path as a
-      // command. A quoted string alone is a literal positional argument.
-      return ` '${display}'`
-    case 'bash':
-    case 'cygwin':
-    case 'wsl':
-      return ` '${display}'`
-    default:
-      // Same reasoning as powershell: positional arg position forbids &.
-      return ` '${display}'`
-  }
+  if (isSafeUnquoted(display, shellKind)) return ` ${display}`
+  // A single-quoted literal, never `& '…'`: this arg trails the command, so a
+  // leading & is a second use of the call operator → ParserError; as the first
+  // token it would invoke the path as a command. quoteShellArg returns the
+  // per-shell quoted form, and the leading space keeps it a separate token.
+  return ` ${quoteShellArg(display, shellKind)}`
 }
 
 /**

@@ -1,6 +1,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildAtMention, normalizeMentionPath } from '../at-mention.js'
+import { buildAtMention, normalizeMentionPath, relativeToWorkspace } from '../at-mention.js'
+
+// 回归锁(issue #21 第 3 条):大小写折叠只应发生在不区分大小写的平台上。
+// 旧实现无条件 toLowerCase(),在 Linux 上会把 /work/Repo/a.ts 当成 /work/repo
+// 工作区内的文件,产出指向**另一个文件**的相对引用。
+test('relativeToWorkspace folds case only when the platform does', () => {
+  // 区分大小写(Linux 语义):仅大小写不同不算工作区内 → 兜底原路径
+  assert.equal(relativeToWorkspace('/work/Repo/a.ts', '/work/repo', false), '/work/Repo/a.ts')
+  // 不区分大小写(Windows/macOS 语义):视作工作区内 → 相对化,且保留原有大小写
+  assert.equal(relativeToWorkspace('/work/Repo/a.ts', '/work/repo', true), 'a.ts')
+  // 精确匹配在两种模式下都相对化
+  assert.equal(relativeToWorkspace('/work/repo/a.ts', '/work/repo', false), 'a.ts')
+})
 
 // ---------- 相对路径 + #L 行区间 ----------
 
@@ -55,12 +67,19 @@ test('backslash fsPaths are normalized against the workspace root (Windows)', ()
   )
 })
 
-test('workspace root matching ignores case while preserving the path casing', () => {
-  assert.equal(
-    buildAtMention('D:/Repo/SRC/a.ts', { isEmpty: false, startLine: 0, endLine: 1 }, 'd:/repo'),
-    '@SRC/a.ts#L1-2',
-  )
-})
+// 大小写漂移只在**文件系统不区分大小写**的宿主上成立——那里 `d:/repo` 与
+// `D:/Repo` 确实是同一个目录。Linux 上它们是两个目录，不该相对化；那正是
+// issue #21 第 3 条修掉的误判，所以这条断言只在 win32/darwin 上执行。
+test(
+  'workspace root matching ignores case while preserving the path casing (case-insensitive hosts)',
+  { skip: process.platform !== 'win32' && process.platform !== 'darwin' },
+  () => {
+    assert.equal(
+      buildAtMention('D:/Repo/SRC/a.ts', { isEmpty: false, startLine: 0, endLine: 1 }, 'd:/repo'),
+      '@SRC/a.ts#L1-2',
+    )
+  },
+)
 
 test('trailing slash on the workspace root still relativizes', () => {
   assert.equal(

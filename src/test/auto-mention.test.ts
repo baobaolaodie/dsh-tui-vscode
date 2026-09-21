@@ -2,9 +2,39 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildMentionForSnapshot,
+  capSelectionText,
   decideAutoInsert,
+  MAX_PUSHED_SELECTION_CHARS,
   shouldBroadcastSelection,
 } from '../auto-mention.js'
+
+// 回归锁(issue #21 第 9 条):推给 IDE 通道的选区文本必须封顶,不让编辑器缓冲区
+// 的内容无上限地推出去。
+//
+// 实测澄清:2MB 的帧仍能完整抵达 dsh-tui 且连接存活(ws 默认接收上限 100 MiB),
+// 所以这层封顶是**带宽/内存防御**,不是「超大帧会断链」的防线——早先的说法与
+// 实测不符,已一并修正。
+//
+// 上限定在 TUI 自身上限(50k)**之上**,否则截断发生在扩展侧、TUI 观察不到
+// "超限",用户拿到一份静默残缺的上下文却看不到截断标记。
+test('capSelectionText bounds the pushed text, staying above the TUI’s own cap', () => {
+  assert.ok(
+    MAX_PUSHED_SELECTION_CHARS > 50_000,
+    '上限必须高于 TUI 的 MENTION_MAX_FILE_CHARS(50k)，否则 TUI 无从渲染截断标记',
+  )
+  const small = 'x'.repeat(1_000)
+  assert.equal(capSelectionText(small), small, '普通选区原样通过')
+  assert.equal(
+    capSelectionText('x'.repeat(MAX_PUSHED_SELECTION_CHARS)).length,
+    MAX_PUSHED_SELECTION_CHARS,
+    '刚好等于上限时不截断',
+  )
+  assert.equal(
+    capSelectionText('x'.repeat(MAX_PUSHED_SELECTION_CHARS + 5_000)).length,
+    MAX_PUSHED_SELECTION_CHARS,
+    '超限时截到上限',
+  )
+})
 
 // ---------- 门控:默认关闭 ----------
 test('disabled setting always skips, even with selection and terminal', () => {

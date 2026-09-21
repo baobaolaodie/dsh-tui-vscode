@@ -12,7 +12,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **Relative-path case matching now follows the platform**: paths used to be lowercased unconditionally before comparison (the comment claimed it existed for Windows drive/directory case drift), which on a case-sensitive filesystem made `/work/Repo/a.ts` look like a file inside a `/work/repo` workspace — producing a relative reference that points at a different file. Case is now folded only on Windows / macOS, matching upstream dsh-TUI's rule.
+
 ### Fixed
+
+- **Path escaping in the launch command and `@` mentions**: shell metacharacters in a workspace or launch path (`;` `&` `|` `$`, embedded quotes, and the `,` / `=` that cmd.exe splits command names on) were not escaped — the condition was "contains a space", so `/tmp/repo;id` reached the shell as two commands, and a Windows path containing a comma (e.g. an account name with one) was truncated by cmd with "not recognized as an internal or external command". Paths are now quoted and escaped per target shell; ordinary paths keep their existing output.
+- **Oversized selections are no longer pushed unbounded**: the selection text sent to dsh-tui had no upper limit, so selecting a tens-of-MB file whole pushed the entire editor buffer. Now capped at 200k characters (above the TUI's own 50k limit, so it can still render its truncation marker). Measured: a 2 MB frame still arrives intact with the connection alive — so this cap is a bandwidth/memory guard, not a defence against a dropped link.
+- **Disabling `autoInsertMention` now clears the selection on the dsh-tui side**: disabling used to only stop pushing, leaving the snapshot dsh-tui already held to be attached to the next message. An empty-selection notification is now pushed on disable, and any pending debounced push is cancelled first — it would otherwise push a non-empty selection right after the empty one.
+- **IDE server stop race**: `start()` is async; if the extension deactivated before it settled, `stop()` returned early because the internal handle did not exist yet, leaving an unowned server behind. Deactivation now issues a **synchronous stop first** (clearing the lock happens in `stop()`'s synchronous section, and the host may exit right after dispose without draining the microtask queue) and stops once more after startup settles.
 
 ## [0.7.0] - 2026-09-21
 
