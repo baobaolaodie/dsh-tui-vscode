@@ -306,8 +306,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   })
   // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
   // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
-  // 把选区坐标推送给运行中的 dsh-tui(其提交时按坐标自行读文件并在 footer
-  // 实时显示 ⧉ 徽标,对齐上游 selection_changed 消费)。
+  // 把选区坐标**与编辑器缓冲区自己的选区文本**(含未保存修改,协议 v2)推送给
+  // 运行中的 dsh-tui(其提交时原样附加该文本并在 footer 实时显示 ⧉ 徽标;
+  // server 回退路径仍按坐标读盘——协议 v2 的 selection_changed 消费)。
   // server 缺席(启动失败/旧版 dsh-tui)时回退旧的敲字近似:把
   // `@相对路径#L起-止` 键入运行中的输入框(workspaceRoot 同 insertAtMention:
   // 根内相对化,根外兜底绝对)。也因此必须:仅在有运行中会话时注入、

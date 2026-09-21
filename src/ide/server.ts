@@ -22,7 +22,7 @@
  * - Env keys: DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN.
  */
 
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -276,18 +276,22 @@ export class IdeServer {
         socket.close()
         return
       }
-      const record = parsed as { method?: unknown; params?: { token?: unknown } }
-      const token =
+      const record = parsed as { method?: unknown; params?: { token?: unknown; protocolVersion?: unknown } }
+      const params =
         record !== null &&
         typeof record === 'object' &&
         record.method === HELLO_METHOD &&
         record.params !== null &&
-        typeof record.params === 'object' &&
-        typeof record.params.token === 'string'
-          ? record.params.token
+        typeof record.params === 'object'
+          ? record.params
           : undefined
-      if (token !== this.token) {
-        // Wrong token: refuse quietly — no ack, just drop the connection.
+      const token = typeof params?.token === 'string' ? params.token : undefined
+      const protocolVersion = typeof params?.protocolVersion === 'number' ? params.protocolVersion : undefined
+      if (token !== this.token || protocolVersion !== IDE_PROTOCOL_VERSION) {
+        // Wrong token OR unsupported/absent protocol version: refuse quietly —
+        // no ack, just drop the connection. The client treats open-without-ack
+        // as "not authenticated" and moves on to its next candidate; acking a
+        // mismatched client would hand it a protocol it cannot speak.
         socket.close()
         return
       }
@@ -323,6 +327,17 @@ export class IdeServer {
     // selections (and thus file content) into dsh-tui sessions. Owner-only
     // permissions are a cheap fence; Windows ignores the modes harmlessly.
     mkdirSync(dir, { recursive: true, mode: 0o700 })
+    // mkdirSync's mode applies ONLY when the directory is created: a dir left
+    // behind by an older build (or a first run under a permissive umask)
+    // keeps its old bits, so the advertised 0700 was never enforced for it.
+    // Tighten explicitly; POSIX only (Windows ignores mode bits harmlessly).
+    if (process.platform !== 'win32') {
+      try {
+        chmodSync(dir, 0o700)
+      } catch {
+        // Best effort — the token itself still rides in a 0600 lock file.
+      }
+    }
     this.lockPath = join(dir, lockFileName(port))
     // Atomic write (maintainer review round 2, server side): write to a
     // sibling temp file then rename over the target. A TUI scanning

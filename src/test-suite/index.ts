@@ -1219,8 +1219,8 @@ test('IDE channel: session terminals carry DSH_TUI_IDE_PORT/TOKEN; lock lifecycl
   }
 })
 
-test('IDE channel: a WS client connected to the live server receives selection_changed (coordinates only)', async () => {
-  const { SELECTION_METHOD } = await loadIdeModule()
+test('IDE channel: a WS client completes the v2 handshake and receives selection_changed (coordinates + editor text)', async () => {
+  const { SELECTION_METHOD, IDE_PROTOCOL_VERSION } = await loadIdeModule()
   await configureFakeLauncher()
   // Server-ready gate: the lock is the authoritative discovery source (the
   // AC-4 lock-scan path) — its port/token ARE the live server's identity.
@@ -1236,12 +1236,28 @@ test('IDE channel: a WS client connected to the live server receives selection_c
     socket.on('error', reject)
   })
   try {
-    socket.send(JSON.stringify({ method: 'ide/hello', params: { token: prod.token } }))
-    // Silent accept (no ack frame): wait until the server counts us in, then
-    // subscribe before triggering any broadcast.
+    // Protocol 2: the token travels WITH the protocol version, and the server
+    // answers `ide/hello_ack` only after validating the pair. The ACK is
+    // consumed here (never pushed into `received`) so the notification log
+    // below holds selection_changed frames only — the v1 client assumed a
+    // silent accept and would read the ACK as its first notification.
     const received: Array<Record<string, unknown>> = []
-    socket.on('message', raw => {
-      received.push(JSON.parse(String(raw)) as Record<string, unknown>)
+    const ack = new Promise<Record<string, unknown>>((resolve, reject) => {
+      socket.on('message', raw => {
+        const frame = JSON.parse(String(raw)) as Record<string, unknown>
+        if (frame.method === 'ide/hello_ack') resolve(frame)
+        else received.push(frame)
+      })
+      socket.on('error', reject)
+    })
+    socket.send(JSON.stringify({
+      method: 'ide/hello',
+      params: { token: prod.token, protocolVersion: IDE_PROTOCOL_VERSION },
+    }))
+    const ackFrame = await ack
+    assert.deepEqual(ackFrame.params, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      workspaceFolders: [vscode.workspace.workspaceFolders![0]!.uri.fsPath],
     })
 
     // Trigger the REAL product path: a selection change in an editor, armed
@@ -1258,21 +1274,26 @@ test('IDE channel: a WS client connected to the live server receives selection_c
         const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
         editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
 
-        // Expected payload: coordinates ONLY (no text, no @/#L text forms).
+        // Expected payload: coordinates PLUS the editor's own selection text
+        // (protocol 2 — the buffer content the user saw, unsaved edits
+        // included, not a disk read) and the document version it came from.
         const expectedParams = {
           path: normalizeWsPath(file),
           startLine: 1,
           endLine: 3,
           isEmpty: false,
+          text: 'line1\nline2\nline3',
+          documentVersion: doc.version,
         }
         await poll(() => (received.length > 0 ? true : undefined), 10000)
         assert.equal(received.length, 1, `exactly one notification expected, got ${JSON.stringify(received)}`)
         assert.equal(received[0].method, SELECTION_METHOD)
         assert.deepEqual(received[0].params, expectedParams)
-        // 坐标 only 契约：params 键集合固定，禁止文本泄漏（与单测同一断言）。
+        // 协议 v2 键集合契约：坐标 + 文本 + 文档版本，且不得有其它键
+        // （与单测同一断言）。
         assert.deepEqual(
           Object.keys(received[0].params as Record<string, unknown>).sort(),
-          ['endLine', 'isEmpty', 'path', 'startLine'],
+          ['documentVersion', 'endLine', 'isEmpty', 'path', 'startLine', 'text'],
         )
         // 清空选区 → 必须广播一次 isEmpty:true，TUI 才能清掉徽标/停止附加。
         // (曾经只发非空——TUI 侧 selection 快照永不失效，徽标残留 + 再发送
@@ -1287,6 +1308,8 @@ test('IDE channel: a WS client connected to the live server receives selection_c
           startLine: 1,
           endLine: 1,
           isEmpty: true,
+          text: '',
+          documentVersion: doc.version,
         })
       } finally {
         rmSync(file, { force: true })

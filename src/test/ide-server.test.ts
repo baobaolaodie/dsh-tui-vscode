@@ -188,7 +188,7 @@ test('start failure does not leave a stale lock behind', async () => {
   }
 })
 
-test('hello handshake: valid token gets hello_ack, wrong token gets dropped (protocol 2)', async () => {
+test('hello handshake: valid token+version gets hello_ack; wrong token or protocol version is dropped', async () => {
   const lockRoot = makeLockRoot()
   try {
     const server = new IdeServer({
@@ -217,6 +217,31 @@ test('hello handshake: valid token gets hello_ack, wrong token gets dropped (pro
     assert.ok(wrongClosed, 'wrong token must be dropped')
     assert.deepEqual(wrongFrames, [], 'wrong token must get no ack frame')
     assert.equal(server.clientCount, 0)
+
+    // ── 协议版本校验：不符 / 缺失一律拒绝（只校验 token 会把 v1 客户端
+    //    也放进来，服务端应只服务它讲得了的协议；客户端把「无 ACK」当作
+    //    未认证并转向下一候选）──────────────────────────────────────────
+    for (const helloParams of [
+      { token: 'tok-hs', protocolVersion: 1 },
+      { token: 'tok-hs' },
+    ]) {
+      const stale = new WebSocket(`ws://127.0.0.1:${port}`)
+      await new Promise<void>((resolve, reject) => {
+        stale.on('open', resolve)
+        stale.on('error', reject)
+      })
+      const staleFrames: Array<Record<string, unknown>> = []
+      let staleClosed = false
+      stale.on('message', raw => staleFrames.push(JSON.parse(String(raw))))
+      stale.on('close', () => { staleClosed = true })
+      stale.send(JSON.stringify({ method: 'ide/hello', params: helloParams }))
+      for (let waited = 0; !staleClosed && waited < 1000; waited += 10) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      assert.ok(staleClosed, `hello ${JSON.stringify(helloParams)} must be dropped`)
+      assert.deepEqual(staleFrames, [], 'protocol mismatch must get no ack frame')
+      assert.equal(server.clientCount, 0)
+    }
 
     // ── 正确 token：第一帧是 hello_ack（版本 + workspaceFolders）──────────
     const socket = new WebSocket(`ws://127.0.0.1:${port}`)
@@ -300,6 +325,30 @@ test('lock file is written owner-only on POSIX (0600 file under 0700 dir)', asyn
     const { statSync } = await import('node:fs')
     assert.equal(statSync(lockPath).mode & 0o777, 0o600, 'lock file must be 0600')
     assert.equal(statSync(join(lockRoot, 'ide')).mode & 0o777, 0o700, 'lock dir must be 0700')
+    await server.stop()
+  } finally {
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
+
+test('a pre-existing permissive lock dir is tightened to 0700 on start (POSIX)', async () => {
+  if (process.platform === 'win32') {
+    // Windows 无 POSIX mode 位（同上一测试的平台守卫）。
+    return
+  }
+  const lockRoot = makeLockRoot()
+  try {
+    const { mkdirSync, chmodSync, statSync } = await import('node:fs')
+    const dir = join(lockRoot, IDE_LOCK_DIR_NAME)
+    // 模拟旧版本/宽松 umask 留下的目录：mkdirSync 的 mode 只在「创建」时
+    // 生效，不会修正已存在的目录——server 必须显式收紧，否则「目录 0700」
+    // 只是宣称（单测此前只覆盖新建目录，正是漏掉的场景）。
+    mkdirSync(dir, { recursive: true, mode: 0o755 })
+    chmodSync(dir, 0o755)
+    assert.equal(statSync(dir).mode & 0o777, 0o755, 'precondition: the dir starts permissive')
+    const server = new IdeServer({ token: 't-perm-existing', lockRoot, workspaceFolders: () => [] })
+    await server.start()
+    assert.equal(statSync(dir).mode & 0o777, 0o700, 'start must tighten an existing dir to 0700')
     await server.stop()
   } finally {
     rmSync(lockRoot, { recursive: true, force: true })
