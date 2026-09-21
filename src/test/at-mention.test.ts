@@ -67,12 +67,19 @@ test('backslash fsPaths are normalized against the workspace root (Windows)', ()
   )
 })
 
-test('workspace root matching ignores case while preserving the path casing', () => {
-  assert.equal(
-    buildAtMention('D:/Repo/SRC/a.ts', { isEmpty: false, startLine: 0, endLine: 1 }, 'd:/repo'),
-    '@SRC/a.ts#L1-2',
-  )
-})
+// 大小写漂移只在**文件系统不区分大小写**的宿主上成立——那里 `d:/repo` 与
+// `D:/Repo` 确实是同一个目录。Linux 上它们是两个目录，不该相对化；那正是
+// issue #21 第 3 条修掉的误判，所以这条断言只在 win32/darwin 上执行。
+test(
+  'workspace root matching ignores case while preserving the path casing (case-insensitive hosts)',
+  { skip: process.platform !== 'win32' && process.platform !== 'darwin' },
+  () => {
+    assert.equal(
+      buildAtMention('D:/Repo/SRC/a.ts', { isEmpty: false, startLine: 0, endLine: 1 }, 'd:/repo'),
+      '@SRC/a.ts#L1-2',
+    )
+  },
+)
 
 test('trailing slash on the workspace root still relativizes', () => {
   assert.equal(
