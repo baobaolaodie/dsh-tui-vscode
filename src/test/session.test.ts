@@ -68,6 +68,40 @@ test('detectShellKind recognizes PowerShell, cmd, Git Bash, and WSL', () => {
   assert.equal(detectShellKind(undefined), 'unknown')
 })
 
+// 回归锁(issue #25):Nushell 不是 bash——外部命令必须带 `^` 前缀,字符串用
+// raw string(Nushell 的单引号既不支持转义、也不能内含单引号)。原先
+// `detectShellKind` 用 `base.includes('nu')` 把 nu 吞进 bash,启动路径按 POSIX
+// 规则拼,在 Nushell 里必然失败。
+test('detectShellKind recognizes Nushell as its own kind (issue #25)', () => {
+  assert.equal(detectShellKind('nu'), 'nu')
+  assert.equal(detectShellKind('nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\tools\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('/usr/bin/nu'), 'nu')
+  assert.equal(detectShellKind('nushell'), 'nu')
+  // 精确匹配:旧实现 base.includes('nu') 会把任何含 "nu" 的名字算进 bash 家族
+  assert.equal(detectShellKind('nushell-wrapper'), 'unknown')
+})
+
+test('Nushell launch path always carries the ^ sigil (issue #25)', () => {
+  // 命令位:无论值是否需要引用,`^` 都不能少——Nushell 会把裸写的命令名当作
+  // 内部命令解析,报 executable was not found
+  assert.equal(formatLaunchPath('/usr/bin/dsh-tui', 'nu', false), '^/usr/bin/dsh-tui')
+  assert.equal(
+    formatLaunchPath('/opt/my tools/dsh-tui', 'nu', false),
+    "^r#'/opt/my tools/dsh-tui'#",
+  )
+})
+
+test('Nushell quoting uses raw strings, not POSIX splicing (issue #25)', () => {
+  // Nushell 的单引号字符串不能内含单引号,也没有 '\'' 拼接;raw string 原样保真
+  assert.equal(quoteShellArg("/opt/it's/dsh-tui", 'nu'), "r#'/opt/it's/dsh-tui'#")
+  assert.equal(quoteShellArg('/opt/my tools/dsh-tui', 'nu'), "r#'/opt/my tools/dsh-tui'#")
+  // 含 '# 序列时加长分隔符,避免字面量提前闭合
+  assert.equal(quoteShellArg("/opt/a'#b", 'nu'), "r##'/opt/a'#b'##")
+  // 参数位:引用但不加 ^(位置参数不是命令)
+  assert.equal(formatWorkspaceTargetArg('/opt/my tools', 'nu'), " r#'/opt/my tools'#")
+})
+
 test('formatLaunchPath converts Windows paths for bash-like shells', () => {
   assert.equal(
     formatLaunchPath('C:\\Users\\admin\\AppData\\Roaming\\npm\\dsh-tui', 'bash', true),

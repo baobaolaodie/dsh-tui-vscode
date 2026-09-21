@@ -12,8 +12,13 @@ import { delimiter, join } from 'node:path'
  * Terminal shell families. `bash` covers MSYS2/Git Bash and other POSIX-like
  * shells; `cygwin` and `wsl` are separate because their drive mappings differ
  * (`/cygdrive/<drive>` and `/mnt/<drive>` respectively).
+ *
+ * `nu` (Nushell) is its own kind: it is not a POSIX shell despite borrowing
+ * the syntax. External commands need a `^` sigil, single-quoted strings take
+ * no escapes and cannot contain a quote at all, and the POSIX `'\''` splice
+ * is meaningless there (issue #25 — it used to be folded into `bash`).
  */
-export type ShellKind = 'powershell' | 'cmd' | 'bash' | 'cygwin' | 'wsl' | 'unknown'
+export type ShellKind = 'powershell' | 'cmd' | 'bash' | 'cygwin' | 'wsl' | 'nu' | 'unknown'
 
 /**
  * Detect the terminal shell family from VS Code's `env.shell` path or from a
@@ -30,6 +35,12 @@ export function detectShellKind(shell: string | undefined): ShellKind {
   // C:\Windows\System32\bash.exe is the WSL bash launcher, not Git Bash.
   if (base === 'bash.exe' && value.includes('/windows/system32/')) return 'wsl'
   if (value.includes('cygwin')) return 'cygwin'
+  // Nushell must be tested BEFORE the bash family: it is not a POSIX shell, and
+  // the old `base.includes('nu')` test below is what swallowed it (issue #25).
+  // Matched exactly — a loose `includes` would also catch unrelated names.
+  if (base === 'nu' || base === 'nu.exe' || base === 'nushell' || base === 'nushell.exe') {
+    return 'nu'
+  }
   if (
     base.includes('bash') ||
     base.includes('zsh') ||
@@ -38,8 +49,7 @@ export function detectShellKind(shell: string | undefined): ShellKind {
     base.includes('csh') ||
     base.includes('xonsh') ||
     base === 'sh' ||
-    base.startsWith('sh.') ||
-    base.includes('nu')
+    base.startsWith('sh.')
   ) {
     return 'bash'
   }
@@ -165,6 +175,21 @@ function isSafeUnquoted(value: string, shellKind: ShellKind): boolean {
 }
 
 /**
+ * Nushell 的字符串字面量。用 **raw string**(`r#'…'#`)而不是单引号：Nushell 的
+ * 单引号字符串不支持任何转义、且**不能包含单引号**（官方文档 "Working with
+ * Strings"），所以 POSIX 的 `'\''` 拼接在那里根本不成立；raw string 既不插值也
+ * 不转义，还允许内含单引号。唯一会提前闭合字面量的是 `'#` 序列，按 Rust 风格
+ * 用更多 `#` 分隔即可。
+ *
+ * 依据 Nushell 官方文档实现；本机未安装 `nu`，**未在真实 Nushell 上实测**。
+ */
+function nuQuote(value: string): string {
+  let hashes = '#'
+  while (value.includes(`'${hashes}`)) hashes += '#'
+  return `r${hashes}'${value}'${hashes}`
+}
+
+/**
  * Quote a value for the target shell, escaping that shell's own quote
  * character so the literal cannot be closed early. Every path interpolated
  * into a launch command goes through here.
@@ -174,6 +199,8 @@ export function quoteShellArg(value: string, shellKind: ShellKind): string {
     case 'cmd':
       // cmd.exe: "" inside a quoted string is one literal ".
       return `"${value.replace(/"/g, '""')}"`
+    case 'nu':
+      return nuQuote(value)
     case 'bash':
     case 'cygwin':
     case 'wsl':
@@ -198,8 +225,11 @@ export function quoteShellArg(value: string, shellKind: ShellKind): string {
 export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: boolean): string {
   const display = isWindows && isBashLike(shellKind) ? windowsPathToPosix(path, shellKind) : path
   // Quote on anything outside the safe set, not merely on spaces: the path
-  // also has to survive `;`, `&` and friends (issue #21).
-  if (isSafeUnquoted(display, shellKind)) return display
+  // also has to survive `;`, `&` and friends (issue #21). Nushell needs the
+  // `^` sigil whether or not the value needs quoting — the two are orthogonal.
+  if (isSafeUnquoted(display, shellKind)) {
+    return shellKind === 'nu' ? `^${display}` : display
+  }
   const quoted = quoteShellArg(display, shellKind)
   switch (shellKind) {
     case 'cmd':
@@ -207,6 +237,10 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
     case 'cygwin':
     case 'wsl':
       return quoted
+    case 'nu':
+      // Nushell 的外部命令必须带 `^` 前缀：裸写的命令名会被当作**内部命令**
+      // 解析，报 "executable was not found"（官方文档 Running System Commands）。
+      return `^${quoted}`
     case 'powershell':
       return `& ${quoted}`
     default:
