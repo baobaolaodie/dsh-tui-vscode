@@ -2,7 +2,7 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。版本记录在 git tag 与本文件中。
 
-## Unreleased
+## [0.7.0] - 2026-09-21
 
 > ⚠️ **版本门槛 / Version gate**：`#L` 行区间语法需 **dsh-TUI ≥ 含上游 #537 的版本**（该语法已由上游原生实现并合入），IDE 选区通道需 dsh-TUI ≥ 含上游 **#562（本扩展推送的通道将被它消费）** 合并后的版本。搭配更旧的 dsh-TUI 时，`@` 引用会提示文件未找到（missing）——请先升级 dsh-TUI 再升级本扩展。
 
