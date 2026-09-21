@@ -182,7 +182,13 @@ test('start failure does not leave a stale lock behind', async () => {
       thrown = error
     }
     assert.ok(thrown instanceof Error)
-    assert.ok(!existsSync(join(ideDir, '1.lock')))
+    // 断言可观测状态，而不是 join(ideDir, '1.lock')——ideDir 本身是个**文件**，
+    // 那个路径在任何情况下都不存在，旧断言恒真、检测不到半启动的实例
+    // （issue #21 第 8 条）。失败必须留下：没有运行中的 server、没有对外 env、
+    // 没有已注册的客户端。
+    assert.equal(server.running, false, 'failed start must not leave a running server')
+    assert.equal(server.port, undefined, 'failed start must not advertise an env')
+    assert.equal(server.clientCount, 0, 'failed start must not have registered clients')
   } finally {
     rmSync(lockRoot, { recursive: true, force: true })
   }

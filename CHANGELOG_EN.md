@@ -12,7 +12,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **Relative-path case matching now follows the platform**: paths used to be lowercased unconditionally before comparison (the comment claimed it existed for Windows drive/directory case drift), which on a case-sensitive filesystem made `/work/Repo/a.ts` look like a file inside a `/work/repo` workspace — producing a relative reference that points at a different file. Case is now folded only on Windows / macOS, matching upstream dsh-TUI's rule.
+
 ### Fixed
+
+- **Path escaping in the launch command and `@` mentions**: shell metacharacters in a workspace or launch path (`;` `&` `|` `$`, embedded quotes, …) were not escaped — the condition was "contains a space", so `/tmp/repo;id` reached the shell as two commands. Paths are now quoted and escaped per target shell; ordinary paths keep their existing output.
+- **Oversized selections no longer break the IDE channel**: the selection text pushed to dsh-tui had no upper bound, so selecting a multi-MB file whole produced an oversized frame and dropped the WebSocket — and dsh-tui degrades silently without reconnecting, permanently losing the selection channel for that session. Now capped at 200k characters (above the TUI's own 50k limit, so it can still render its truncation marker).
+- **Disabling `autoInsertMention` now clears the selection on the dsh-tui side**: disabling used to only stop pushing, leaving the snapshot dsh-tui already held to be attached to the next message. An empty-selection notification is now pushed on disable.
+- **IDE server stop race**: `start()` is async; if the extension deactivated before it settled, `stop()` returned early because the internal handle did not exist yet, leaving an unowned server behind. Deactivation now waits for startup to settle.
 
 ## [0.7.0] - 2026-09-21
 

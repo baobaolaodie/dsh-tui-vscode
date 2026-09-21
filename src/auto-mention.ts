@@ -99,3 +99,25 @@ export function shouldBroadcastSelection(outcome: AutoInsertOutcome): boolean {
   if (outcome.action === 'insert') return true
   return outcome.reason === 'duplicate' || outcome.reason === 'no-terminal'
 }
+
+/**
+ * 推送给 IDE 通道的选区文本上限(issue #21 第 9 条,上游 #562 点名要求)。
+ *
+ * TUI 侧附件有它自己的上限 `MENTION_MAX_FILE_CHARS`(50k),且**只在收到的
+ * 文本超过该值时才**截断并渲染 `[… truncated]` 标记。因此这里的值必须**高于
+ * 50k**,否则:
+ *  - 截断发生在扩展侧,TUI 观察不到「超限」,用户看到的是一份静默残缺的上下文;
+ *  - 封顶形同虚设地变成内容策略,而不是帧保护。
+ *
+ * 存在的理由只有一个——兜住极端选区(例如整选一个数 MB 的文件):超大帧会撑爆
+ * WebSocket 连接,而 dsh-tui 的设计是断链后**静默降级且不重连**,该会话的选区
+ * 通道会就此永久失效,用户只会看到「徽标怎么不出现了」。
+ */
+export const MAX_PUSHED_SELECTION_CHARS = 200_000
+
+/** 把即将推给 IDE 通道的选区文本封顶到 {@link MAX_PUSHED_SELECTION_CHARS}。 */
+export function capSelectionText(text: string): string {
+  return text.length > MAX_PUSHED_SELECTION_CHARS
+    ? text.slice(0, MAX_PUSHED_SELECTION_CHARS)
+    : text
+}

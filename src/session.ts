@@ -133,10 +133,38 @@ export function resolveLaunchCommand(
   return undefined
 }
 
-/** Quote a resolved path for the terminal shell when it contains spaces. */
-export function quoteLaunchPath(path: string, isWindows: boolean): string {
-  if (!path.includes(' ')) return path
-  return isWindows ? `& '${path}'` : `'${path}'`
+/**
+ * Characters that may be handed to a shell unquoted: letters, digits, and the
+ * punctuation ordinary file paths are made of. Everything else — whitespace
+ * and the metacharacters `; & | < > $ \` " ' ( ) * ? ! ^ %` — forces quoting.
+ *
+ * Testing "contains a space" is NOT enough (issue #21): a workspace path such
+ * as `/tmp/repo;id` reached the shell as two commands, and `D:\repo&calc`
+ * would do the same on cmd.
+ */
+const SAFE_UNQUOTED = /^[A-Za-z0-9_\-./\\:@+=,]+$/
+
+/**
+ * Quote a value for the target shell, escaping that shell's own quote
+ * character so the literal cannot be closed early. Every path interpolated
+ * into a launch command goes through here.
+ */
+export function quoteShellArg(value: string, shellKind: ShellKind): string {
+  switch (shellKind) {
+    case 'cmd':
+      // cmd.exe: "" inside a quoted string is one literal ".
+      return `"${value.replace(/"/g, '""')}"`
+    case 'bash':
+    case 'cygwin':
+    case 'wsl':
+      // POSIX: close, escaped quote, reopen — ' becomes '\''
+      return `'${value.replace(/'/g, "'\\''")}'`
+    default:
+      // PowerShell (and unknown): '' inside a single-quoted string is one '.
+      // Doubling is also accepted by cmd's parser and harmless for the paths
+      // that carry no quote at all, so it is a safe default.
+      return `'${value.replace(/'/g, "''")}'`
+  }
 }
 
 /**
@@ -147,18 +175,21 @@ export function quoteLaunchPath(path: string, isWindows: boolean): string {
  */
 export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: boolean): string {
   const display = isWindows && isBashLike(shellKind) ? windowsPathToPosix(path, shellKind) : path
-  if (!display.includes(' ')) return display
+  // Quote on anything outside the safe set, not merely on spaces: the path
+  // also has to survive `;`, `&` and friends (issue #21).
+  if (SAFE_UNQUOTED.test(display)) return display
+  const quoted = quoteShellArg(display, shellKind)
   switch (shellKind) {
     case 'cmd':
-      return `"${display}"`
-    case 'powershell':
-      return `& '${display}'`
     case 'bash':
     case 'cygwin':
     case 'wsl':
-      return `'${display}'`
+      return quoted
+    case 'powershell':
+      return `& ${quoted}`
     default:
-      return isWindows ? `& '${display}'` : `'${display}'`
+      // `&` is the call operator; only a Windows default shell needs it.
+      return isWindows ? `& ${quoted}` : quoted
   }
 }
 
@@ -195,24 +226,12 @@ export function formatWorkspaceTargetArg(
   // returns a bare quoted literal glues the target to the previous token —
   // `dsh-tui'D:\my repo'` (no extra args) or `--resume'D:\my repo'` — and the
   // launcher is never found / never receives the root.
-  if (!display.includes(' ')) return ` ${display}`
-  switch (shellKind) {
-    case 'cmd':
-      return ` "${display}"`
-    case 'powershell':
-      // Single-quoted string literal, NOT `& '...'`: this arg trails the
-      // command, so a leading & is a second use of the call operator →
-      // ParserError; as the first token it would invoke the path as a
-      // command. A quoted string alone is a literal positional argument.
-      return ` '${display}'`
-    case 'bash':
-    case 'cygwin':
-    case 'wsl':
-      return ` '${display}'`
-    default:
-      // Same reasoning as powershell: positional arg position forbids &.
-      return ` '${display}'`
-  }
+  if (SAFE_UNQUOTED.test(display)) return ` ${display}`
+  // A single-quoted literal, never `& '…'`: this arg trails the command, so a
+  // leading & is a second use of the call operator → ParserError; as the first
+  // token it would invoke the path as a command. quoteShellArg returns the
+  // per-shell quoted form, and the leading space keeps it a separate token.
+  return ` ${quoteShellArg(display, shellKind)}`
 }
 
 /**

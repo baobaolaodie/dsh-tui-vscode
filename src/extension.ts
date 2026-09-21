@@ -22,7 +22,12 @@ import {
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
-import { buildMentionForSnapshot, decideAutoInsert, shouldBroadcastSelection } from './auto-mention'
+import {
+  buildMentionForSnapshot,
+  capSelectionText,
+  decideAutoInsert,
+  shouldBroadcastSelection,
+} from './auto-mention'
 import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
@@ -134,16 +139,19 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     workspaceFolders: () =>
       (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath),
   })
-  context.subscriptions.push({
-    dispose: () => {
-      // Deactivate must clear the lock file so stale locks never accumulate.
-      void ideServer.stop()
-    },
-  })
-  void ideServer.start().catch(error => {
+  // 记录启动 promise：start() 是异步的。若扩展在它落定前就停用，stop() 会因为
+  // 内部 wss 仍为 null 而直接返回，随后 listen 成功的那一次再也没有人接管
+  // （server 泄漏 + env 被 start 重新写回）。dispose 因此等它落定再停。
+  const ideServerStartup = ideServer.start().catch(error => {
     // Silent degradation with a log line only: the rest of the extension
     // is unaffected when the server cannot bind.
     console.error('[dsh-tui-vscode] IDE selection channel failed to start:', error)
+  })
+  context.subscriptions.push({
+    dispose: () => {
+      // Deactivate must clear the lock file so stale locks never accumulate.
+      void ideServerStartup.then(() => ideServer.stop())
+    },
   })
 
   /** Terminal env pair for the IDE channel ({} while the server is down). */
@@ -402,7 +410,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               startLine: range.startLine,
               endLine: range.endLine,
               isEmpty: false,
-              text: editor.document.getText(selection),
+              // 封顶：超大帧会撑爆连接，而 dsh-tui 断链后不重连，该会话的
+              // 选区通道会静默失效（issue #21 第 9 条 / 上游 #562 点名）。
+              text: capSelectionText(editor.document.getText(selection)),
               documentVersion: editor.document.version,
             })
           ) {
@@ -425,6 +435,28 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (postpone !== undefined) clearTimeout(postpone)
         },
       },
+    )
+    // 配置由开→关时补推一次 isEmpty(issue #21 第 2 条)。TUI 只在收到 isEmpty
+    // 时清掉选区快照——实测(两端真实实现联调):停止推送但连接仍在(禁用配置的
+    // 真实语义)时,快照会残留,并附加到下一次提交。监听配置变化而不是在选区
+    // 事件里判断:用户禁用后可能不再动编辑器,那条路径永远不会触发。
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (!event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')) return
+        if (isEnabled()) return
+        // TUI 在 isEmpty 时不渲染 path,但协议要求它非空(parseSelectionChanged
+        // 丢弃空 path 的帧),所以没有活动编辑器时给一个明确的占位。
+        const path =
+          vscode.window.activeTextEditor?.document.uri.fsPath ?? '(autoInsertMention disabled)'
+        void broadcastSelection({
+          path: normalizeMentionPath(path),
+          startLine: 0,
+          endLine: 0,
+          isEmpty: true,
+          text: '',
+          documentVersion: 0,
+        })
+      }),
     )
   }
   register('dsh-tui-vscode.refreshSessions', () => {

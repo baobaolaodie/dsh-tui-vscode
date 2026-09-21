@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   resolveLaunchCommand,
-  quoteLaunchPath,
+  quoteShellArg,
   detectShellKind,
   formatLaunchPath,
   createSendOnceGate,
@@ -194,10 +194,35 @@ test('resolveLaunchCommand finds executable files on POSIX PATH', () => {
   }
 })
 
-test('quoteLaunchPath quotes only when needed', () => {
-  assert.equal(quoteLaunchPath('/usr/local/bin/dsh-tui', false), '/usr/local/bin/dsh-tui')
-  assert.equal(quoteLaunchPath("C:\\Program Files\\dsh-tui.cmd", true), "& 'C:\\Program Files\\dsh-tui.cmd'")
-  assert.equal(quoteLaunchPath('/opt/my tools/dsh-tui', false), "'/opt/my tools/dsh-tui'")
+// 回归锁(issue #21 第 1 条):路径里的 shell 元字符必须被引用并转义。
+// 旧实现以「是否含空格」为加引号的判据,/tmp/repo;id 会作为两条命令抵达
+// shell(id 被单独执行);内嵌引号还能提前闭合字面量。
+test('paths with shell metacharacters are quoted and escaped (issue #21)', () => {
+  // 分号/& 在安全集之外 → 必须引用,哪怕没有空格
+  assert.equal(formatWorkspaceTargetArg('/tmp/repo;id', 'bash'), " '/tmp/repo;id'")
+  assert.equal(formatWorkspaceTargetArg('/tmp/repo&calc', 'powershell'), " '/tmp/repo&calc'")
+  assert.equal(formatWorkspaceTargetArg('C:\\repo&calc', 'cmd'), ' "C:\\repo&calc"')
+  // 内嵌引号按 shell 各自转义,不能提前闭合
+  assert.equal(formatWorkspaceTargetArg("/tmp/it's", 'bash'), " '/tmp/it'\\''s'")
+  assert.equal(formatWorkspaceTargetArg("/tmp/it's", 'powershell'), " '/tmp/it''s'")
+  assert.equal(formatWorkspaceTargetArg('C:\\it"s', 'cmd'), ' "C:\\it""s"')
+  // 普通路径不受影响:安全集内的字符不加引号(既有行为不变)
+  assert.equal(formatWorkspaceTargetArg('/tmp/repo', 'bash'), ' /tmp/repo')
+  assert.equal(formatWorkspaceTargetArg('D:\\repo', 'powershell'), ' D:\\repo')
+})
+
+test('formatLaunchPath escapes metacharacters too', () => {
+  assert.equal(formatLaunchPath('/tmp/dsh-tui;id', 'bash', false), "'/tmp/dsh-tui;id'")
+  assert.equal(formatLaunchPath('/tmp/dsh-tui$HOME', 'bash', false), "'/tmp/dsh-tui$HOME'")
+  // 安全集内 → 不加引号(既有断言在这条路径上不受影响)
+  assert.equal(formatLaunchPath('/usr/local/bin/dsh-tui', 'bash', false), '/usr/local/bin/dsh-tui')
+})
+
+test('quoteShellArg escapes each shell’s own quote character', () => {
+  assert.equal(quoteShellArg("a'b", 'bash'), `'a'\\''b'`)
+  assert.equal(quoteShellArg("a'b", 'powershell'), `'a''b'`)
+  assert.equal(quoteShellArg('a"b', 'cmd'), '"a""b"')
+  assert.equal(quoteShellArg('plain', 'bash'), "'plain'")
 })
 
 // 回归锁:createSendOnceGate 防「双发启动命令」。实测场景:shell integration

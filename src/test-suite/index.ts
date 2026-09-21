@@ -1010,10 +1010,13 @@ test('insertAtMention relativizes against the opened workspace root, not the git
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
     const editor = await vscode.window.showTextDocument(doc)
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
-    const { normalizeMentionPath } = await import('../at-mention.js') as typeof import('../at-mention.js')
+    // 期望值必须走生产同款函数：这里手写的 replace 是大小写敏感的，而 WS 来自
+    // __dirname、wsRoot 来自 workspaceFolders，两者的大小写可能不一致 → Windows
+    // 上会因环境原因假失败（issue #21 第 6 条）。
+    const { relativeToWorkspace } =
+      await import('../at-mention.js') as typeof import('../at-mention.js')
     const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
-    const expected =
-      '@' + normalizeMentionPath(file).replace(normalizeWsPath(wsRoot) + '/', '') + '#L2-4'
+    const expected = '@' + relativeToWorkspace(file, wsRoot) + '#L2-4'
     // The regression switch: a mention relativized against the GIT PARENT
     // (the crawl root the TUI used to land on) carries that directory in its
     // path — this form must NOT be produced anymore.
@@ -1130,8 +1133,12 @@ const readProdLock = (): ProdLock | undefined => {
         Array.isArray(parsed.workspaceFolders) &&
         typeof parsed.pid === 'number'
       ) {
-        // Multiple VS Code windows can advertise locks; this instance's is
-        // the one whose workspace matches THIS test workspace.
+        // 锁必须属于**本扩展宿主进程**：生产 lock 目录是真实的
+        // ~/.dsh-tui/ide/，同一个工作区在别的 VS Code 窗口里打开时，那边的
+        // 扩展也会写一份 workspaceFolders 匹配的锁——只按工作区匹配会读到别人
+        // 的 port/token（issue #21 第 7 条）。e2e 代码与扩展同处一个扩展宿主
+        // 进程，所以 process.pid 才是权威判据。
+        if (parsed.pid !== process.pid) continue
         const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
         const normalize = (p: string): string => p.replace(/\\/g, '/').toLowerCase()
         if (parsed.workspaceFolders.some(f => normalize(f) === normalize(ws))) {
