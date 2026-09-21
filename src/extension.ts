@@ -414,8 +414,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               startLine: range.startLine,
               endLine: range.endLine,
               isEmpty: false,
-              // 封顶：超大帧会撑爆连接，而 dsh-tui 断链后不重连，该会话的
-              // 选区通道会静默失效（issue #21 第 9 条 / 上游 #562 点名）。
+              // 封顶：不让无上限的编辑器缓冲区内容整段推出去。**这不是断链
+              // 防线**——实测 2MB 的帧仍能完整抵达（ws 默认上限 100 MiB）。
+              // 取值依据与边界见 auto-mention.ts 的 MAX_PUSHED_SELECTION_CHARS。
               text: capSelectionText(editor.document.getText(selection)),
               documentVersion: editor.document.version,
             })

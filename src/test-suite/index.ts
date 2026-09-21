@@ -1323,6 +1323,29 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
           text: '',
           documentVersion: doc.version,
         })
+        // ── 禁用 autoInsertMention：补推 isEmpty + 撤销已排定的防抖推送 ──
+        // 这两条行为只存在于 extension.ts 的 onDidChangeConfiguration，单测覆盖
+        // 不到（不 import vscode），因此必须在这里锁住（issue #21 第 2 条）。
+        await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+        const beforeDisable = received.length
+        // 制造「选区刚变化、300ms 防抖尚未到点」的状态，随即禁用：若那颗定时器
+        // 没被撤销，它会在 isEmpty 之后补推一帧**非空**选区，把刚清掉的快照装回
+        // TUI —— 正是 CodeRabbit 与独立审查各自指出的那个竞态。
+        editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 0))
+        await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+        // 跨过防抖窗口，让「若未撤销就会发生」的补推充分暴露
+        await new Promise(resolve => setTimeout(resolve, 700))
+        const afterDisable = received.slice(beforeDisable) as Array<Record<string, unknown>>
+        assert.ok(afterDisable.length > 0, '禁用配置后必须补推一帧 isEmpty')
+        const isEmptyOf = (f: Record<string, unknown>): unknown =>
+          (f.params as Record<string, unknown> | undefined)?.isEmpty
+        const lastFrame = afterDisable[afterDisable.length - 1]!
+        assert.equal(isEmptyOf(lastFrame), true,
+          `禁用后最后一帧必须是 isEmpty，实收序列 ${JSON.stringify(afterDisable.map(isEmptyOf))}`)
+        const firstEmpty = afterDisable.findIndex(f => isEmptyOf(f) === true)
+        const nonEmptyAfter = afterDisable.slice(firstEmpty + 1).filter(f => isEmptyOf(f) !== true)
+        assert.equal(nonEmptyAfter.length, 0,
+          `isEmpty 之后仍出现非空帧（定时器未被撤销）：${JSON.stringify(nonEmptyAfter)}`)
       } finally {
         rmSync(file, { force: true })
         await vscode.commands.executeCommand('workbench.action.closeAllEditors')

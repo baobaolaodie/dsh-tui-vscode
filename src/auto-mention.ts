@@ -116,6 +116,11 @@ export function shouldBroadcastSelection(outcome: AutoInsertOutcome): boolean {
  * 是 100 MiB。所以这层封顶是**带宽/内存的防御**,不是「超大帧会断链」的防线;
  * 早先的注释把它说成后者,与实测不符。它依然值得留:推送无上限没有意义,而一旦
  * 真的越过 ws 上限,dsh-tui 会静默降级且不重连,该会话的选区通道就此永久失效。
+ *
+ * **值的依据**:只有**区间约束**——必须 > 50k(理由见上),且远低于 ws 的
+ * 100 MiB 接收上限。200k 是区间里取的一个圆整数,**不是推导出来的量纲**,换成
+ * 区间内其他值同样成立。(上游另有一个 `MENTION_MAX_TOTAL_CHARS = 200_000`,
+ * 那是单条消息全部附件的总预算——与本值数值巧合但用途不同,并非有意对齐。)
  */
 export const MAX_PUSHED_SELECTION_CHARS = 200_000
 

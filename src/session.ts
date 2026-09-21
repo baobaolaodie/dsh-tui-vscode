@@ -181,8 +181,10 @@ export function quoteShellArg(value: string, shellKind: ShellKind): string {
       return `'${value.replace(/'/g, "'\\''")}'`
     default:
       // PowerShell (and unknown): '' inside a single-quoted string is one '.
-      // Doubling is also accepted by cmd's parser and harmless for the paths
-      // that carry no quote at all, so it is a safe default.
+      // 注意 cmd.exe 并不把 ' 当引号字符（实测：cmd 下 'C:\x y\a.cmd' 报
+      // 「文件名、目录名或卷标语法不正确」而非执行），所以这个分支对 cmd 而言
+      // 不是「合法转义」而是「原样输出」。它只是 unknown 时的保守兜底——现实中
+      // detectShellKind 判不出来又恰好是 cmd 的概率很低，并非有意为 cmd 设计。
       return `'${value.replace(/'/g, "''")}'`
   }
 }
