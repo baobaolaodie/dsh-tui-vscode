@@ -85,12 +85,17 @@ export function buildMentionForSnapshot(
  * 是否仍应把本次选区推给 IDE 通道(协议 v2 的推送路径)——与「是否往输入框
  * 敲字」分开判定。
  *
- * 「与上次相同」(duplicate)只该挡住**键入回退**:推送是幂等的状态更新,不占
- * 输入框也不会刷屏。若拿它挡推送,两次行区间相同、正文不同的手势(整行选区按
- * 含端归一化后很常见:先把末尾拖到 (7,1),再拖成整行)就会停在**上一次**的正文
- * 上——徽标与 transcript 指示行都按行数显示,屏幕上看不出差别。
- * disabled / no-selection / no-terminal 一律不推。
+ * 两个只属于**键入回退**的门槛:
+ * - 「与上次相同」(duplicate):推送是幂等的状态更新,不占输入框也不会刷屏。
+ *   若拿它挡推送,两次行区间相同、正文不同的手势(整行选区按含端归一化后很
+ *   常见:先把末尾拖到 (7,1),再拖成整行)就会停在**上一次**的正文上——徽标与
+ *   transcript 指示行都按行数显示,屏幕上看不出差别。
+ * - 「无终端」(no-terminal):敲字需要终端,推送不需要——手动启动(lock 扫描
+ *   发现)的 dsh-tui 没有扩展自己创建的终端,却是一等订阅者。拿它挡推送会让
+ *   该路径收不到任何非空选区,而空选区的清除通知又照常发出(两条路径自相矛盾)。
+ * disabled / no-selection 才是真正的「不推」。
  */
 export function shouldBroadcastSelection(outcome: AutoInsertOutcome): boolean {
-  return outcome.action === 'insert' || outcome.reason === 'duplicate'
+  if (outcome.action === 'insert') return true
+  return outcome.reason === 'duplicate' || outcome.reason === 'no-terminal'
 }

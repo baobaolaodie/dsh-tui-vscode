@@ -396,8 +396,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             lastInserted = mention
             return
           }
-          // 回退:旧行为——键入运行中的 dsh-tui 输入框。去重与「无终端」都只
-          // 影响这条回退(duplicate 蕴含 hasTerminal 为真,顺序见 decideAutoInsert)。
+          // 回退:旧行为——键入运行中的 dsh-tui 输入框。只有 insert 才值得敲:
+          // duplicate(与上次相同)与 no-terminal(手动启动的会话没有扩展终端)
+          // 都只该挡住这条回退,推送已在上面成功或此处被 action 收口。
           if (outcome.action !== 'insert') return
           const terminal = findTerminal()
           if (!terminal) return

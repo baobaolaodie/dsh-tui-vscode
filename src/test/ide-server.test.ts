@@ -355,6 +355,40 @@ test('a pre-existing permissive lock dir is tightened to 0700 on start (POSIX)',
   }
 })
 
+test('a socket that never completes the handshake is terminated at the deadline', async () => {
+  const lockRoot = makeLockRoot()
+  try {
+    const server = new IdeServer({
+      token: 'tok-idle',
+      lockRoot,
+      workspaceFolders: () => [],
+      // Short deadline keeps the test fast; production defaults to 10s.
+      handshakeTimeoutMs: 60,
+    })
+    const env = await server.start()
+    const port = Number(env.DSH_TUI_IDE_PORT)
+    const WebSocket = (await import('ws')).WebSocket
+    const idle = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve, reject) => {
+      idle.on('open', resolve)
+      idle.on('error', reject)
+    })
+    // Say nothing. Such a socket is never added to `sockets`, so stop() would
+    // not terminate it and `wss.close()`'s callback would never fire — the
+    // deadline is what keeps a silent local peer from hanging shutdown.
+    let closed = false
+    idle.on('close', () => { closed = true })
+    for (let waited = 0; !closed && waited < 2000; waited += 10) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.ok(closed, 'an unauthenticated socket must be terminated at the handshake deadline')
+    assert.equal(server.clientCount, 0)
+    await server.stop()
+  } finally {
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
+
 test('stop is safe to call twice and before start', async () => {
   const lockRoot = makeLockRoot()
   try {

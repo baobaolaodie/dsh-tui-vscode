@@ -105,7 +105,7 @@ flowchart LR
 - **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
 - **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
 - **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行/已归档会话，组内按 last-used 排序。
-- **IDE 选区通道**：扩展激活时在 `127.0.0.1` 随机端口起回环 WebSocket 服务端并写 lock 文件（`~/.dsh-tui/ide/<port>.lock`：`{port, token, workspaceFolders, pid}`）；它启动的会话终端经 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量直连（env 直连优先），手动启动的 dsh-tui 则扫描 lock 目录按工作区匹配发现（lock 扫描兜底）。选区变化防抖 300ms 后以 `selection_changed` 通知推送**坐标**（0-based `{path, startLine, endLine, isEmpty}`，不含文本），dsh-TUI 提交时按坐标自行读文件切片附加；token 握手鉴权、仅回环、启动失败静默降级、停用清理 lock。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
+- **IDE 选区通道**：扩展激活时在 `127.0.0.1` 随机端口起回环 WebSocket 服务端并写 lock 文件（`~/.dsh-tui/ide/<port>.lock`：`{port, token, workspaceFolders, pid}`）；它启动的会话终端经 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量直连（env 直连优先），手动启动的 dsh-tui 则扫描 lock 目录按工作区匹配发现（lock 扫描兜底）。选区变化防抖 300ms 后以 `selection_changed` 通知推送**坐标与编辑器选区文本**（0-based `{path, startLine, endLine, isEmpty, text, documentVersion}`；`text` 含未保存修改），dsh-TUI 提交时原样附加；握手为协议 v2（`ide/hello` → `ide/hello_ack`，token 或版本不符即拒）、仅回环、启动失败静默降级、停用清理 lock。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
 
 ## 配置
 
@@ -117,7 +117,7 @@ flowchart LR
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
-| `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码的坐标推送给运行中的 dsh-TUI（300ms 防抖；只推坐标、不占输入框；dsh-TUI 提交时按坐标自动附加内容并显示指示行）。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本；通道不可用时回退为键入 `@相对路径#L起-止` |
+| `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码推送给运行中的 dsh-TUI（300ms 防抖；携带坐标与编辑器选区文本、不占输入框；dsh-TUI 提交时原样附加内容并显示指示行）。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本；通道不可用时回退为键入 `@相对路径#L起-止` |
 
 ## 目录结构
 

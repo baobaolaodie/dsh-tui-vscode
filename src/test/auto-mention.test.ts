@@ -88,8 +88,15 @@ test('duplicate still broadcasts to the IDE channel (dedupe only gates typing)',
   assert.equal(shouldBroadcastSelection({ action: 'insert', mention: '@a.ts#L2' }), true)
 })
 
-test('other skip reasons never broadcast (disabled / no-selection / no-terminal)', () => {
-  for (const reason of ['disabled', 'no-selection', 'no-terminal'] as const) {
+test('no-terminal still broadcasts (the terminal gate only gates typing)', () => {
+  // 手动启动(lock 扫描发现)的 dsh-tui 没有扩展自己创建的终端,却是一等订阅者:
+  // 拿 no-terminal 挡推送会让该路径收不到任何非空选区,而空选区的清除通知又
+  // 照常发出——两条路径自相矛盾。终端门禁只属于键入回退。
+  assert.equal(shouldBroadcastSelection({ action: 'skip', reason: 'no-terminal' }), true)
+})
+
+test('disabled / no-selection never broadcast', () => {
+  for (const reason of ['disabled', 'no-selection'] as const) {
     assert.equal(shouldBroadcastSelection({ action: 'skip', reason }), false)
   }
 })

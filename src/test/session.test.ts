@@ -114,14 +114,51 @@ test('formatWorkspaceTargetArg quotes paths with spaces per shell family', () =>
   // command (positional), so the & call operator must NOT prefix it — `& 'path'`
   // here is a second use of & and PowerShell rejects it (ParserError), or when
   // it IS first treats the path as a command to invoke (CommandNotFound).
-  assert.equal(formatWorkspaceTargetArg(spaced, 'powershell'), `'${spaced}'`)
+  assert.equal(formatWorkspaceTargetArg(spaced, 'powershell'), ` '${spaced}'`)
   // Windows drive paths take the bash mount form (formatLaunchPath precedent).
-  assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'bash'), "'/d/My Repo'")
-  assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'wsl'), "'/mnt/d/My Repo'")
+  assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'bash'), " '/d/My Repo'")
+  assert.equal(formatWorkspaceTargetArg('D:\\My Repo', 'wsl'), " '/mnt/d/My Repo'")
   // POSIX roots stay literal (windowsPathToPosix passes them through).
-  assert.equal(formatWorkspaceTargetArg('/home/u/My Repo', 'bash'), "'/home/u/My Repo'")
+  assert.equal(formatWorkspaceTargetArg('/home/u/My Repo', 'bash'), " '/home/u/My Repo'")
   // cmd: double-quote form (leading space separates it from the command).
   assert.equal(formatWorkspaceTargetArg(spaced, 'cmd'), ` "${spaced}"`)
+  // EVERY branch carries the leading separator — the caller appends the arg
+  // to `parts.join(' ')`, so a bare quoted literal would glue it to the
+  // previous token (`dsh-tui'C:\My Repos'`) and the launch would not resolve.
+  for (const shell of ['powershell', 'bash', 'cygwin', 'wsl'] as const) {
+    assert.ok(
+      formatWorkspaceTargetArg(spaced, shell).startsWith(' '),
+      `${shell}: quoted form must keep its leading separator`,
+    )
+  }
+})
+
+test('formatWorkspaceTargetArg converts space-free Windows roots for bash-like shells', () => {
+  // Space-free roots used to skip windowsPathToPosix entirely: bash then ate
+  // the backslashes and the launcher received `D:repo` — the same failure
+  // class 0.6.1 fixed for the launch path itself.
+  assert.equal(formatWorkspaceTargetArg('D:\\repo', 'bash'), ' /d/repo')
+  assert.equal(formatWorkspaceTargetArg('D:\\repo', 'wsl'), ' /mnt/d/repo')
+  // cmd / powershell keep the Windows form (their shells speak it natively).
+  assert.equal(formatWorkspaceTargetArg('D:\\repo', 'powershell'), ' D:\\repo')
+  assert.equal(formatWorkspaceTargetArg('D:\\repo', 'cmd'), ' D:\\repo')
+})
+
+test('the assembled launch command keeps the workspace target a separate token', () => {
+  // The real assembly (extension.ts) is `parts.join(' ') + targetArg`; assert
+  // on the assembled string — a fragment-level assertion cannot catch the
+  // glued-token failure (no extra args: `dsh-tui'/path'`).
+  const assemble = (parts: readonly string[], target: string): string => parts.join(' ') + target
+  assert.equal(
+    assemble(['dsh-tui'], formatWorkspaceTargetArg('C:\\My Repos', 'powershell')),
+    "dsh-tui 'C:\\My Repos'",
+  )
+  assert.equal(assemble(['dsh-tui'], formatWorkspaceTargetArg('D:\\repo', 'bash')), 'dsh-tui /d/repo')
+  assert.equal(
+    assemble(['dsh-tui', '--resume'], formatWorkspaceTargetArg('C:\\My Repos', 'bash')),
+    "dsh-tui --resume '/c/My Repos'",
+  )
+  assert.equal(assemble(['dsh-tui'], formatWorkspaceTargetArg(undefined, 'cmd')), 'dsh-tui')
 })
 
 test('formatWorkspaceTargetArg returns empty string when no workspace is open', () => {

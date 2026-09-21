@@ -185,26 +185,33 @@ export function formatWorkspaceTargetArg(
 ): string {
   const root = workspaceRoot?.trim() ?? ''
   if (root === '') return ''
-  if (!root.includes(' ')) return ` ${root}`
+  // Convert BEFORE the space check (formatLaunchPath precedent): a Windows
+  // root on a bash-like shell must reach the shell in POSIX form whether or
+  // not it contains spaces — bash turns `D:\repo` into `D:repo`. The helper
+  // passes POSIX roots through untouched, so this is safe on every host.
+  const display = isBashLike(shellKind) ? windowsPathToPosix(root, shellKind) : root
+  // EVERY branch carries its own leading separator: the caller appends this
+  // string to `parts.join(' ')` verbatim (extension.ts), so a branch that
+  // returns a bare quoted literal glues the target to the previous token —
+  // `dsh-tui'D:\my repo'` (no extra args) or `--resume'D:\my repo'` — and the
+  // launcher is never found / never receives the root.
+  if (!display.includes(' ')) return ` ${display}`
   switch (shellKind) {
     case 'cmd':
-      return ` "${root}"`
+      return ` "${display}"`
     case 'powershell':
       // Single-quoted string literal, NOT `& '...'`: this arg trails the
       // command, so a leading & is a second use of the call operator →
       // ParserError; as the first token it would invoke the path as a
       // command. A quoted string alone is a literal positional argument.
-      return `'${root}'`
+      return ` '${display}'`
     case 'bash':
     case 'cygwin':
     case 'wsl':
-      // windowsPathToPosix passes non-Windows paths through untouched, so a
-      // POSIX workspace root stays literal; Windows drive paths become the
-      // shell's mount form exactly like formatLaunchPath does.
-      return `'${windowsPathToPosix(root, shellKind)}'`
+      return ` '${display}'`
     default:
       // Same reasoning as powershell: positional arg position forbids &.
-      return `'${root}'`
+      return ` '${display}'`
   }
 }
 export interface LaunchEnvInput {

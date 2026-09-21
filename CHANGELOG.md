@@ -8,8 +8,8 @@
 
 ### Added
 
-- **IDE 选区通道（扩展侧 server）**：激活时在 `127.0.0.1` 随机端口启动回环 WebSocket 服务端（`ws`），握手 token 鉴权；会话终端自动注入 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量（env 直连），同时以 lock 文件（`~/.dsh-tui/ide/<port>.lock`，JSON `{port, token, workspaceFolders, pid}`）广播自身供手动启动的 dsh-tui 发现（lock 扫描）。选区变化经 300ms 防抖后向连接的 dsh-tui 推送 `selection_changed` 坐标通知（仅 `{path, startLine, endLine, isEmpty}`，0-based，不含文本——dsh-TUI 提交消息时按坐标自行读取并附加 `<attached-file … selection>` 块）。服务端启动失败静默降级（其余功能不受影响），停用时清理 lock 与监听。
-- **e2e 覆盖 IDE 选区通道**：真实扩展宿主 e2e 新增两条用例——server 生命周期（终端 env 注入与 lock 广播值一致、注入临时 lockRoot 的实例验证写/清 lock 幂等生命周期）与 WS client 对连（lock 发现 → ide/hello 握手 → 收到 `selection_changed` 且 payload 坐标 only）。
+- **IDE 选区通道（扩展侧 server）**：激活时在 `127.0.0.1` 随机端口启动回环 WebSocket 服务端（`ws`），握手 token 鉴权；会话终端自动注入 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量（env 直连），同时以 lock 文件（`~/.dsh-tui/ide/<port>.lock`，JSON `{port, token, workspaceFolders, pid}`）广播自身供手动启动的 dsh-tui 发现（lock 扫描）。握手为协议 v2：`ide/hello`（token + protocolVersion）→ `ide/hello_ack`（protocolVersion + workspaceFolders）。选区变化经 300ms 防抖后推送 `selection_changed` 通知（`{path, startLine, endLine, isEmpty, text, documentVersion}`，0-based；`text` 是编辑器缓冲区自己的选区文本、含未保存修改）——dsh-TUI 原样附加 `<attached-file … selection>` 块，不再读可能与屏幕不一致的磁盘副本；行区间按「含端」归一化。服务端启动失败静默降级（其余功能不受影响），停用时清理 lock 与监听。
+- **e2e 覆盖 IDE 选区通道**：真实扩展宿主 e2e 新增两条用例——server 生命周期（终端 env 注入与 lock 广播值一致、注入临时 lockRoot 的实例验证写/清 lock 幂等生命周期）与 WS client 对连（lock 发现 → 协议 v2 握手并消费 `hello_ack` → 收到 `selection_changed`，payload 含坐标、编辑器文本与文档版本）。
 
 ### Changed
 

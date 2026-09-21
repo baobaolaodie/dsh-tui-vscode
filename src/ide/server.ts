@@ -125,7 +125,18 @@ export interface IdeServerOptions {
   lockRoot?: string
   /** Absolute paths of open workspace roots, resolved lazily at start(). */
   workspaceFolders: () => string[]
+  /**
+   * Deadline for a socket that never completes `ide/hello` (ms). Such a socket
+   * is not in {@link IdeServer}'s `sockets` set (only authenticated ones are),
+   * so `stop()` would never terminate it and `wss.close()`'s callback would
+   * never fire — a silent local peer could hold shutdown open. Injectable so
+   * tests can use a short deadline.
+   */
+  handshakeTimeoutMs?: number
 }
+
+/** Default handshake deadline for unauthenticated sockets. */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000
 
 /**
  * Loopback WS server advertising itself via lock files.
@@ -140,6 +151,7 @@ export class IdeServer {
   private readonly token: string
   private readonly lockRoot: string
   private readonly workspaceFolders: () => string[]
+  private readonly handshakeTimeoutMs: number
   private wss: WebSocketServer | null = null
   private sockets = new Set<WsSocket>()
   private env: Record<string, string> | null = null
@@ -149,6 +161,7 @@ export class IdeServer {
     this.token = options.token
     this.lockRoot = options.lockRoot ?? join(homedir(), '.dsh-tui')
     this.workspaceFolders = options.workspaceFolders
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS
   }
 
   /** Bound port, or undefined while stopped. */
@@ -267,6 +280,14 @@ export class IdeServer {
 
   private onConnection(socket: WsSocket): void {
     let helloDone = false
+    // A silent peer must not hold its socket open forever: unauthenticated
+    // sockets never enter `sockets`, so stop() does not terminate them, and
+    // `wss.close()`'s callback (which waits for every connection to close)
+    // would never fire — shutdown would hang on a peer that never said hello.
+    const deadline = setTimeout(() => {
+      if (!helloDone) socket.terminate()
+    }, this.handshakeTimeoutMs)
+    socket.on('close', () => clearTimeout(deadline))
     socket.on('message', raw => {
       if (helloDone) return
       let parsed: unknown
@@ -296,6 +317,7 @@ export class IdeServer {
         return
       }
       helloDone = true
+      clearTimeout(deadline)
       // Protocol 2: answer the handshake so the client knows the token was
       // accepted AND which workspaces this server covers (the TUI connects
       // only on a valid ack — an open socket alone proves nothing).
