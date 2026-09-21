@@ -2,7 +2,7 @@
  * 生成插入到 dsh-tui 输入框的 @-mention 引用。
  *
  * 基准行为对齐 Claude Code 官方 `insertAtMention`(行号 1-based),并按 dsh-tui
- * 的 @ 提及语义适配(dsh-TUI PR-A 起原生解析 `#L` 行区间):
+ * 的 @ 提及语义适配(dsh-TUI 原生解析 `#L` 行区间):
  * - **优先输出工作区相对路径**:dsh-tui 解析 `@路径` 时,相对路径以「会话自己的
  *   cwd」为基准,而扩展启动的终端 cwd 即 VS Code 工作区根。因此调用方传入
  *   workspaceRoot 时把绝对路径相对化(`relativeToWorkspace`,大小写不敏感匹配、
@@ -10,7 +10,7 @@
  *   路径原样直通(`isAbsolute` → 不加 cwd),与 cwd 无关。
  * - **行区间**用 `#L` 后缀(1-based、含端点:单行 `#L12`,多行 `#L12-14`),
  *   空选区输出裸路径引用整个文件。旧的「空格分隔纯文本提示」(` L12-14`)形态
- *   已按 DESIGN D10 彻底移除,不做双格式兼容分支。
+ *   已按上游新的 `#L` 语法彻底移除,不做双格式兼容分支。
  * - 路径含空白时用双引号形式 `@"路径"`(#L 后缀紧邻闭合引号,dsh-tui 可解析)。
  *
  * 输出形态(workspaceRoot = D:/repo):

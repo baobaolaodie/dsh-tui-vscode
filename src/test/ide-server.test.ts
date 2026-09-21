@@ -14,7 +14,7 @@ import {
 } from '../ide/server.js'
 import { buildAtMention } from '../at-mention.js'
 
-/** mkdtemp 临时 lockRoot——绝不写真实 ~/.dsh-tui（DESIGN §7 隔离策略）。 */
+/** mkdtemp 临时 lockRoot——绝不写真实 ~/.dsh-tui（测试隔离策略）。 */
 function makeLockRoot(): string {
   return mkdtempSync(join(tmpdir(), 'dsh-ide-lock-'))
 }

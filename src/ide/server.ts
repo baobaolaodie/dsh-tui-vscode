@@ -179,7 +179,7 @@ export class IdeServer {
     } catch (error) {
       // Half-bound server without a lock is an INVISIBLE instance: the TUI
       // can't discover it and the handle leaks the event loop. A failed
-      // start must leave nothing behind (AC-7 failure semantics).
+      // start must leave nothing behind (failed-start semantics).
       await this.stop()
       throw error
     }

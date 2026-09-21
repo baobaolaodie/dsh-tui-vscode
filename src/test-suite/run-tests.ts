@@ -12,7 +12,7 @@ import { join } from 'node:path'
 async function main(): Promise<void> {
   // out-test/test-suite -> repo root
   const root = join(__dirname, '..', '..')
-  // T-FIX-02: the workspace must be a SUBDIRECTORY of a real git repository —
+  // The workspace must be a SUBDIRECTORY of a real git repository —
   // the upstream TUI crawls to the git root for its session cwd (issue #96),
   // so a plain folder can never reproduce the "missing @mention" bug this
   // suite now pins. `git` is guaranteed on CI runners (this repo's own ci.yml

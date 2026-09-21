@@ -95,7 +95,7 @@ test('formatLaunchPath converts Windows paths for bash-like shells', () => {
   assert.equal(formatLaunchPath('/usr/local/bin/dsh-tui', 'bash', false), '/usr/local/bin/dsh-tui')
 })
 
-// 回归锁（T-FIX-02 问题②）：@引用 missing 的根治。TUI 会话 cwd 默认爬到 git
+// 回归锁：@引用 missing 的根治。TUI 会话 cwd 默认爬到 git
 // 仓库根（上游 issue #96），而扩展相对化基准是 workspaceFolders[0]——子目录
 // 工作区必然不一致 → TUI join(cwd) 找不到文件 → missing 黄条。修复 = 启动命令
 // 尾部追加工作区根位置参数：launcher 拦截后设 DSH_TUI_WORKSPACE_TARGET，上游

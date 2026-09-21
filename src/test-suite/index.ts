@@ -834,7 +834,7 @@ test('insertAtMention copies @-mention to clipboard when no session is running',
     // Multi-line selection: lines 1..3 (0-based) → #L2-4 (1-based).
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
     const { normalizeMentionPath, relativeToWorkspace } = await import('../at-mention.js') as typeof import('../at-mention.js')
-    // T08 后的新契约：工作区内相对路径 + #L 行区间（相对化基准 = 扩展终端 cwd =
+    // 新契约：工作区内相对路径 + #L 行区间（相对化基准 = 扩展终端 cwd =
     // 工作区根；根外兜底归一化绝对路径）。期望值按同一规格独立拼装，不经
     // buildAtMention 自身（避免同义反复）。
     const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
@@ -905,7 +905,7 @@ test('insertAtMention types the @-mention into the running session input', async
     const editor = await vscode.window.showTextDocument(doc)
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 5))
     const { normalizeMentionPath, relativeToWorkspace } = await import('../at-mention.js') as typeof import('../at-mention.js')
-    // 新契约（T08）：工作区内相对路径 + #L 行区间；相对化基准 = 工作区根。
+    // 新契约：工作区内相对路径 + #L 行区间；相对化基准 = 工作区根。
     const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
     const expected =
       '@' + relativeToWorkspace(normalizeMentionPath(editor.document.uri.fsPath), wsRoot) + '#L2-3'
@@ -947,7 +947,7 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
       // user "selecting code" produces; must auto-type after the debounce.
       editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
       const { normalizeMentionPath, relativeToWorkspace } = await import('../at-mention.js') as typeof import('../at-mention.js')
-      // 新契约（T08）：工作区内相对路径 + #L 行区间；相对化基准 = 工作区根。
+      // 新契约：工作区内相对路径 + #L 行区间；相对化基准 = 工作区根。
       const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
       const expected =
         '@' + relativeToWorkspace(normalizeMentionPath(editor.document.uri.fsPath), wsRoot) + '#L1-3'
@@ -983,7 +983,7 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
 })
 
 test('insertAtMention relativizes against the opened workspace root, not the git crawl root (subdirectory workspace)', async () => {
-  // T-FIX-02: the suite workspace now lives INSIDE a git repository (see
+  // The suite workspace now lives INSIDE a git repository (see
   // run-tests.ts) — exactly the shape that used to break @mentions. The TUI
   // crawls to the git root for its session cwd (upstream issue #96), so a
   // mention relativized against the git PARENT instead of the opened
@@ -1059,7 +1059,7 @@ test('insertAtMention relativizes against the opened workspace root, not the git
 })
 
 test('launch command carries the workspace root positional arg (DSH_TUI_WORKSPACE_TARGET chain)', async () => {
-  // T-FIX-02 missing-fix, extension-side half of the contract: the launch
+  // Missing-@mention fix, extension-side half of the contract: the launch
   // command must END with the opened workspace root as a positional argument.
   // The REAL launcher (bin/dsh-tui.js) intercepts it into
   // DSH_TUI_WORKSPACE_TARGET → the TUI pins its session cwd to that root
@@ -1086,13 +1086,13 @@ test('launch command carries the workspace root positional arg (DSH_TUI_WORKSPAC
   )
 })
 
-// ---- IDE selection channel (AC-7 e2e) -------------------------------------
+// ---- IDE selection channel (e2e) ------------------------------------------
 // The extension host runs a REAL IdeServer (extension.ts activates it). The
 // two tests below observe that live instance through its public seams — the
 // terminal env pair and the lock file under an injected temp lockRoot. The
 // production lock lives under ~/.dsh-tui/ide (the real default root); the
 // suite only ever READS the activation server's lock and never writes there
-// (its own probe instances inject a temp lockRoot, DESIGN §7).
+// (its own probe instances inject a temp lockRoot — test isolation).
 
 /**
  * The IdeServer started by activate() in THIS extension-host instance. Tests
@@ -1159,7 +1159,7 @@ test('IDE channel: session terminals carry DSH_TUI_IDE_PORT/TOKEN; lock lifecycl
   await configureFakeLauncher()
   // Server-ready gate FIRST: once the lock exists, activate()'s async
   // start() has resolved and envForTerminal() carries the real pair — the
-  // terminal spawned below must then receive it (strong AC-7 assertion).
+  // terminal spawned below must then receive it (the strong assertion here).
   const prod = await waitForProductionLock()
   rmSync(ENV_OUT, { force: true })
   await vscode.commands.executeCommand('dsh-tui-vscode.start')
@@ -1183,7 +1183,7 @@ test('IDE channel: session terminals carry DSH_TUI_IDE_PORT/TOKEN; lock lifecycl
 
   // Lock discovery seam: the SAME class with an INJECTED temp lockRoot walks
   // the identical writeLock/clearLock path in isolation — the production
-  // lockRoot itself is never written by the suite (DESIGN §7).
+  // lockRoot itself is never written by the suite (test isolation).
   const { IdeServer } = await loadIdeModule()
   const lockRoot = mkdtempSync(join(tmpdir(), 'dsh-e2e-ide-lock-'))
   try {
@@ -1223,7 +1223,7 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
   const { SELECTION_METHOD, IDE_PROTOCOL_VERSION } = await loadIdeModule()
   await configureFakeLauncher()
   // Server-ready gate: the lock is the authoritative discovery source (the
-  // AC-4 lock-scan path) — its port/token ARE the live server's identity.
+  // lock-scan discovery path) — its port/token ARE the live server's identity.
   const prod = await waitForProductionLock()
 
   // Connect like the upstream TUI client does: loopback WS + ide/hello token
@@ -1297,7 +1297,7 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
         )
         // 清空选区 → 必须广播一次 isEmpty:true，TUI 才能清掉徽标/停止附加。
         // (曾经只发非空——TUI 侧 selection 快照永不失效，徽标残留 + 再发送
-        //  仍带旧索引。T-FIX 扩展侧补上这枚「清除」通知。)
+        //  仍带旧索引。扩展侧补上这枚「清除」通知。)
         const receivedLenAfterSelect = received.length
         editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(1, 0))
         await poll(() => (received.length > receivedLenAfterSelect ? true : undefined), 10000)

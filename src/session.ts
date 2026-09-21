@@ -165,7 +165,7 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
 /**
  * The trailing positional argument of the launch command: the opened
  * workspace root, so the dsh-tui launcher can pin the session cwd to the
- * SAME root this extension relativizes @mentions against (T-FIX-02).
+ * SAME root this extension relativizes @mentions against.
  *
  * Why: the TUI's default session cwd crawls up to the nearest git worktree
  * root (upstream issue #96), while mention relativization uses

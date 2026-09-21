@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildAtMention, normalizeMentionPath } from '../at-mention.js'
 
-// ---------- AC-6:相对路径 + #L 行区间 ----------
+// ---------- 相对路径 + #L 行区间 ----------
 
 test('multi-line selection emits workspace-relative path with #L range (0-based → 1-based)', () => {
   assert.equal(

@@ -121,7 +121,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   }
 
-  // ---- IDE selection channel (AC-7) -------------------------------------
+  // ---- IDE selection channel --------------------------------------------
   // The extension hosts the loopback WS server the TUI connects to (env
   // direct via terminal env, or lock scan). Startup failure degrades
   // silently — every other feature keeps working without it.
@@ -137,8 +137,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     },
   })
   void ideServer.start().catch(error => {
-    // Silent degradation with a log line only (AC-7: the rest of the
-    // extension is unaffected when the server cannot bind).
+    // Silent degradation with a log line only: the rest of the extension
+    // is unaffected when the server cannot bind.
     console.error('[dsh-tui-vscode] IDE selection channel failed to start:', error)
   })
 
@@ -205,7 +205,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const resolved = resolveLaunchCommand(command, isWindows, shellKind)
     const parts = [formatLaunchPath(resolved ?? command, shellKind, isWindows)]
     for (const arg of cfg.extraArgs) parts.push(arg)
-    // T-FIX-02 (missing @mention fix): pin the session cwd to THIS workspace
+    // Missing-@mention fix: pin the session cwd to THIS workspace
     // root via a trailing positional arg — the launcher turns it into
     // DSH_TUI_WORKSPACE_TARGET and the TUI resolves it as its workspace, so
     // the session's relativization baseline matches ours exactly. Same source
@@ -270,12 +270,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   })
   // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
-  // 选中代码以 `@相对路径#L起-止` 形式插入输入框。dsh-TUI PR-A 起 @ 提及原生
+  // 选中代码以 `@相对路径#L起-止` 形式插入输入框。dsh-TUI 的 @ 提及原生
   // 解析 `#L` 行区间(1-based、含端点);相对路径以「会话自己的 cwd」为基准,
   // 而本扩展启动的终端 cwd 即工作区根(createTerminal 同款取法),所以传
   // workspaceRoot 把路径相对化——消息更短且与会话 cwd 无关性等价;根外或无
   // 工作区时兜底正斜杠绝对路径(dsh-tui 对绝对路径原样直通)。行区间为空格
-  // 分隔纯文本的旧形态已按上游新语法移除(design D10)。
+  // 分隔纯文本的旧形态已按上游新语法移除。
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
