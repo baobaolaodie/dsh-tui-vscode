@@ -8,8 +8,13 @@ import {
   shouldBroadcastSelection,
 } from '../auto-mention.js'
 
-// 回归锁(issue #21 第 9 条):推给 IDE 通道的选区文本必须封顶——超大帧会撑爆
-// 连接,而 dsh-tui 断链后静默降级且不重连,该会话的选区通道会永久失效。
+// 回归锁(issue #21 第 9 条):推给 IDE 通道的选区文本必须封顶,不让编辑器缓冲区
+// 的内容无上限地推出去。
+//
+// 实测澄清:2MB 的帧仍能完整抵达 dsh-tui 且连接存活(ws 默认接收上限 100 MiB),
+// 所以这层封顶是**带宽/内存防御**,不是「超大帧会断链」的防线——早先的说法与
+// 实测不符,已一并修正。
+//
 // 上限定在 TUI 自身上限(50k)**之上**,否则截断发生在扩展侧、TUI 观察不到
 // "超限",用户拿到一份静默残缺的上下文却看不到截断标记。
 test('capSelectionText bounds the pushed text, staying above the TUI’s own cap', () => {
