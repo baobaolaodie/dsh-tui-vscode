@@ -4,6 +4,8 @@
 
 ## [0.7.0] - 2026-09-21
 
+> 经 PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19) 合并 / via PR #19
+
 > ⚠️ **版本门槛 / Version gate**：`#L` 行区间语法需 **dsh-TUI ≥ 含上游 #537 的版本**（该语法已由上游原生实现并合入），IDE 选区通道需 dsh-TUI ≥ 含上游 **#562（本扩展推送的通道将被它消费）** 合并后的版本。搭配更旧的 dsh-TUI 时，`@` 引用会提示文件未找到（missing）——请先升级 dsh-TUI 再升级本扩展。
 
 ### Added
