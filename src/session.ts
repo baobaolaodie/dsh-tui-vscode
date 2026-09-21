@@ -12,8 +12,13 @@ import { delimiter, join } from 'node:path'
  * Terminal shell families. `bash` covers MSYS2/Git Bash and other POSIX-like
  * shells; `cygwin` and `wsl` are separate because their drive mappings differ
  * (`/cygdrive/<drive>` and `/mnt/<drive>` respectively).
+ *
+ * `nu` (Nushell) is its own kind: it is not a POSIX shell despite borrowing
+ * the syntax. External commands need a `^` sigil, single-quoted strings take
+ * no escapes and cannot contain a quote at all, and the POSIX `'\''` splice
+ * is meaningless there (issue #25 — it used to be folded into `bash`).
  */
-export type ShellKind = 'powershell' | 'cmd' | 'bash' | 'cygwin' | 'wsl' | 'unknown'
+export type ShellKind = 'powershell' | 'cmd' | 'bash' | 'cygwin' | 'wsl' | 'nu' | 'unknown'
 
 /**
  * Detect the terminal shell family from VS Code's `env.shell` path or from a
@@ -26,6 +31,16 @@ export function detectShellKind(shell: string | undefined): ShellKind {
   if (!base) return 'unknown'
   if (base.includes('powershell') || base.includes('pwsh')) return 'powershell'
   if (base === 'cmd' || base.endsWith('.cmd') || base.endsWith('cmd.exe')) return 'cmd'
+  // Nushell: exact basename match, placed before the cygwin test below because
+  // THAT one matches against the whole path (`value.includes('cygwin')`) — a
+  // correctly-named `C:\cygwin64\bin\nu.exe` would otherwise be reported as
+  // cygwin (CodeRabbit review). The wsl test is basename-only, so its ordering
+  // relative to this one is irrelevant; nu sits here simply because this is
+  // where the basename-level checks live. Exact matching also avoids the old
+  // `base.includes('nu')` over-reach.
+  if (base === 'nu' || base === 'nu.exe' || base === 'nushell' || base === 'nushell.exe') {
+    return 'nu'
+  }
   if (base.includes('wsl')) return 'wsl'
   // C:\Windows\System32\bash.exe is the WSL bash launcher, not Git Bash.
   if (base === 'bash.exe' && value.includes('/windows/system32/')) return 'wsl'
@@ -38,8 +53,7 @@ export function detectShellKind(shell: string | undefined): ShellKind {
     base.includes('csh') ||
     base.includes('xonsh') ||
     base === 'sh' ||
-    base.startsWith('sh.') ||
-    base.includes('nu')
+    base.startsWith('sh.')
   ) {
     return 'bash'
   }
@@ -165,6 +179,25 @@ function isSafeUnquoted(value: string, shellKind: ShellKind): boolean {
 }
 
 /**
+ * Nushell 的字符串字面量。用 **raw string**(`r#'…'#`)而不是单引号：Nushell 的
+ * 单引号字符串不支持任何转义、且**不能包含单引号**（官方文档 "Working with
+ * Strings"），所以 POSIX 的 `'\''` 拼接在那里根本不成立；raw string 既不插值也
+ * 不转义，还允许内含单引号。唯一会提前闭合字面量的是 `'#` 序列，按 Rust 风格
+ * 用更多 `#` 分隔即可。
+ *
+ * **已用真实 Nushell 实测**（**端点 0.115.1 与 0.94.0；中间版本未验证**）：0.115.1
+ * 上 `r#'…'#`、`r##'…'##` 等形态均解析为原样的字面量，含 `'`、`#`、`&`、`$` 的取值
+ * 逐字符送达。**已知界限**：0.94.0 上 raw string 作**命令位**不被接受（作参数正常），
+ * 所以需要引用的启动路径在该版本会失败——它在本次改动前同样不可用，不构成回归。
+ * 不要把这里的结论外推到中间的 0.95–0.114：它们没有测过。
+ */
+function nuQuote(value: string): string {
+  let hashes = '#'
+  while (value.includes(`'${hashes}`)) hashes += '#'
+  return `r${hashes}'${value}'${hashes}`
+}
+
+/**
  * Quote a value for the target shell, escaping that shell's own quote
  * character so the literal cannot be closed early. Every path interpolated
  * into a launch command goes through here.
@@ -174,6 +207,8 @@ export function quoteShellArg(value: string, shellKind: ShellKind): string {
     case 'cmd':
       // cmd.exe: "" inside a quoted string is one literal ".
       return `"${value.replace(/"/g, '""')}"`
+    case 'nu':
+      return nuQuote(value)
     case 'bash':
     case 'cygwin':
     case 'wsl':
@@ -198,8 +233,11 @@ export function quoteShellArg(value: string, shellKind: ShellKind): string {
 export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: boolean): string {
   const display = isWindows && isBashLike(shellKind) ? windowsPathToPosix(path, shellKind) : path
   // Quote on anything outside the safe set, not merely on spaces: the path
-  // also has to survive `;`, `&` and friends (issue #21).
-  if (isSafeUnquoted(display, shellKind)) return display
+  // also has to survive `;`, `&` and friends (issue #21). Nushell needs the
+  // `^` sigil whether or not the value needs quoting — the two are orthogonal.
+  if (isSafeUnquoted(display, shellKind)) {
+    return shellKind === 'nu' ? `^${display}` : display
+  }
   const quoted = quoteShellArg(display, shellKind)
   switch (shellKind) {
     case 'cmd':
@@ -207,6 +245,13 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
     case 'cygwin':
     case 'wsl':
       return quoted
+    case 'nu':
+      // `^` 让 Nushell 按**外部命令**解析。注意它做的是**同名消歧**——外部命令与
+      // nu 内建同名时才必需；实测 `nu -c 'node --version'` 这种裸名同样能跑。
+      // 这里无条件加上：命令名是否与内建撞名无法在拼串时判定，而多一个 `^`
+      // 没有任何代价（真实 nu 0.115.1 实测 `^路径` / `^'路径'` / `^r#'路径'#`
+      // 三种形态均可执行）。
+      return `^${quoted}`
     case 'powershell':
       return `& ${quoted}`
     default:

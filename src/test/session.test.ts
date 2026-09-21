@@ -68,6 +68,95 @@ test('detectShellKind recognizes PowerShell, cmd, Git Bash, and WSL', () => {
   assert.equal(detectShellKind(undefined), 'unknown')
 })
 
+// 回归锁(issue #25):Nushell 不是 bash——它的单引号字符串既不支持转义、也不能
+// 内含单引号,所以 POSIX 那套拼法在它这里无效;更关键的是 Windows 下会被
+// windowsPathToPosix 改写成 `/c/Users/...` 形态,真实 nu 拒绝执行。原先
+// `detectShellKind` 用 `base.includes('nu')` 把 nu 吞进 bash,上述两条就都发生了。
+test('detectShellKind recognizes Nushell as its own kind (issue #25)', () => {
+  assert.equal(detectShellKind('nu'), 'nu')
+  assert.equal(detectShellKind('nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\tools\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('/usr/bin/nu'), 'nu')
+  assert.equal(detectShellKind('nushell'), 'nu')
+  // 精确匹配:旧实现 base.includes('nu') 会把任何含 "nu" 的名字算进 bash 家族
+  assert.equal(detectShellKind('nushell-wrapper'), 'unknown')
+  // **顺序相关**(CodeRabbit review):cygwin 那条测的是**整条路径**
+  // (`value.includes('cygwin')`),nu 的检查必须排在它之前,否则一个名字完全正确的
+  // C:\cygwin64\bin\nu.exe 会被报成 cygwin。
+  assert.equal(detectShellKind('C:\\cygwin64\\bin\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\cygwin64\\bin\\nushell.exe'), 'nu')
+  // wsl 那条测的是 **basename**(`base.includes('wsl')`,而 base 在这里是 nu.exe),
+  // 对 nu 的名字天然不命中——这两条**不锁顺序**,只锁「装在别的目录下依然是 nu」。
+  assert.equal(detectShellKind('C:\\wsl\\bin\\nu.exe'), 'nu')
+  assert.equal(detectShellKind('C:\\wsl\\bin\\nushell.exe'), 'nu')
+})
+
+// Nushell 不能进 isBashLike,但**后果不是**「解析到无扩展名 shim」——npm 总是同时
+// 写 `dsh-tui` / `dsh-tui.cmd` / `dsh-tui.ps1`,而 nu 会自己补扩展名,有 `.cmd`
+// 兄弟时无扩展名形态照样能跑(第二轮独立审查用真实 nu 实测)。**真正的破坏来自
+// windowsPathToPosix**:把 `C:\Users\...` 改写成 `/c/Users/...`,那个 nu 才拒绝。
+// 这一条与下面那条 Windows 形态测试共同守住「nu 不被 POSIX 改写」这个不变量。
+test('resolveLaunchCommand picks .cmd for Nushell on Windows (issue #25)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-launch-nu-'))
+  try {
+    writeFileSync(join(dir, 'dsh-tui'), '#!/bin/sh\n')
+    writeFileSync(join(dir, 'dsh-tui.cmd'), '@echo off\r\n')
+    const original = process.env.PATH
+    process.env.PATH = dir
+    try {
+      assert.equal(resolveLaunchCommand('dsh-tui', true, 'nu'), join(dir, 'dsh-tui.cmd'))
+      // 对照:bash-like 仍优先无扩展名 shim
+      assert.equal(resolveLaunchCommand('dsh-tui', true, 'bash'), join(dir, 'dsh-tui'))
+    } finally {
+      process.env.PATH = original
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Nushell launch path always carries the ^ sigil (issue #25)', () => {
+  // 命令位:无论值是否需要引用都加 `^`。这不是「否则必然失败」——Nushell 的 `^`
+  // 做的是同名消歧,裸写的普通命令名同样能跑;无条件加是因为与内建撞名的可能性
+  // 无法在拼串时判定,而多一个 `^` 没有代价。
+  assert.equal(formatLaunchPath('/usr/bin/dsh-tui', 'nu', false), '^/usr/bin/dsh-tui')
+  assert.equal(
+    formatLaunchPath('/opt/my tools/dsh-tui', 'nu', false),
+    "^r#'/opt/my tools/dsh-tui'#",
+  )
+})
+
+test('Nushell quoting uses raw strings, not POSIX splicing (issue #25)', () => {
+  // Nushell 的单引号字符串不能内含单引号,也没有 '\'' 拼接;raw string 原样保真
+  assert.equal(quoteShellArg("/opt/it's/dsh-tui", 'nu'), "r#'/opt/it's/dsh-tui'#")
+  assert.equal(quoteShellArg('/opt/my tools/dsh-tui', 'nu'), "r#'/opt/my tools/dsh-tui'#")
+  // 含 '# 序列时加长分隔符,避免字面量提前闭合
+  assert.equal(quoteShellArg("/opt/a'#b", 'nu'), "r##'/opt/a'#b'##")
+  // 参数位:引用但不加 ^(位置参数不是命令)
+  assert.equal(formatWorkspaceTargetArg('/opt/my tools', 'nu'), " r#'/opt/my tools'#")
+})
+
+// issue #25 的**真正不变量**:nu 的路径不做 POSIX 改写。若有人把 nu 归进
+// isBashLike,windowsPathToPosix 会把 `C:\Users\...` 变成 `/c/Users/...`,而那正是
+// 真实 nu 拒绝执行的形态(实测该形态 exit=1)。
+//
+// 补的是哪个缺口(第三轮独立审查实测):把 isBashLike 放行 nu 后失败的只有本测试与
+// `resolveLaunchCommand picks .cmd` 两条——后者只守着 resolveLaunchCommand 那条
+// 路径,而 formatLaunchPath / formatWorkspaceTargetArg 这两处 isBashLike 门当时没
+// 有任何断言。本测试补的正是这两处。
+test('Nushell paths are never rewritten to POSIX form on Windows (issue #25)', () => {
+  assert.equal(
+    formatLaunchPath('C:\\Users\\u\\AppData\\Roaming\\npm\\dsh-tui.cmd', 'nu', true),
+    '^C:\\Users\\u\\AppData\\Roaming\\npm\\dsh-tui.cmd',
+  )
+  assert.equal(formatWorkspaceTargetArg('D:\\My Repos', 'nu'), " r#'D:\\My Repos'#")
+  // 对照:bash-like 确实会改写(既有行为,不受本 PR 影响)
+  assert.equal(
+    formatLaunchPath('C:\\Users\\u\\AppData\\Roaming\\npm\\dsh-tui', 'bash', true),
+    '/c/Users/u/AppData/Roaming/npm/dsh-tui',
+  )
+})
+
 test('formatLaunchPath converts Windows paths for bash-like shells', () => {
   assert.equal(
     formatLaunchPath('C:\\Users\\admin\\AppData\\Roaming\\npm\\dsh-tui', 'bash', true),
