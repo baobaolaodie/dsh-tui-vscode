@@ -10,6 +10,7 @@ import {
   formatLaunchPath,
   createSendOnceGate,
   formatWorkspaceTargetArg,
+  normalizeTerminalLocation,
 } from '../session.js'
 
 test('resolveLaunchCommand finds .cmd/.bat/.exe on Windows PATH', () => {
@@ -234,4 +235,16 @@ test('send-once gate: throwing deliver still counts as sent (no resurrect)', () 
   gate.trySend()
   assert.equal(attempts, 1, 'failed delivery must not be retried by late signals')
   assert.equal(gate.sent, true)
+})
+
+// 终端位置归一化:editor(默认,历史行为)/active/panel;空值、未知值、
+// 大小写/空白差异一律安全回退到 editor,保证配置打错也不影响启动路径。
+test('normalizeTerminalLocation maps the setting to a placement kind', () => {
+  assert.equal(normalizeTerminalLocation(undefined), 'editor')
+  assert.equal(normalizeTerminalLocation(''), 'editor')
+  assert.equal(normalizeTerminalLocation('editor'), 'editor')
+  assert.equal(normalizeTerminalLocation('active'), 'active')
+  assert.equal(normalizeTerminalLocation('panel'), 'panel')
+  assert.equal(normalizeTerminalLocation(' PANEL '), 'panel') // trim + case-insensitive
+  assert.equal(normalizeTerminalLocation('beside'), 'editor') // unknown → safe default
 })

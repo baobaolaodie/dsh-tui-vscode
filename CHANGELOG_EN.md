@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/). Versions are recorded in git tags and this document.
 
+## Unreleased
+
+### Added
+
+- **Configurable terminal placement**: new `dsh-tui-vscode.terminalLocation` (`editor`/`active`/`panel`, default `editor`) — `editor` keeps the historical behavior (a new column beside the active one in the central editor area), `active` reuses the current editor column, and `panel` opens in the bottom panel next to ordinary terminals; the setting applies to the next launched session.
+
+### Changed
+
+### Fixed
+
 ## [0.7.0] - 2026-09-21
 
 > via PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19)
