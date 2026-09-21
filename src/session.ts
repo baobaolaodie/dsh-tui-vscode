@@ -238,8 +238,11 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
     case 'wsl':
       return quoted
     case 'nu':
-      // Nushell 的外部命令必须带 `^` 前缀：裸写的命令名会被当作**内部命令**
-      // 解析，报 "executable was not found"（官方文档 Running System Commands）。
+      // `^` 让 Nushell 按**外部命令**解析。注意它做的是**同名消歧**——外部命令与
+      // nu 内建同名时才必需；实测 `nu -c 'node --version'` 这种裸名同样能跑。
+      // 这里无条件加上：命令名是否与内建撞名无法在拼串时判定，而多一个 `^`
+      // 没有任何代价（真实 nu 0.115.1 实测 `^路径` / `^'路径'` / `^r#'路径'#`
+      // 三种形态均可执行）。
       return `^${quoted}`
     case 'powershell':
       return `& ${quoted}`

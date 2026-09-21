@@ -82,9 +82,32 @@ test('detectShellKind recognizes Nushell as its own kind (issue #25)', () => {
   assert.equal(detectShellKind('nushell-wrapper'), 'unknown')
 })
 
+// Nushell 必须走扩展名查找,不能进 isBashLike:实测 nu 执行不了 npm 的无扩展名
+// POSIX shim,Windows 下必须解析到 `.cmd`。这条断言锁住的是**本 PR 最关键的修复
+// 点**——若日后有人把 'nu' 加进 isBashLike,Windows 的 nu 用户会静默坏掉。
+test('resolveLaunchCommand picks .cmd for Nushell on Windows (issue #25)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-launch-nu-'))
+  try {
+    writeFileSync(join(dir, 'dsh-tui'), '#!/bin/sh\n')
+    writeFileSync(join(dir, 'dsh-tui.cmd'), '@echo off\r\n')
+    const original = process.env.PATH
+    process.env.PATH = dir
+    try {
+      assert.equal(resolveLaunchCommand('dsh-tui', true, 'nu'), join(dir, 'dsh-tui.cmd'))
+      // 对照:bash-like 仍优先无扩展名 shim
+      assert.equal(resolveLaunchCommand('dsh-tui', true, 'bash'), join(dir, 'dsh-tui'))
+    } finally {
+      process.env.PATH = original
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('Nushell launch path always carries the ^ sigil (issue #25)', () => {
-  // 命令位:无论值是否需要引用,`^` 都不能少——Nushell 会把裸写的命令名当作
-  // 内部命令解析,报 executable was not found
+  // 命令位:无论值是否需要引用都加 `^`。这不是「否则必然失败」——Nushell 的 `^`
+  // 做的是同名消歧,裸写的普通命令名同样能跑;无条件加是因为与内建撞名的可能性
+  // 无法在拼串时判定,而多一个 `^` 没有代价。
   assert.equal(formatLaunchPath('/usr/bin/dsh-tui', 'nu', false), '^/usr/bin/dsh-tui')
   assert.equal(
     formatLaunchPath('/opt/my tools/dsh-tui', 'nu', false),
