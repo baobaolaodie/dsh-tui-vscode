@@ -28,7 +28,12 @@ const normalizeWsPath = (fsPath: string): string => fsPath.replace(/\\/g, '/')
 const normalize = (p: string): string => normalizeWsPath(p).replace(/\/+$/, '').toLowerCase()
 
 const EXT_ID = 'baobaolaodie.dsh-tui-vscode'
-const WS = join(__dirname, '..', '..', '.e2e-workspace')
+// The suite workspace lives INSIDE the throwaway git parent run-tests.ts
+// creates (`.e2e-git-parent/.e2e-workspace`): it must be a SUBDIRECTORY of a
+// real repository so the git-crawl vs opened-root shape can be reproduced.
+// A stale top-level `.e2e-workspace` from an older layout used to satisfy this
+// path on dev machines while CI (clean checkout) failed with ENOENT.
+const WS = join(__dirname, '..', '..', '.e2e-git-parent', '.e2e-workspace')
 const ENV_OUT = join(WS, 'env-out.txt')
 const STDIN_OUT = join(WS, 'stdin-out.txt')
 const EXITED = join(WS, 'exited.txt')
