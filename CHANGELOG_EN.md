@@ -6,9 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## Unreleased
 
+> ⚠️ **Version gate**: the `#L` line-range syntax requires a **dsh-TUI build that includes upstream #537** (that syntax is now implemented and merged upstream), and the IDE selection channel requires a dsh-TUI that includes **upstream #562 (the merge this extension's pushes are consumed by)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
+
 ### Added
 
+- **IDE selection channel (extension-side server)**: on activation the extension starts a loopback WebSocket server (`ws`) on a random `127.0.0.1` port with token handshake; session terminals automatically receive the `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` environment variables (env-direct discovery), and the server also advertises itself via a lock file (`~/.dsh-tui/ide/<port>.lock`, JSON `{port, token, workspaceFolders, pid}`) so manually launched dsh-tui instances can find it (lock scan). The handshake is protocol v2: `ide/hello` (token + protocolVersion) → `ide/hello_ack` (protocolVersion + workspaceFolders). Selection changes are pushed after a 300 ms debounce as `selection_changed` notifications (`{path, startLine, endLine, isEmpty, text, documentVersion}`, 0-based; `text` is the editor buffer's own selection text, unsaved edits included) — dsh-TUI attaches it verbatim as an `<attached-file … selection>` block instead of reading a possibly-stale disk copy; line ranges are normalized to an inclusive end. Server startup failure degrades silently (everything else keeps working); deactivation clears the lock and listeners.
+- **e2e coverage for the IDE selection channel**: two new real-extension-host e2e tests — server lifecycle (terminal env injection consistent with the lock advertisement, plus an isolated instance with an injected temp lockRoot verifying the idempotent write/clear lock lifecycle) and WS client round-trip (lock discovery → protocol-v2 handshake with `hello_ack` consumed → receives `selection_changed` carrying coordinates, editor text and the document version).
+
 ### Changed
+
+- **`@` mention output format migration: relative path + `#L` line range**: the output of `insertAtMention` and the automatic selection mention changes from `@absolute/path Lstart-end` (space-separated plain-text hint, unparsed by old dsh-tui) to **`@relative/path#Lstart-end`** (relativized against the extension terminal cwd = VS Code workspace root; single line `#L12`, multi-line `#L12-14`, bare path when nothing is selected; `@"path"#L…` for paths with whitespace; outside the workspace it falls back to a forward-slash absolute path still carrying `#L`). This syntax is parsed natively by upstream dsh-TUI from #537 on, and the submit-time attachment is sliced to the line range.
+- **autoInsertMention upgraded to push semantics (on by default)**: with `autoInsertMention` enabled, selections are no longer typed into the running input box (which hijacks it) — they are pushed as coordinates to the running dsh-tui over the IDE selection channel (no input-box takeover; context attaches at submit time; clearing the selection pushes an `isEmpty` notification so the badge and pending attach clear immediately); when the channel is unavailable (server down / not connected) it falls back to the previous typing behavior. On by default.
 
 ### Fixed
 

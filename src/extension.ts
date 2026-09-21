@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
 import {
@@ -16,10 +17,12 @@ import {
   createSendOnceGate,
   detectShellKind,
   formatLaunchPath,
+  formatWorkspaceTargetArg,
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
-import { decideAutoInsert } from './auto-mention'
+import { buildMentionForSnapshot, decideAutoInsert, shouldBroadcastSelection } from './auto-mention'
+import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -118,6 +121,42 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   }
 
+  // ---- IDE selection channel --------------------------------------------
+  // The extension hosts the loopback WS server the TUI connects to (env
+  // direct via terminal env, or lock scan). Startup failure degrades
+  // silently — every other feature keeps working without it.
+  const ideServer = new IdeServer({
+    token: randomBytes(16).toString('hex'),
+    workspaceFolders: () =>
+      (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath),
+  })
+  context.subscriptions.push({
+    dispose: () => {
+      // Deactivate must clear the lock file so stale locks never accumulate.
+      void ideServer.stop()
+    },
+  })
+  void ideServer.start().catch(error => {
+    // Silent degradation with a log line only: the rest of the extension
+    // is unaffected when the server cannot bind.
+    console.error('[dsh-tui-vscode] IDE selection channel failed to start:', error)
+  })
+
+  /** Terminal env pair for the IDE channel ({} while the server is down). */
+  const ideEnvPairs = (): Record<string, string> => ideServer.envForTerminal()
+
+  /** Push one selection snapshot to connected dsh-tui sessions. */
+  const broadcastSelection = (
+    selection: {
+      path: string
+      startLine: number
+      endLine: number
+      isEmpty: boolean
+      text: string
+      documentVersion: number
+    },
+  ): boolean => ideServer.broadcastSelection(selection)
+
   function createTerminal(env: Record<string, string>): vscode.Terminal {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? homedir()
     return vscode.window.createTerminal({
@@ -166,6 +205,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const resolved = resolveLaunchCommand(command, isWindows, shellKind)
     const parts = [formatLaunchPath(resolved ?? command, shellKind, isWindows)]
     for (const arg of cfg.extraArgs) parts.push(arg)
+    // Missing-@mention fix: pin the session cwd to THIS workspace
+    // root via a trailing positional arg — the launcher turns it into
+    // DSH_TUI_WORKSPACE_TARGET and the TUI resolves it as its workspace, so
+    // the session's relativization baseline matches ours exactly. Same source
+    // as createTerminal's cwd: one truth for both.
+    const targetArg = formatWorkspaceTargetArg(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      shellKind,
+    )
 
     const existing = findTerminal()
     if (resumeSession) {
@@ -176,27 +224,28 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       const env = buildEnv({
         DSH_TUI_RESUME_SESSION: resumeSession,
         DSH_CC_RESUME_SESSION: resumeSession,
+        ...ideEnvPairs(),
       })
       const terminal = createTerminal(env)
       terminal.show()
-      sendTextWhenReady(terminal, parts.join(' '))
+      sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
     }
     if (resume) {
       // Resume the LAST session: --resume reads ~/.dsh-tui/resume.txt.
       parts.push('--resume')
-      const terminal = createTerminal(buildEnv())
+      const terminal = createTerminal(buildEnv(ideEnvPairs()))
       terminal.show()
-      sendTextWhenReady(terminal, parts.join(' '))
+      sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
     }
     // Multiple concurrent sessions (like Claude Code): every click opens a
     // NEW terminal+session; existing sessions keep running in their own
     // terminals. `existing` is intentionally unused here.
     void existing
-    const terminal = createTerminal(buildEnv())
+    const terminal = createTerminal(buildEnv(ideEnvPairs()))
     terminal.show()
-    sendTextWhenReady(terminal, parts.join(' '))
+    sendTextWhenReady(terminal, parts.join(' ') + targetArg)
   }
 
   const register = (id: string, fn: (...args: unknown[]) => void): void => {
@@ -221,11 +270,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
   })
   // 以 Claude Code 官方 insertAtMention 为基准,做 dsh-tui 适配:把当前文件/
-  // 选中代码以 `@绝对路径 L起-止` 形式插入输入框。用「正斜杠绝对路径」是因为
-  // dsh-tui 的 @ 提及把相对路径按「会话自己 cwd」解析(不认 VS Code 工作区,
-  // 实测弹「未找到引用」),绝对路径则原样直通、与 cwd 无关;dsh-tui 不认 #L
-  // 行区间,所以 @ 引用止于路径、提交时附加整个文件,行区间作为空格分隔的
-  // 纯文本提示。(dsh-tui 原生支持 @ 文件引用。)
+  // 选中代码以 `@相对路径#L起-止` 形式插入输入框。dsh-TUI 的 @ 提及原生
+  // 解析 `#L` 行区间(1-based、含端点);相对路径以「会话自己的 cwd」为基准,
+  // 而本扩展启动的终端 cwd 即工作区根(createTerminal 同款取法),所以传
+  // workspaceRoot 把路径相对化——消息更短且与会话 cwd 无关性等价;根外或无
+  // 工作区时兜底正斜杠绝对路径(dsh-tui 对绝对路径原样直通)。行区间为空格
+  // 分隔纯文本的旧形态已按上游新语法移除。
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
@@ -234,11 +284,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
     const mentionPath = normalizeMentionPath(editor.document.uri.fsPath)
     const selection = editor.selection
-    const mention = buildAtMention(mentionPath, {
-      isEmpty: selection.isEmpty,
-      startLine: selection.start.line,
-      endLine: selection.end.line,
-    })
+    const mention = buildAtMention(
+      mentionPath,
+      {
+        isEmpty: selection.isEmpty,
+        ...selectionLineRange(selection),
+      },
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    )
     const terminal = findTerminal()
     if (terminal) {
       // 插入输入框而不自动提交:用户可继续补问题,回车后 dsh-tui 会把
@@ -251,11 +304,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     await vscode.env.clipboard.writeText(mention)
     void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
   })
-  // 选区变化自动引用(experimental,默认关):选区变化 → 300ms 防抖 → 自动把
-  // `@绝对路径 L起-止` 键入运行中的 dsh-tui 输入框。dsh-tui 没有接收选区
-  // 上下文的专用通道,扩展只有 `terminal.sendText` 一条输入通道,故为降级近似;
-  // 也因此必须：
-  // 默认关闭、仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。
+  // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
+  // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
+  // 把选区坐标**与编辑器缓冲区自己的选区文本**(含未保存修改,协议 v2)推送给
+  // 运行中的 dsh-tui(其提交时原样附加该文本并在 footer 实时显示 ⧉ 徽标;
+  // server 回退路径仍按坐标读盘——协议 v2 的 selection_changed 消费)。
+  // server 缺席(启动失败/旧版 dsh-tui)时回退旧的敲字近似:把
+  // `@相对路径#L起-止` 键入运行中的输入框(workspaceRoot 同 insertAtMention:
+  // 根内相对化,根外兜底绝对)。也因此必须:仅在有运行中会话时注入、
+  // 对同一选区去重,避免抢占输入框/刷屏。推送分支无此副作用——不碰输入框。
   // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
   {
@@ -264,7 +321,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const isEnabled = (): boolean =>
       vscode.workspace
         .getConfiguration('dsh-tui-vscode')
-        .get<boolean>('autoInsertMention', false)
+        .get<boolean>('autoInsertMention', true)
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
         if (!isEnabled()) return
@@ -274,26 +331,80 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         // 时事件仍应工作(且后台编辑器选区通常不会变化,误触发风险低)。
         if (editor.document.uri.scheme !== 'file') return
         const selection = editor.selection
+        // 行区间归一化一次,下面三处消费(清空广播/自动引用快照/通道推送)共用:
+        // 整行选区的 VS Code end.line 是「末覆盖行 + 1」,协议按含端消费。
+        const range = selectionLineRange(selection)
+        // 清空选区(点一下/取消划行):广播 isEmpty 让 TUI 清掉 footer 徽标并
+        // 停止本次选区附加——否则 TUI 的 selection 快照永不被清,徽标残留、
+        // 再发消息仍带上旧选区索引(曾经静默失效的契约,autoInsertMention
+        // 默认开后暴露)。走同一 300ms 防抖(拖选中间态收敛为最终值);
+        // 无文本可敲所以不回退 sendText;server 缺席时静默(无可达听众)。
+        if (selection.isEmpty) {
+          if (postpone !== undefined) clearTimeout(postpone)
+          postpone = setTimeout(() => {
+            void broadcastSelection({
+              path: normalizeMentionPath(editor.document.uri.fsPath),
+              startLine: range.startLine,
+              endLine: range.endLine,
+              isEmpty: true,
+              text: '',
+              documentVersion: editor.document.version,
+            })
+            lastInserted = undefined
+          }, 300)
+          return
+        }
+        const snapshot = {
+          path: editor.document.uri.fsPath,
+          startLine: range.startLine,
+          endLine: range.endLine,
+        }
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        // 引用原文自己算一次(与 decideAutoInsert 内部同一个纯函数):推送分支
+        // 也可能在「重复」状态下发生,那时 outcome 里没有 mention 可用。
+        const mention = buildMentionForSnapshot(snapshot, workspaceRoot)
         const outcome = decideAutoInsert({
           enabled: true,
           hasSelection: !selection.isEmpty,
           hasTerminal: hasTerminal(),
-          snapshot: {
-            path: editor.document.uri.fsPath,
-            startLine: selection.start.line,
-            endLine: selection.end.line,
-          },
+          snapshot,
           lastInserted,
+          workspaceRoot,
         })
-        if (outcome.action !== 'insert') return
-        // 300ms 防抖:连续拖选/多点只收敛为最后一次。
+        // 「与上次相同」只该挡住往输入框敲字那条回退:通道推送是幂等的状态更新,
+        // 不占输入框也不会刷屏。用它挡推送会让两次行区间相同、正文不同的手势
+        // (整行选区按含端归一化后很常见:先拖到 (7,1) 再拖成整行)停在旧正文上
+        // ——TUI 侧徽标/指示行按行数看不出差别,模型收到的却是上一次的内容。
+        if (!shouldBroadcastSelection(outcome)) return
+        // 300ms 防抖:连续拖选/多点只收敛为最后一次(复用 postpone 先例)。
         if (postpone !== undefined) clearTimeout(postpone)
         postpone = setTimeout(() => {
+          // 首选:IDE 通道推送(不占输入框;server 未起则 false 回退)。
+          // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约;
+          // 协议 v2 同时携带编辑器缓冲区自己的选区文本(含未保存修改),
+          // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
+          if (
+            broadcastSelection({
+              path: normalizeMentionPath(editor.document.uri.fsPath),
+              startLine: range.startLine,
+              endLine: range.endLine,
+              isEmpty: false,
+              text: editor.document.getText(selection),
+              documentVersion: editor.document.version,
+            })
+          ) {
+            lastInserted = mention
+            return
+          }
+          // 回退:旧行为——键入运行中的 dsh-tui 输入框。只有 insert 才值得敲:
+          // duplicate(与上次相同)与 no-terminal(手动启动的会话没有扩展终端)
+          // 都只该挡住这条回退,推送已在上面成功或此处被 action 收口。
+          if (outcome.action !== 'insert') return
           const terminal = findTerminal()
           if (!terminal) return
           terminal.show()
-          terminal.sendText(outcome.mention, false)
-          lastInserted = outcome.mention
+          terminal.sendText(mention, false)
+          lastInserted = mention
         }, 300)
       }),
       {
@@ -465,5 +576,6 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 }
 
 export function deactivate(): void {
-  // Terminals are owned by VS Code; nothing to tear down.
+  // The IDE selection channel server (and its lock file) is torn down via
+  // the context.subscriptions dispose hook registered in activate().
 }

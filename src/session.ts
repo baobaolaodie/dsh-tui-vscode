@@ -161,6 +161,59 @@ export function formatLaunchPath(path: string, shellKind: ShellKind, isWindows: 
       return isWindows ? `& '${display}'` : `'${display}'`
   }
 }
+
+/**
+ * The trailing positional argument of the launch command: the opened
+ * workspace root, so the dsh-tui launcher can pin the session cwd to the
+ * SAME root this extension relativizes @mentions against.
+ *
+ * Why: the TUI's default session cwd crawls up to the nearest git worktree
+ * root (upstream issue #96), while mention relativization uses
+ * `workspaceFolders[0]` — in a subdirectory workspace of a git repo the two
+ * diverge and every submitted `@relative#L…` lands as "missing". Appending
+ * the workspace root makes the launcher set DSH_TUI_WORKSPACE_TARGET → the
+ * plugin resolves it directly (absolute paths short-circuit) → session cwd
+ * === extension baseline.
+ *
+ * Quoting follows formatLaunchPath's per-shell conventions (the launcher's
+ * arg scanner treats a quoted path with spaces as one token); an empty/absent
+ * root yields '' so callers append nothing. Pure — unit-tested without VS Code.
+ */
+export function formatWorkspaceTargetArg(
+  workspaceRoot: string | undefined,
+  shellKind: ShellKind,
+): string {
+  const root = workspaceRoot?.trim() ?? ''
+  if (root === '') return ''
+  // Convert BEFORE the space check (formatLaunchPath precedent): a Windows
+  // root on a bash-like shell must reach the shell in POSIX form whether or
+  // not it contains spaces — bash turns `D:\repo` into `D:repo`. The helper
+  // passes POSIX roots through untouched, so this is safe on every host.
+  const display = isBashLike(shellKind) ? windowsPathToPosix(root, shellKind) : root
+  // EVERY branch carries its own leading separator: the caller appends this
+  // string to `parts.join(' ')` verbatim (extension.ts), so a branch that
+  // returns a bare quoted literal glues the target to the previous token —
+  // `dsh-tui'D:\my repo'` (no extra args) or `--resume'D:\my repo'` — and the
+  // launcher is never found / never receives the root.
+  if (!display.includes(' ')) return ` ${display}`
+  switch (shellKind) {
+    case 'cmd':
+      return ` "${display}"`
+    case 'powershell':
+      // Single-quoted string literal, NOT `& '...'`: this arg trails the
+      // command, so a leading & is a second use of the call operator →
+      // ParserError; as the first token it would invoke the path as a
+      // command. A quoted string alone is a literal positional argument.
+      return ` '${display}'`
+    case 'bash':
+    case 'cygwin':
+    case 'wsl':
+      return ` '${display}'`
+    default:
+      // Same reasoning as powershell: positional arg position forbids &.
+      return ` '${display}'`
+  }
+}
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
   base?: Record<string, string | undefined>
@@ -172,6 +225,13 @@ export interface LaunchEnvInput {
   editorCommand?: string
   /** Override $DSH_HOME for the session ('' keeps the inherited value). */
   dshHome?: string
+  /**
+   * Extra key/values merged over the computed env — last writer wins. The
+   * extension injects its IDE selection channel pair (DSH_TUI_IDE_PORT /
+   * DSH_TUI_IDE_TOKEN) here; keeping it generic avoids coupling the pure
+   * helper to that protocol.
+   */
+  extra?: Record<string, string>
 }
 
 export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
@@ -189,7 +249,7 @@ export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
   if (wantsEditor && !base.VISUAL && !base.EDITOR) {
     env.VISUAL = input.editorCommand?.trim() || 'code -w'
   }
-  return env
+  return { ...env, ...input.extra }
 }
 
 /**
