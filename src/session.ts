@@ -31,11 +31,13 @@ export function detectShellKind(shell: string | undefined): ShellKind {
   if (!base) return 'unknown'
   if (base.includes('powershell') || base.includes('pwsh')) return 'powershell'
   if (base === 'cmd' || base.endsWith('.cmd') || base.endsWith('cmd.exe')) return 'cmd'
-  // Nushell: exact basename match, and it must precede EVERY path-level test
-  // below — `base.includes('wsl')` and `value.includes('cygwin')` are far looser
-  // and would otherwise swallow a Nushell installed under such a directory
-  // (`C:\cygwin64\bin\nu.exe` → 'cygwin', `C:\wsl\nu.exe` → 'wsl'; CodeRabbit
-  // review). Exact matching also avoids the old `base.includes('nu')` over-reach.
+  // Nushell: exact basename match, placed before the cygwin test below because
+  // THAT one matches against the whole path (`value.includes('cygwin')`) — a
+  // correctly-named `C:\cygwin64\bin\nu.exe` would otherwise be reported as
+  // cygwin (CodeRabbit review). The wsl test is basename-only, so its ordering
+  // relative to this one is irrelevant; nu sits here simply because this is
+  // where the basename-level checks live. Exact matching also avoids the old
+  // `base.includes('nu')` over-reach.
   if (base === 'nu' || base === 'nu.exe' || base === 'nushell' || base === 'nushell.exe') {
     return 'nu'
   }
@@ -183,7 +185,9 @@ function isSafeUnquoted(value: string, shellKind: ShellKind): boolean {
  * 不转义，还允许内含单引号。唯一会提前闭合字面量的是 `'#` 序列，按 Rust 风格
  * 用更多 `#` 分隔即可。
  *
- * 依据 Nushell 官方文档实现；本机未安装 `nu`，**未在真实 Nushell 上实测**。
+ * **已用真实 Nushell 实测**（0.115.1，另测 0.94–0.110 版本矩阵）：`r#'…'#`、
+ * `r##'…'##` 等形态均解析为原样的字面量，含 `'`、`#`、`&`、`$` 的取值逐字符送达。
+ * 已知界限：raw string 作**命令位**需要 nu ≥ 0.95.0（0.94.x 上失败，作参数正常）。
  */
 function nuQuote(value: string): string {
   let hashes = '#'
