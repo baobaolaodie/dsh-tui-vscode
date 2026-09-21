@@ -7,12 +7,18 @@
  *
  * Protocol contract (ADR-001 — changing it requires updating both ends):
  * - Lock file `<port>.lock` under `<lockRoot>/ide/` with JSON
- *   `{ port, token, workspaceFolders, pid }`.
- * - Handshake: the client's first frame is
- *   `{"method":"ide/hello","params":{"token"}}`; the server validates the
- *   token and silently accepts (no ack frame).
+ *   `{ port, token, workspaceFolders, pid }` (directory 0700, file 0600).
+ * - Handshake (protocol version 2): the client's first frame is
+ *   `{"method":"ide/hello","params":{"token","protocolVersion"}}`; the
+ *   server validates the token and answers
+ *   `{"method":"ide/hello_ack","params":{"protocolVersion",
+ *   "workspaceFolders"}}` — a wrong token gets no ack, the socket is
+ *   dropped (the TUI treats open-without-ack as "not authenticated" and
+ *   moves on to its next candidate).
  * - Notifications: `{"method":"selection_changed","params":{path,
- *   startLine, endLine, isEmpty}}` — coordinates only (0-based), never text.
+ *   startLine, endLine, isEmpty, text, documentVersion}}` — coordinates are
+ *   0-based and `text` is the editor buffer's own selection text (unsaved
+ *   edits included); the TUI attaches it verbatim.
  * - Env keys: DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN.
  */
 
@@ -30,10 +36,16 @@ export const IDE_PORT_ENV = 'DSH_TUI_IDE_PORT'
 export const IDE_TOKEN_ENV = 'DSH_TUI_IDE_TOKEN'
 /** Handshake method the client must send as its first message. */
 const HELLO_METHOD = 'ide/hello'
+/** Ack method the server answers a valid hello with (protocol 2). */
+const HELLO_ACK_METHOD = 'ide/hello_ack'
+/** Wire protocol this server speaks; hello_ack carries it to the client. */
+export const IDE_PROTOCOL_VERSION = 2
 /** Selection notification method broadcast to connected clients. */
 export const SELECTION_METHOD = 'selection_changed'
 
-/** Coordinate snapshot pushed over the wire — coordinates only, no text. */
+/** Snapshot pushed over the wire: coordinates plus the editor buffer's own
+ *  selection text — the TUI attaches exactly what the user saw (unsaved
+ *  edits included) instead of reading a possibly-stale disk copy. */
 export type SelectionBroadcast = {
   path: string
   /** 0-based first selected line. */
@@ -41,6 +53,34 @@ export type SelectionBroadcast = {
   /** 0-based inclusive last selected line. */
   endLine: number
   isEmpty: boolean
+  /** The editor's own text for the selection ('' when isEmpty). */
+  text: string
+  /** The editor document version the text came from. */
+  documentVersion: number
+}
+
+/**
+ * 把编辑器选区归一化为 0-based **含端** 行区间——协议契约的唯一口径。
+ *
+ * VS Code 的 `selection.end` 是「最后一个被选中字符之后」的位置:当选区收在
+ * 下一行行首(列 0)——整行选区最典型的三种手势 Shift+Down / 三击选整行 /
+ * 拖到左边距——`end.line` 比最后一个被覆盖的行大 1(且 `getText()` 会带上
+ * 那一行的换行符)。`SelectionBroadcast`、上游 @-mention 的 `#L起-止` 与
+ * dsh-tui 的徽标/磁盘回退都按「含端」消费,直接推原始 `end.line` 会让 footer
+ * 徽标比实际附加的正文多算一行(徽标说 4 行、transcript 指示行说 3 行)。
+ * 归一化收在推送源头,消费端不必知道 VS Code 的 end 语义。
+ */
+export function selectionLineRange(selection: {
+  start: { line: number, character: number }
+  end: { line: number, character: number }
+}): { startLine: number, endLine: number } {
+  const startLine = selection.start.line
+  const { line, character } = selection.end
+  return {
+    startLine,
+    // 空选区 start === end,`line > startLine` 恒假 → 原样返回。
+    endLine: character === 0 && line > startLine ? line - 1 : line,
+  }
 }
 
 /** Build the `<port>.lock` file name for one bound port. */
@@ -247,11 +287,25 @@ export class IdeServer {
           ? record.params.token
           : undefined
       if (token !== this.token) {
-        // Wrong token: refuse quietly (no ack, just drop the connection).
+        // Wrong token: refuse quietly — no ack, just drop the connection.
         socket.close()
         return
       }
       helloDone = true
+      // Protocol 2: answer the handshake so the client knows the token was
+      // accepted AND which workspaces this server covers (the TUI connects
+      // only on a valid ack — an open socket alone proves nothing).
+      try {
+        socket.send(JSON.stringify({
+          method: HELLO_ACK_METHOD,
+          params: { protocolVersion: IDE_PROTOCOL_VERSION, workspaceFolders: this.workspaceFolders() },
+        }))
+      } catch {
+        // A socket that cannot take the ack is as good as rejected.
+        this.drop(socket)
+        socket.terminate()
+        return
+      }
       this.sockets.add(socket)
       socket.on('close', () => this.drop(socket))
       socket.on('error', () => this.drop(socket))
@@ -264,7 +318,11 @@ export class IdeServer {
 
   private writeLock(port: number): void {
     const dir = join(this.lockRoot, IDE_LOCK_DIR_NAME)
-    mkdirSync(dir, { recursive: true })
+    // 0700/0600 (maintainer review round 3): the lock carries the handshake
+    // token — a local process reading it can impersonate this IDE and push
+    // selections (and thus file content) into dsh-tui sessions. Owner-only
+    // permissions are a cheap fence; Windows ignores the modes harmlessly.
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     this.lockPath = join(dir, lockFileName(port))
     // Atomic write (maintainer review round 2, server side): write to a
     // sibling temp file then rename over the target. A TUI scanning
@@ -283,7 +341,9 @@ export class IdeServer {
           pid: process.pid,
         }),
       ),
-      'utf8',
+      // encoding 与 mode 必须同在一个 options 对象里:Node 的 writeFileSync
+      // 只接受 (file, data, options),多传一个参数 TS 直接报 TS2554。
+      { encoding: 'utf8', mode: 0o600 },
     )
     renameSync(tmp, this.lockPath)
   }

@@ -30,9 +30,10 @@ export function normalizeMentionPath(fsPath: string): string {
 export interface MentionSelection {
   /** 选区是否为空(光标未选中任何文本)。为空时引用整个文件。 */
   isEmpty: boolean
-  /** 选区起始行(0-based,VS Code 语义)。 */
+  /** 选区起始行(0-based)。 */
   startLine: number
-  /** 选区结束行(0-based,VS Code 语义)。 */
+  /** 选区最后一个被覆盖的行(0-based **含端**)——由 `selectionLineRange` 从
+   *  VS Code 选区归一化而来,不是 `selection.end.line`(整行选区时后者大 1)。 */
   endLine: number
 }
 

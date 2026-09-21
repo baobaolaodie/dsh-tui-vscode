@@ -21,8 +21,8 @@ import {
   resolveLaunchCommand,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
-import { decideAutoInsert } from './auto-mention'
-import { IdeServer } from './ide/server'
+import { buildMentionForSnapshot, decideAutoInsert, shouldBroadcastSelection } from './auto-mention'
+import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -147,7 +147,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 
   /** Push one selection snapshot to connected dsh-tui sessions. */
   const broadcastSelection = (
-    selection: { path: string; startLine: number; endLine: number; isEmpty: boolean },
+    selection: {
+      path: string
+      startLine: number
+      endLine: number
+      isEmpty: boolean
+      text: string
+      documentVersion: number
+    },
   ): boolean => ideServer.broadcastSelection(selection)
 
   function createTerminal(env: Record<string, string>): vscode.Terminal {
@@ -281,8 +288,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       mentionPath,
       {
         isEmpty: selection.isEmpty,
-        startLine: selection.start.line,
-        endLine: selection.end.line,
+        ...selectionLineRange(selection),
       },
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     )
@@ -324,6 +330,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         // 时事件仍应工作(且后台编辑器选区通常不会变化,误触发风险低)。
         if (editor.document.uri.scheme !== 'file') return
         const selection = editor.selection
+        // 行区间归一化一次,下面三处消费(清空广播/自动引用快照/通道推送)共用:
+        // 整行选区的 VS Code end.line 是「末覆盖行 + 1」,协议按含端消费。
+        const range = selectionLineRange(selection)
         // 清空选区(点一下/取消划行):广播 isEmpty 让 TUI 清掉 footer 徽标并
         // 停止本次选区附加——否则 TUI 的 selection 快照永不被清,徽标残留、
         // 再发消息仍带上旧选区索引(曾经静默失效的契约,autoInsertMention
@@ -334,50 +343,66 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           postpone = setTimeout(() => {
             void broadcastSelection({
               path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: selection.start.line,
-              endLine: selection.end.line,
+              startLine: range.startLine,
+              endLine: range.endLine,
               isEmpty: true,
+              text: '',
+              documentVersion: editor.document.version,
             })
             lastInserted = undefined
           }, 300)
           return
         }
+        const snapshot = {
+          path: editor.document.uri.fsPath,
+          startLine: range.startLine,
+          endLine: range.endLine,
+        }
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        // 引用原文自己算一次(与 decideAutoInsert 内部同一个纯函数):推送分支
+        // 也可能在「重复」状态下发生,那时 outcome 里没有 mention 可用。
+        const mention = buildMentionForSnapshot(snapshot, workspaceRoot)
         const outcome = decideAutoInsert({
           enabled: true,
           hasSelection: !selection.isEmpty,
           hasTerminal: hasTerminal(),
-          snapshot: {
-            path: editor.document.uri.fsPath,
-            startLine: selection.start.line,
-            endLine: selection.end.line,
-          },
+          snapshot,
           lastInserted,
-          workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+          workspaceRoot,
         })
-        if (outcome.action !== 'insert') return
+        // 「与上次相同」只该挡住往输入框敲字那条回退:通道推送是幂等的状态更新,
+        // 不占输入框也不会刷屏。用它挡推送会让两次行区间相同、正文不同的手势
+        // (整行选区按含端归一化后很常见:先拖到 (7,1) 再拖成整行)停在旧正文上
+        // ——TUI 侧徽标/指示行按行数看不出差别,模型收到的却是上一次的内容。
+        if (!shouldBroadcastSelection(outcome)) return
         // 300ms 防抖:连续拖选/多点只收敛为最后一次(复用 postpone 先例)。
         if (postpone !== undefined) clearTimeout(postpone)
         postpone = setTimeout(() => {
-          // 首选:IDE 通道坐标推送(不占输入框;server 未起则 false 回退)。
-          // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约,
-          // TUI 端按坐标自行 resolve+读文件,不吃 @/#L 文本形态。
+          // 首选:IDE 通道推送(不占输入框;server 未起则 false 回退)。
+          // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约;
+          // 协议 v2 同时携带编辑器缓冲区自己的选区文本(含未保存修改),
+          // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
           if (
             broadcastSelection({
               path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: selection.start.line,
-              endLine: selection.end.line,
+              startLine: range.startLine,
+              endLine: range.endLine,
               isEmpty: false,
+              text: editor.document.getText(selection),
+              documentVersion: editor.document.version,
             })
           ) {
-            lastInserted = outcome.mention
+            lastInserted = mention
             return
           }
-          // 回退:旧行为——键入运行中的 dsh-tui 输入框。
+          // 回退:旧行为——键入运行中的 dsh-tui 输入框。去重与「无终端」都只
+          // 影响这条回退(duplicate 蕴含 hasTerminal 为真,顺序见 decideAutoInsert)。
+          if (outcome.action !== 'insert') return
           const terminal = findTerminal()
           if (!terminal) return
           terminal.show()
-          terminal.sendText(outcome.mention, false)
-          lastInserted = outcome.mention
+          terminal.sendText(mention, false)
+          lastInserted = mention
         }, 300)
       }),
       {
