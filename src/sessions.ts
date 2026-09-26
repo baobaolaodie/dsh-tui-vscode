@@ -1187,13 +1187,16 @@ export function appendSessionTitle(
     const buf = readFileSync(file)
     if (buf.length <= 4 || buf.readUInt32LE(0) !== ZSTD_MAGIC) return 'unavailable'
     const text = decodeSessionLog(file).toString('utf8')
+    const lines = text.split('\n')
     let maxSeq = -1
-    for (const rawLine of text.split('\n')) {
+    let bareTitles = 0
+    for (const rawLine of lines) {
       const line = rawLine.trim()
       if (!line) continue
       try {
-        const event = JSON.parse(line) as { seq?: unknown }
+        const event = JSON.parse(line) as { seq?: unknown; type?: unknown; data?: unknown }
         if (typeof event['seq'] === 'number' && event['seq'] > maxSeq) maxSeq = event['seq']
+        if (event['type'] === 'session/title' && !isV4TitlePayload(event['data'])) bareTitles += 1
       } catch {
         // unparseable line — not a seq witness
       }
@@ -1212,12 +1215,88 @@ export function appendSessionTitle(
       time: Date.now(),
       data: { title, messageSeqs: [], source: { kind: 'user' } },
     }
-    const frame = compressFrame(JSON.stringify(event) + '\n')
-    if (frame === undefined) return 'unavailable'
-    appendFileSync(file, frame)
+    if (bareTitles === 0) {
+      // Healthy history: extend the log. Appending is what keeps a
+      // concurrently writing TUI/web session safe.
+      const frame = compressFrame(JSON.stringify(event) + '\n')
+      if (frame === undefined) return 'unavailable'
+      appendFileSync(file, frame)
+      return 'appended'
+    }
+    // Broken history: 0.1.7 rejects the log because of those bare rows no
+    // matter what is appended after them, so a plain append would report
+    // success while leaving the session unopenable. Upgrading the rows in
+    // place is the only repair; it costs the append-only property, so it runs
+    // ONLY on an already-unopenable log and replaces the file atomically.
+    return rewriteRepairingTitles(file, lines, event)
+  } catch {
+    return 'unavailable'
+  }
+}
+
+/**
+ * True when a `session/title` payload already carries DSH 0.1.7's V4
+ * envelope (`messageSeqs` array + `source` object with a `kind`).
+ */
+function isV4TitlePayload(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null) return false
+  const record = data as Record<string, unknown>
+  if (!Array.isArray(record['messageSeqs'])) return false
+  const source = record['source']
+  return (
+    typeof source === 'object' &&
+    source !== null &&
+    typeof (source as Record<string, unknown>)['kind'] === 'string'
+  )
+}
+
+/**
+ * Rewrite a log whose history carries pre-0.1.7 bare `session/title` rows:
+ * upgrade each of them in place to the V4 envelope, then append `event`. The
+ * swap is atomic (tmp + rename) and the candidate is decoded back before it
+ * may shadow the original — any failure leaves the log untouched and reports
+ * 'unavailable' rather than half-writing it.
+ */
+function rewriteRepairingTitles(
+  file: string,
+  lines: readonly string[],
+  event: Record<string, unknown>,
+): 'appended' | 'unavailable' {
+  const rebuilt: string[] = []
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown; data?: Record<string, unknown> }
+      if (parsed['type'] !== 'session/title' || isV4TitlePayload(parsed['data'])) {
+        rebuilt.push(line)
+        continue
+      }
+      rebuilt.push(
+        JSON.stringify({
+          ...parsed,
+          data: { ...parsed['data'], messageSeqs: [], source: { kind: 'user' } },
+        }),
+      )
+    } catch {
+      // Unparseable rows are kept byte-for-byte: they are not ours to fix.
+      rebuilt.push(line)
+    }
+  }
+  rebuilt.push(JSON.stringify(event))
+  const text = rebuilt.join('\n') + '\n'
+  const frame = compressFrame(text)
+  if (frame === undefined) return 'unavailable'
+  const tmp = `${file}.repair.tmp`
+  try {
+    writeFileSync(tmp, frame)
+    if (decodeSessionLog(tmp).toString('utf8') !== text) return 'unavailable'
+    renameSync(tmp, file)
     return 'appended'
   } catch {
     return 'unavailable'
+  } finally {
+    rmSync(tmp, { force: true })
   }
 }
 
