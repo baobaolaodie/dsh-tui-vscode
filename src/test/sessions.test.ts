@@ -765,6 +765,34 @@ test('appendSessionTitle appends a zstd frame; last title wins on read', async (
   }
 })
 
+test('appendSessionTitle writes the V4 title envelope (messageSeqs + source)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-rename-v4-'))
+  try {
+    const id = 'ren-v4'
+    const file = makeMultiFrameSession(root, id, [
+      [JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 })],
+      [JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '原始消息' }] } })],
+    ])
+    assert.equal(appendSessionTitle(file, '重命名'), 'appended')
+    const events = decodeSessionLog(file)
+      .toString('utf8')
+      .split('\n')
+      .filter(line => line.trim() !== '')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    const appended = events.filter(event => event['type'] === 'session/title').at(-1)
+    // DSH 0.1.7's V4 relationship check runs on every open and rejects a
+    // title payload missing either field; a rename cites no messages and is
+    // user-sourced. Dropping one would make the renamed session unopenable.
+    assert.deepEqual(appended?.['data'], {
+      title: '重命名',
+      messageSeqs: [],
+      source: { kind: 'user' },
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('deleteSessionLog removes the session dir and refuses out-of-root paths', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-del-'))
   try {

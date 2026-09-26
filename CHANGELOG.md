@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- **重命名不再写出 DSH 0.1.7 无法读取的标题事件**：右键重命名追加的 `session/title` 事件此前只带 `title`（与 dsh-TUI 0.11.0 自身的 `/rename` 同形）。DSH 0.1.7 读取日志时会校验标题信封（`Scanner.finish` → `assertReleasedV4Relationships`），缺 `messageSeqs` 直接抛 `SessionFormatError`——被重命名过的会话会打不开。现在追加的事件补上 V4 要求的 `messageSeqs: []`（显式用户重命名不引用任何消息）与 `source: { kind: 'user' }`；DSH 0.1.5 的迁移路径对同一对字段宽容读取（`list(undefined) → []`），一次写入两代通用。
+
 ## [0.7.1] - 2026-09-22
 
 > 经 PR [#23](https://github.com/baobaolaodie/dsh-tui-vscode/pull/23)、[#24](https://github.com/baobaolaodie/dsh-tui-vscode/pull/24)、[#26](https://github.com/baobaolaodie/dsh-tui-vscode/pull/26) 合并

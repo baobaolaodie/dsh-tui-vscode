@@ -1166,6 +1166,11 @@ export function resetZstd(): void {
  * until it re-reads the log — the sidebar rename is meant for stored
  * sessions. The compressed frame is verified before writing; a corrupt wasm
  * state yields 'unavailable' (callers may resetZstd + retry).
+ *
+ * The event payload is deliberately richer than dsh-TUI 0.11.0's own
+ * `{ title }`-only append: DSH 0.1.7 rejects that bare shape on read (see the
+ * literal below), which would leave the renamed session unopenable. Drop the
+ * extra fields only if upstream starts emitting the V4 shape as well.
  * @param file - Absolute path of the session log (session.jsonl.zstd).
  * @param title - New display title (already trimmed by the caller).
  * @returns 'appended', or 'unavailable' when the log is absent/undecodable
@@ -1193,13 +1198,19 @@ export function appendSessionTitle(
         // unparseable line — not a seq witness
       }
     }
-    // Same envelope shape as a manual /rename append ({ title } only); the
-    // seed validator asks only for type/seq/time/data on non-message types.
+    // A manual /rename append. The payload carries the full V4 title schema
+    // instead of `{ title }` alone: 0.1.5's row validator accepted the bare
+    // shape, but 0.1.7 runs a relationship check (Scanner.finish ->
+    // assertReleasedV4Relationships) on every open and rejects a title
+    // without `messageSeqs` (SessionFormatError), leaving the renamed
+    // session unopenable. An explicit user rename is precisely "no cited
+    // messages + user source"; V3's migration reads the same pair leniently
+    // (list(undefined) -> []), so one shape serves both generations.
     const event = {
       type: 'session/title',
       seq: maxSeq + 1,
       time: Date.now(),
-      data: { title },
+      data: { title, messageSeqs: [], source: { kind: 'user' } },
     }
     const frame = compressFrame(JSON.stringify(event) + '\n')
     if (frame === undefined) return 'unavailable'
