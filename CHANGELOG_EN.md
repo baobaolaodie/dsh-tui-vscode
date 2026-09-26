@@ -12,6 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **Renaming no longer writes a title event DSH 0.1.7 cannot read, and repairs logs that already carry one**: the `session/title` event appended by the sidebar rename carried only `title` (the same shape dsh-TUI 0.11.0's own `/rename` writes). DSH 0.1.7 validates the title envelope **row by row** when reading a log (`Scanner.finish` → `assertReleasedV4Relationships`) and throws `SessionFormatError` on a missing `messageSeqs` — a renamed session would fail to open. The appended event now carries the V4-required `messageSeqs: []` (an explicit user rename cites no messages) and `source: { kind: 'user' }`; DSH 0.1.5's migration path reads the same pair leniently (`list(undefined) → []`), so one write serves both generations. In addition, when the log **already** holds a bare title row written by an older build (0.1.7 rejects the whole log for it, and appending more rows cannot help), this rename **upgrades those historical rows in place** and atomically replaces the file — so **renaming such a session once restores it**; healthy logs still take the pure-append path, leaving a concurrently writing TUI unaffected.
+
 ## [0.7.1] - 2026-09-22
 
 > via PRs [#23](https://github.com/baobaolaodie/dsh-tui-vscode/pull/23), [#24](https://github.com/baobaolaodie/dsh-tui-vscode/pull/24), [#26](https://github.com/baobaolaodie/dsh-tui-vscode/pull/26)

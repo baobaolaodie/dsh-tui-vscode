@@ -765,6 +765,91 @@ test('appendSessionTitle appends a zstd frame; last title wins on read', async (
   }
 })
 
+test('appendSessionTitle writes the V4 title envelope (messageSeqs + source)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-rename-v4-'))
+  try {
+    const id = 'ren-v4'
+    const file = makeMultiFrameSession(root, id, [
+      [JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 })],
+      [JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '原始消息' }] } })],
+    ])
+    assert.equal(appendSessionTitle(file, '重命名'), 'appended')
+    const events = decodeSessionLog(file)
+      .toString('utf8')
+      .split('\n')
+      .filter(line => line.trim() !== '')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    const appended = events.filter(event => event['type'] === 'session/title').at(-1)
+    // DSH 0.1.7's V4 relationship check runs on every open and rejects a
+    // title payload missing either field; a rename cites no messages and is
+    // user-sourced. Dropping one would make the renamed session unopenable.
+    assert.deepEqual(appended?.['data'], {
+      title: '重命名',
+      messageSeqs: [],
+      source: { kind: 'user' },
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('appendSessionTitle repairs a log whose history carries a bare title event', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-rename-repair-'))
+  try {
+    const id = 'ren-repair'
+    const file = makeMultiFrameSession(root, id, [
+      [JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 })],
+      [JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '原始消息' }] } })],
+      // A rename written by a pre-0.1.7 build of this extension (or by
+      // dsh-TUI itself): bare `{ title }`. DSH 0.1.7 rejects the whole log
+      // because of THIS row, no matter what is appended after it — so the
+      // rename must repair it instead of stacking another frame on top.
+      [JSON.stringify({ type: 'session/title', seq: 1, data: { title: '旧标题' } })],
+    ])
+    assert.equal(appendSessionTitle(file, '新标题'), 'appended')
+
+    const events = decodeSessionLog(file)
+      .toString('utf8')
+      .split('\n')
+      .filter(line => line.trim() !== '')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    const titles = events.filter(event => event['type'] === 'session/title')
+    // The historical row survives with its text, upgraded in place.
+    assert.equal(titles.length, 2)
+    assert.equal((titles[0]?.['data'] as Record<string, unknown>)['title'], '旧标题')
+    for (const title of titles) {
+      const data = title['data'] as Record<string, unknown>
+      assert.deepEqual(data['messageSeqs'], [])
+      assert.deepEqual(data['source'], { kind: 'user' })
+    }
+    assert.equal(titles.at(-1)?.['seq'], 2, 'the new title continues the seq')
+    assert.equal(readSessionRecord(file)?.title, '新标题')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('appendSessionTitle stays a byte-append while the history is already V4-shaped', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-rename-append-'))
+  try {
+    const id = 'ren-append'
+    const file = makeMultiFrameSession(root, id, [
+      [JSON.stringify({ type: 'session', version: 0, id, cwd: '/w', createdAt: 1 })],
+      [JSON.stringify({ type: 'user/message', seq: 0, data: { content: [{ type: 'text', text: '原始消息' }] } })],
+      [JSON.stringify({ type: 'session/title', seq: 1, data: { title: 'V4 标题', messageSeqs: [], source: { kind: 'user' } } })],
+    ])
+    const before = readFileSync(file)
+    assert.equal(appendSessionTitle(file, '追加标题'), 'appended')
+    const after = readFileSync(file)
+    // Concurrent-writer safety rests on exactly this: a healthy log is only
+    // ever extended, never rewritten.
+    assert.ok(after.length > before.length, 'a frame must have been appended')
+    assert.ok(after.subarray(0, before.length).equals(before), 'original bytes must be untouched')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('deleteSessionLog removes the session dir and refuses out-of-root paths', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-del-'))
   try {
