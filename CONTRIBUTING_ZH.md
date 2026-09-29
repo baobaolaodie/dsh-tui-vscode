@@ -1,4 +1,3 @@
-<!-- transitional copy: base CI compatibility only - content is Chinese (copied from CONTRIBUTING_ZH.md), frozen, to be deleted in PR3. English canonical: CONTRIBUTING.md; maintained Chinese mirror: CONTRIBUTING_ZH.md. -->
 <div align="right">
 
 [English](CONTRIBUTING.md) · 中文
