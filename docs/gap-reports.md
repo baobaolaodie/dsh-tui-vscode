@@ -1,8 +1,14 @@
+<p align="center">
+  <a href="gap-reports_ZH.md">简体中文</a>
+</p>
+
+---
+
 # Gap Report 1 — dsh-ecosystem-spec Windows conformance test fails due to CRLF hash drift
 
-## 现象 / Symptom
+## Symptom
 
-在 Windows 上克隆 `T-Auto/dsh-ecosystem-spec` 后运行 `npm test`，立即失败：
+After cloning `T-Auto/dsh-ecosystem-spec` on Windows and running `npm test`, it fails immediately:
 
 ```
 AssertionError [ERR_ASSERTION]: storage.local schemaHash drifted
@@ -10,21 +16,21 @@ AssertionError [ERR_ASSERTION]: storage.local schemaHash drifted
 - expected: sha256:a43bd499060...
 ```
 
-## 根因 / Root cause
+## Root Cause
 
-- `registry/contracts/storage.local-0.15.json` 的 `schemaHash` 是按 **LF 字节**计算的。
-- 该仓库没有 `.gitattributes` 强制 LF。
-- Windows 默认 `core.autocrlf=true` 时，Git checkout 会把文件转成 **CRLF**。
-- 因此本机文件的 SHA-256 与 registry 记录不一致。
+- The `schemaHash` of `registry/contracts/storage.local-0.15.json` is computed over **LF bytes**.
+- The repository has no `.gitattributes` enforcing LF.
+- When Windows uses the default `core.autocrlf=true`, Git checkout converts files to **CRLF**.
+- As a result, the SHA-256 of the local file does not match the registry record.
 
-## 影响 / Impact
+## Impact
 
-- 规范宣称“npm test 即可验证”，但 Windows 开发者无法复现。
-- 这直接破坏了“可执行规范”的可复现性，是作者所说的“不稳定会爆规范疏漏”的具体实例。
+- The spec claims that "`npm test` is enough to verify", but Windows developers cannot reproduce it.
+- This directly breaks the reproducibility of the "executable spec", and is a concrete instance of what the author described as "instability will expose spec oversights".
 
-## 建议修复 / Suggested fix
+## Suggested Fix
 
-在仓库根目录添加 `.gitattributes`：
+Add a `.gitattributes` at the repository root:
 
 ```
 * text=auto eol=lf
@@ -32,116 +38,116 @@ AssertionError [ERR_ASSERTION]: storage.local schemaHash drifted
 *.md text eol=lf
 ```
 
-并重新校对所有 registry schemaHash（确认是按 LF 字节计算）。
+and re-verify all registry schemaHash values (confirming they are computed over LF bytes).
 
-## 涉及文件 / Files
+## Files
 
-- `.gitattributes`（新增）
+- `.gitattributes` (new)
 - `registry/contracts/*.json`
 - `registry/registry-0.15.json`
-- `conformance/tests/run.js`（如果还需要做换行归一化兜底）
+- `conformance/tests/run.js` (if a newline-normalization fallback is still needed)
 
-## 状态跟踪 / Status
+## Status Tracking
 
-- **已提交**：作为 [T-Auto/dsh-ecosystem-spec#1](https://github.com/T-Auto/dsh-ecosystem-spec/issues/1)（由 baobaolaodie 提交）。
-- **已修复并关闭**：T-Auto 于 2026-08-18 关闭（评论“已修复！”）；修复方式为新增 `.gitattributes`，对 `registry/contracts/*.json` 与 `schemas/*.json` 强制 `eol=lf`。
-- 注：`registry/registry-0.15.json`、`registry/permissions-0.1.json` 不在 `.gitattributes` 覆盖范围内，但 conformance runner 只对 `registry/contracts/*.json` 与 `schemas/*.json` 做 hash 校验，故不影响 `npm test` 复现。
+- **Submitted**: as [T-Auto/dsh-ecosystem-spec#1](https://github.com/T-Auto/dsh-ecosystem-spec/issues/1) (submitted by baobaolaodie).
+- **Fixed and closed**: closed by T-Auto on 2026-08-18 (comment: "Fixed!"); the fix added `.gitattributes` to force `eol=lf` for `registry/contracts/*.json` and `schemas/*.json`.
+- Note: `registry/registry-0.15.json` and `registry/permissions-0.1.json` are not covered by `.gitattributes`, but the conformance runner only hashes `registry/contracts/*.json` and `schemas/*.json`, so this does not affect reproducing `npm test`.
 
 ---
+
 # Gap Report 2 — Official plugin template and docs not aligned with dsh-ecosystem-spec v0.15
 
-## 现象 / Symptom
+## Symptom
 
-- `dsh-tui-ecosystem/plugin-template` 只有 `package.json` + `cordis.patch.yml`，**没有 `dsh-plugin.json`**。
-- `dsh-TUI/docs/plugins.md` 完全没有提及 v0.15 manifest / `facets.host` / contract coordinates / Host Descriptor。
-- 整个 GitHub 搜索 `filename:dsh-plugin.json` 结果为 **0**。
+- `dsh-tui-ecosystem/plugin-template` only has `package.json` + `cordis.patch.yml`, with **no `dsh-plugin.json`**.
+- `dsh-TUI/docs/plugins.md` does not mention the v0.15 manifest / `facets.host` / contract coordinates / Host Descriptor at all.
+- A GitHub-wide search for `filename:dsh-plugin.json` returns **0** results.
 
-## 根因 / Root cause
+## Root Cause
 
-- 当前 dsh 插件生态的实际可运行格式是 **Cordis bundle**（`package.json` 的 `dsh.bundle.patch` + `cordis.patch.yml`）。
-- dsh-ecosystem-spec v0.15 定义的发现入口是 **`dsh-plugin.json`**，两者没有适配层。
-- 官方模板还在教 Cordis bundle，没跟上 spec。
+- The actual runnable format of the current dsh plugin ecosystem is the **Cordis bundle** (`package.json`'s `dsh.bundle.patch` + `cordis.patch.yml`).
+- The discovery entry point defined by dsh-ecosystem-spec v0.15 is **`dsh-plugin.json`**, and there is no adaptation layer between the two.
+- The official template still teaches the Cordis bundle and has not caught up with the spec.
 
-## 影响 / Impact
+## Impact
 
-- 如果规范开始强制，**现存所有社区插件都会不兼容**。
-- 开发者想“按规范写插件”也没有可靠样板可参照。
-- 会阻碍规范进入 Candidate（候选验收要求 3 个示例插件）。
+- If the spec starts being enforced, **all existing community plugins will be incompatible**.
+- Developers who want to "write plugins according to the spec" have no reliable template to follow.
+- It blocks the spec from entering Candidate (candidate acceptance requires 3 example plugins).
 
-## 建议修复 / Suggested fix
+## Suggested Fix
 
-1. 在 `plugin-template` 增加 `dsh-plugin.json`，作为官方样板；
-2. 在 `docs/plugins.md` 增加“生态兼容层”章节，说明 `dsh-plugin.json` 与 `cordis.patch.yml` 的关系；
-3. 在 `dsh-ecosystem-spec/adapters/` 增加至少一篇 Adapter Note，映射 Cordis bundle → v0.15 manifest；
-4. 以 `dsh-tui-vscode` 分支 `feat/dsh-ecosystem-spec` 作为第一个真实试点参考。
+1. Add `dsh-plugin.json` to `plugin-template` as the official template;
+2. Add an "ecosystem compatibility layer" section to `docs/plugins.md`, explaining the relationship between `dsh-plugin.json` and `cordis.patch.yml`;
+3. Add at least one Adapter Note under `dsh-ecosystem-spec/adapters/`, mapping the Cordis bundle → v0.15 manifest;
+4. Use the `dsh-tui-vscode` branch `feat/dsh-ecosystem-spec` as the first real-world pilot reference.
 
-## 涉及仓库 / Repos
+## Repos
 
 - `dsh-tui-ecosystem/plugin-template`
 - `ccch1mneyyy/dsh-TUI` (`docs/plugins.md`)
 - `T-Auto/dsh-ecosystem-spec` (`adapters/`)
-- `baobaolaodie/dsh-tui-vscode`（试点参考）
+- `baobaolaodie/dsh-tui-vscode` (pilot reference)
 
-## 状态跟踪 / Status
+## Status Tracking
 
-- **维持本地记录**：按 2026-08 决策仅保留本文件记录，暂不提交上游 issue / PR；
-- 后续如上游进入 Candidate 验收需要示例插件，可再评估补提。
-- **2026-08-23 时效审计更新**：子项 2（`docs/plugins.md` 未提及 v0.15）已失效——该文档现含完整「社区互操作规范（Community Consensus v0.15）」章节且宿主侧实现（校验库 / Host Descriptor 构建 / 授权存储 / 效果台账 / `/plugins`）已落地；子项 3（全 GitHub 搜 `filename:dsh-plugin.json` 为 0）已失效——现命中约 200+（含 dsh-data-agent / dsh-lark-bot / dsh-deepread 等真实插件仓及第三方市场目录）。子项 1（plugin-template 缺 manifest）本轮未复核，状态不明。「规范强制后现存社区插件全不兼容」的风险判断随之显著下调。
+- **Kept as a local record**: per the 2026-08 decision, it is recorded only in this file, and no upstream issue / PR is submitted for now;
+- if the upstream later needs example plugins for Candidate acceptance, re-evaluate submitting one.
+- **2026-08-23 timeliness audit update**: Sub-item 2 (`docs/plugins.md` not mentioning v0.15) is no longer valid — the document now contains a full "Community Interoperability Specification (Community Consensus v0.15)" section, and the host-side implementation (validation library / Host Descriptor construction / authorization storage / effect ledger / `/plugins`) has landed; sub-item 3 (a GitHub-wide search for `filename:dsh-plugin.json` returning 0) is no longer valid — it now returns about 200+ (including real plugin repositories such as dsh-data-agent / dsh-lark-bot / dsh-deepread and third-party marketplace directories). Sub-item 1 (plugin-template missing the manifest) was not re-checked in this round, so its status is unknown. The risk judgment that "once the spec is enforced all existing community plugins will be incompatible" has consequently been significantly downgraded.
 
 ---
-# Gap Report 3 — 多命令插件的 `commands.invoke` 授权语义在现行规则下不可满足
 
-## 现象 / Symptom
+# Gap Report 3 — The `commands.invoke` authorization semantics for multi-command plugins are unsatisfiable under the current rules
 
-对运行中的 dsh-tui 0.8.8 执行 `/plugins check <manifest>`，单条命名空间 scope 的授权报错：
+## Symptom
+
+Running `/plugins check <manifest>` against a live dsh-tui 0.8.8, authorization with a single namespace-wide scope reports an error:
 
 ```
-语义校验失败：commands.invoke scope is not a declared command: com.baobaolaodie.dsh-tui-vscode
+Semantic validation failed: commands.invoke scope is not a declared command: com.baobaolaodie.dsh-tui-vscode
 ```
 
-改为逐命令 scope（两条 `commands.invoke`，scope 分别为 `.start` / `.resume`）后，
-在**同一套 std 上**于 parse 阶段即被拒：
+After switching to per-command scopes (two `commands.invoke` entries with scopes `.start` / `.resume`), it is rejected at the parse stage on **the same std**:
 
 ```
 component spec.facets[0].permissions contains duplicate permission
   "community.dsh/v1alpha1\u0000Permission\u0000commands.invoke"
 ```
 
-## 根因 / Root cause
+## Root Cause
 
-三条规则合取后互相矛盾（均为实测/读源码确认）：
+The three rules are mutually contradictory when combined (all confirmed by actual testing / reading the source):
 
-1. **@dsh-std/manifest 0.1.0 解析层**（spec pin `614dfa1` 与 dsh-tui 0.8.8 内置副本行为一致）：社区 manifest 权限按
-   `community.dsh/v1alpha1␀Permission␀<name>` 去重——**同 name 仅允许一条，scope 不参与去重键**；
-2. **dsh-tui profile 层正向校验**（`plugin-spec/validate.js`）：每条 `commands.invoke` 的 scope 必须命中 `contributes.commands[].id`；
-3. **dsh-tui profile 层反向校验**（同文件）：每个已声明命令都必须存在 scope 恰等于该命令 id 的 `commands.invoke` 授权。
+1. **@dsh-std/manifest 0.1.0 parsing layer** (spec pin `614dfa1` behaves the same as the copy bundled in dsh-tui 0.8.8): community manifest permissions are deduplicated by `community.dsh/v1alpha1␀Permission␀<name>` — **only one entry with the same name is allowed; scope does not participate in the dedup key**;
+2. **dsh-tui profile layer forward validation** (`plugin-spec/validate.js`): the scope of each `commands.invoke` must match a `contributes.commands[].id`;
+3. **dsh-tui profile layer reverse validation** (same file): every declared command must have a `commands.invoke` authorization whose scope is exactly that command id.
 
-⇒ 插件声明 N≥2 个命令时需要 N 条同名权限（规则 3），但规则 1 只允许 1 条；而仅声明 1 条时其 scope 只能覆盖 1 个命令（规则 2），其余命令必然违反规则 3。**不存在可过审的 manifest 形态。**
+⇒ When a plugin declares N≥2 commands, it needs N permissions with the same name (rule 3), but rule 1 allows only 1; and with only 1 declared, its scope can cover only 1 command (rule 2), so the remaining commands necessarily violate rule 3. **There is no manifest shape that can pass review.**
 
-## 影响 / Impact
+## Impact
 
-- 任何声明 ≥2 个命令的插件都无法通过 `/plugins check` 或上游 `validate:manifest`；
-- 直接阻碍上游进入 Candidate 所需的「多实现证据」——多命令插件是常态而非例外；
-- 本试点被迫收敛为单命令最小合规形态（仅 `.start`），`resume` 声明暂缓。
+- Any plugin declaring ≥2 commands cannot pass `/plugins check` or the upstream `validate:manifest`;
+- It directly blocks the "multi-implementation evidence" required for the upstream to enter Candidate — multi-command plugins are the norm rather than the exception;
+- This pilot is forced to converge on the single-command minimal compliant shape (only `.start`), and the `resume` declaration is put on hold.
 
-## 复现 / Reproduction
+## Reproduction
 
-- dsh-tui 0.8.8（global 与 profile 副本一致），@dsh-std/manifest 0.1.0；
-- spec 侧：T-Auto/dsh-ecosystem-spec main `d406de4` + vendor pin `614dfa1`，`npm run validate:manifest`；
-- 宿主侧：headless 复刻 `/plugins check` 全链（parseManifest → projectManifest → createContractIndex(vendored) → validatePlugin → buildHostDescriptor → negotiate），两种形态的错误均复现；
-- 单命令最小形态：双侧同时 PASS / `compatible`。
+- dsh-tui 0.8.8 (global and profile copies consistent), @dsh-std/manifest 0.1.0;
+- spec side: T-Auto/dsh-ecosystem-spec main `d406de4` + vendor pin `614dfa1`, `npm run validate:manifest`;
+- host side: headless replication of the full `/plugins check` chain (parseManifest → projectManifest → createContractIndex(vendored) → validatePlugin → buildHostDescriptor → negotiate); both shapes reproduce the errors;
+- single-command minimal shape: both sides PASS / `compatible` at the same time.
 
-## 建议修复 / Suggested fix（二选一，需上游裁决）
+## Suggested Fix (choose one; upstream decision required)
 
-1. **改 std**：解析层去重键改为 `name␀scope`（lib 内已有先例键形），允许同 name 不同 scope 的多条授权；
-2. **改 dsh-tui profile 层**：放宽为「action 级授权覆盖全部已声明命令」（如支持插件命名空间前缀 scope），或取消反向覆盖要求。
+1. **Change std**: change the parsing-layer dedup key to `name␀scope` (a key shape precedent already exists in the lib), allowing multiple authorizations with the same name but different scopes;
+2. **Change the dsh-tui profile layer**: relax it to "action-level authorization covers all declared commands" (e.g., support a plugin-namespace-prefix scope), or drop the reverse-coverage requirement.
 
-## 涉及仓库 / Repos
+## Repos
 
-- `Yan-Zero/dsh-std`（@dsh-std/manifest 解析层去重键）
-- `ccch1mneyyy/dsh-TUI`（`src/plugin-spec/validate.js` 正反向校验）
-- `T-Auto/dsh-ecosystem-spec`（vendor pin 与 conformance fixture 未覆盖多命令场景）
+- `Yan-Zero/dsh-std` (dedup key in the @dsh-std/manifest parsing layer)
+- `ccch1mneyyy/dsh-TUI` (`src/plugin-spec/validate.js` forward/reverse validation)
+- `T-Auto/dsh-ecosystem-spec` (vendor pin and conformance fixtures lack multi-command coverage)
 
-## 状态跟踪 / Status
+## Status Tracking
 
-- **维持本地记录**：按 2026-08 决策暂不提交上游 issue；本试点已按单命令最小合规形态保持双侧全绿，上游裁决后恢复 `resume` 声明。
+- **Kept as a local record**: per the 2026-08 decision, no upstream issue is submitted for now; this pilot stays all-green on both sides in the single-command minimal compliant shape, and the `resume` declaration will be restored after the upstream decision.
