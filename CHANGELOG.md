@@ -1,6 +1,8 @@
 # Changelog
 
-格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。版本记录在 git tag 与本文件中。
+All notable changes to this project are documented in this file.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/). Versions are recorded in git tags and this document.
 
 ## Unreleased
 
@@ -8,85 +10,87 @@
 
 ### Changed
 
+- **Docs are now English-primary**: the Chinese originals moved to `_ZH` mirrors, the legacy `_EN` files stay as transitional copies until the follow-up cleanup PR deletes them, and the `docs/` design notes gained English versions.
+
 ### Fixed
 
 ## [0.7.2] - 2026-09-26
 
-> 经 PR [#30](https://github.com/baobaolaodie/dsh-tui-vscode/pull/30) 合并
+> via PR [#30](https://github.com/baobaolaodie/dsh-tui-vscode/pull/30)
 
 ### Fixed
 
-- **重命名不再写出 DSH 0.1.7 无法读取的标题事件，并会顺手修复已损坏的日志**：右键重命名追加的 `session/title` 事件此前只带 `title`（与 dsh-TUI 0.11.0 自身的 `/rename` 同形）。DSH 0.1.7 读取日志时会**逐条**校验标题信封（`Scanner.finish` → `assertReleasedV4Relationships`），缺 `messageSeqs` 即抛 `SessionFormatError`——被重命名过的会话会打不开。现在追加的事件补上 V4 要求的 `messageSeqs: []`（显式用户重命名不引用任何消息）与 `source: { kind: 'user' }`；DSH 0.1.5 的迁移路径对同一对字段宽容读取（`list(undefined) → []`），一次写入两代通用。此外，若日志里**已经**存在旧版写下的裸标题事件（0.1.7 会因此拒绝整份日志，再追加多少条也无济于事），本次重命名会**就地升级那些历史事件**并原子替换整个日志——因此**对这类会话重命名一次即可恢复打开**；完好的日志仍走纯追加路径（并发写该会话的 TUI 不受影响）。
+- **Renaming no longer writes a title event DSH 0.1.7 cannot read, and repairs logs that already carry one**: the `session/title` event appended by the sidebar rename carried only `title` (the same shape dsh-TUI 0.11.0's own `/rename` writes). DSH 0.1.7 validates the title envelope **row by row** when reading a log (`Scanner.finish` → `assertReleasedV4Relationships`) and throws `SessionFormatError` on a missing `messageSeqs` — a renamed session would fail to open. The appended event now carries the V4-required `messageSeqs: []` (an explicit user rename cites no messages) and `source: { kind: 'user' }`; DSH 0.1.5's migration path reads the same pair leniently (`list(undefined) → []`), so one write serves both generations. In addition, when the log **already** holds a bare title row written by an older build (0.1.7 rejects the whole log for it, and appending more rows cannot help), this rename **upgrades those historical rows in place** and atomically replaces the file — so **renaming such a session once restores it**; healthy logs still take the pure-append path, leaving a concurrently writing TUI unaffected.
 
 ## [0.7.1] - 2026-09-22
 
-> 经 PR [#23](https://github.com/baobaolaodie/dsh-tui-vscode/pull/23)、[#24](https://github.com/baobaolaodie/dsh-tui-vscode/pull/24)、[#26](https://github.com/baobaolaodie/dsh-tui-vscode/pull/26) 合并
+> via PRs [#23](https://github.com/baobaolaodie/dsh-tui-vscode/pull/23), [#24](https://github.com/baobaolaodie/dsh-tui-vscode/pull/24), [#26](https://github.com/baobaolaodie/dsh-tui-vscode/pull/26)
 
 ### Added
 
-- **终端位置可配置**：新增 `dsh-tui-vscode.terminalLocation`（`editor`/`active`/`panel`，默认 `editor`）——`editor` 保持历史行为（在中间编辑区活动列旁新开一列），`active` 复用当前编辑列，`panel` 开在底部面板与普通终端并列；配置在下一次启动会话时生效。
+- **Configurable terminal placement**: new `dsh-tui-vscode.terminalLocation` (`editor`/`active`/`panel`, default `editor`) — `editor` keeps the historical behavior (a new column beside the active one in the central editor area), `active` reuses the current editor column, and `panel` opens in the bottom panel next to ordinary terminals; the setting applies to the next launched session.
 
 ### Changed
 
-- **相对路径的大小写匹配改为按平台分流**：此前无条件把路径小写化再比较（注释声称是为 Windows 盘符/目录大小写漂移而做），在区分大小写的系统上会把 `/work/Repo/a.ts` 误判成 `/work/repo` 工作区内的文件，产出指向另一个文件的相对引用。现在只在 Windows / macOS 折叠大小写，与上游 dsh-TUI 的判定一致。
+- **Relative-path case matching now follows the platform**: paths used to be lowercased unconditionally before comparison (the comment claimed it existed for Windows drive/directory case drift), which on a case-sensitive filesystem made `/work/Repo/a.ts` look like a file inside a `/work/repo` workspace — producing a relative reference that points at a different file. Case is now folded only on Windows / macOS, matching upstream dsh-TUI's rule.
 
 ### Fixed
 
-- **启动命令与 `@` 引用里的路径转义**：工作区路径、启动路径中的 shell 元字符（`;` `&` `|` `$`、内嵌引号，以及 cmd 用作命令名分词符的 `,` `=`）此前不被转义——判据是「是否含空格」，于是 `/tmp/repo;id` 会作为两条命令抵达 shell，含逗号的 Windows 路径（如账号名带逗号）会被 cmd 截断报「不是内部或外部命令」。现在按目标 shell 分别引用并转义；普通路径的输出保持不变。
-- **超大选区不再无上限推送**：推送给 dsh-tui 的选区文本此前没有上限，整选一个数十 MB 的文件会把编辑器缓冲区的内容整段推出去。现按 20 万字符封顶（高于 TUI 自身 5 万的上限，好让它仍能渲染截断标记）。实测 2MB 的帧仍能正常抵达、连接不断，所以这层封顶是带宽与内存的防御，而非断链防线。
-- **禁用 `autoInsertMention` 后清除 dsh-tui 侧的选区**：此前禁用只停止推送，TUI 已收到的选区快照会残留并附加到下一次提交。现在禁用时补推一次空选区通知，并先撤销已排定的防抖推送——否则它会在空选区之后又把非空选区推回去。
-- **IDE server 的停用竞态**：`start()` 是异步的，扩展若在它落定前停用，`stop()` 会因为内部句柄尚未建立而直接返回，留下无人接管的服务端。停用现在**先同步停一次**（清锁就在 `stop()` 的同步段里，而宿主可能在 dispose 后立即退出、不保证排空 microtask 队列），再在启动落定后停一次收尾。
-- **Nushell（`nu`）不再被当作 bash**：`detectShellKind` 原先用 `base.includes('nu')` 把 Nushell 吞进 bash 家族，启动路径于是按 POSIX 规则拼装——Nushell 的单引号字符串既不支持转义、也不能内含单引号（POSIX 的 `'\''` 拼接在那里语法无效）；Windows 下更会被 `windowsPathToPosix` 改写为 `/c/Users/...` 形态，而真实 Nushell 拒绝执行它。现在 `nu` 是独立的 shell 类型：不做 POSIX 改写、解析到 `.cmd`/`.exe`、命令位加 `^`、字符串用 raw string（`r#'…'#`），含 `'#` 序列时按需加长分隔符。已用真实 Nushell 实测（**端点 0.115.1 与 0.94.0；中间版本未验证**）：0.115.1 上拼出的命令能正确执行、参数逐字符送达；0.94.0 上 raw string 作**命令位**不被接受（作参数正常），故需要引用的路径在该版本仍会失败——它在此次改动前同样不可用，不构成回归。
+- **Path escaping in the launch command and `@` mentions**: shell metacharacters in a workspace or launch path (`;` `&` `|` `$`, embedded quotes, and the `,` / `=` that cmd.exe splits command names on) were not escaped — the condition was "contains a space", so `/tmp/repo;id` reached the shell as two commands, and a Windows path containing a comma (e.g. an account name with one) was truncated by cmd with "not recognized as an internal or external command". Paths are now quoted and escaped per target shell; ordinary paths keep their existing output.
+- **Oversized selections are no longer pushed unbounded**: the selection text sent to dsh-tui had no upper limit, so selecting a tens-of-MB file whole pushed the entire editor buffer. Now capped at 200k characters (above the TUI's own 50k limit, so it can still render its truncation marker). Measured: a 2 MB frame still arrives intact with the connection alive — so this cap is a bandwidth/memory guard, not a defence against a dropped link.
+- **Disabling `autoInsertMention` now clears the selection on the dsh-tui side**: disabling used to only stop pushing, leaving the snapshot dsh-tui already held to be attached to the next message. An empty-selection notification is now pushed on disable, and any pending debounced push is cancelled first — it would otherwise push a non-empty selection right after the empty one.
+- **IDE server stop race**: `start()` is async; if the extension deactivated before it settled, `stop()` returned early because the internal handle did not exist yet, leaving an unowned server behind. Deactivation now issues a **synchronous stop first** (clearing the lock happens in `stop()`'s synchronous section, and the host may exit right after dispose without draining the microtask queue) and stops once more after startup settles.
+- **Nushell (`nu`) is no longer treated as bash**: `detectShellKind` used `base.includes('nu')` and folded Nushell into the bash family, so launch paths were assembled with POSIX rules — Nushell's single-quoted strings take no escapes and cannot contain a quote at all (the POSIX `'\''` splice is invalid there), and on Windows `windowsPathToPosix` rewrote the path into `/c/Users/...`, a form real Nushell refuses to execute. `nu` is now its own shell kind: no POSIX rewriting, resolves to `.cmd`/`.exe`, the command position gets `^`, and values are quoted as raw strings (`r#'…'#`), lengthening the delimiter when the value contains `'#`. Verified against a real Nushell (endpoints **0.115.1 and 0.94.0; intermediate versions untested**): on 0.115.1 the assembled command executes correctly and arguments arrive character-for-character; on 0.94.0 a raw string in the **command position** is not accepted (it works as an argument), so paths that need quoting still fail there — that version was equally unusable before this change, so it is not a regression.
 
 ## [0.7.0] - 2026-09-21
 
-> 经 PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19) 合并 / via PR #19
+> via PR [#19](https://github.com/baobaolaodie/dsh-tui-vscode/pull/19)
 
-> ⚠️ **版本门槛 / Version gate**：`#L` 行区间语法需 **dsh-TUI ≥ 含上游 #537 的版本**（该语法已由上游原生实现并合入），IDE 选区通道需 dsh-TUI ≥ 含上游 **#562（本扩展推送的通道将被它消费）** 合并后的版本。搭配更旧的 dsh-TUI 时，`@` 引用会提示文件未找到（missing）——请先升级 dsh-TUI 再升级本扩展。
+> ⚠️ **Version gate**: the `#L` line-range syntax requires a **dsh-TUI build that includes upstream #537** (that syntax is now implemented and merged upstream), and the IDE selection channel requires a dsh-TUI that includes **upstream #562 (the merge this extension's pushes are consumed by)**. Against an older dsh-TUI, `@` mentions will report the file as missing (the new syntax cannot be parsed) — upgrade dsh-TUI before upgrading this extension.
 
 ### Added
 
-- **IDE 选区通道（扩展侧 server）**：激活时在 `127.0.0.1` 随机端口启动回环 WebSocket 服务端（`ws`），握手 token 鉴权；会话终端自动注入 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量（env 直连），同时以 lock 文件（`~/.dsh-tui/ide/<port>.lock`，JSON `{port, token, workspaceFolders, pid}`）广播自身供手动启动的 dsh-tui 发现（lock 扫描）。握手为协议 v2：`ide/hello`（token + protocolVersion）→ `ide/hello_ack`（protocolVersion + workspaceFolders）。选区变化经 300ms 防抖后推送 `selection_changed` 通知（`{path, startLine, endLine, isEmpty, text, documentVersion}`，0-based；`text` 是编辑器缓冲区自己的选区文本、含未保存修改）——dsh-TUI 原样附加 `<attached-file … selection>` 块，不再读可能与屏幕不一致的磁盘副本；行区间按「含端」归一化。服务端启动失败静默降级（其余功能不受影响），停用时清理 lock 与监听。
-- **e2e 覆盖 IDE 选区通道**：真实扩展宿主 e2e 新增两条用例——server 生命周期（终端 env 注入与 lock 广播值一致、注入临时 lockRoot 的实例验证写/清 lock 幂等生命周期）与 WS client 对连（lock 发现 → 协议 v2 握手并消费 `hello_ack` → 收到 `selection_changed`，payload 含坐标、编辑器文本与文档版本）。
+- **IDE selection channel (extension-side server)**: on activation the extension starts a loopback WebSocket server (`ws`) on a random `127.0.0.1` port with token handshake; session terminals automatically receive the `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` environment variables (env-direct discovery), and the server also advertises itself via a lock file (`~/.dsh-tui/ide/<port>.lock`, JSON `{port, token, workspaceFolders, pid}`) so manually launched dsh-tui instances can find it (lock scan). The handshake is protocol v2: `ide/hello` (token + protocolVersion) → `ide/hello_ack` (protocolVersion + workspaceFolders). Selection changes are pushed after a 300 ms debounce as `selection_changed` notifications (`{path, startLine, endLine, isEmpty, text, documentVersion}`, 0-based; `text` is the editor buffer's own selection text, unsaved edits included) — dsh-TUI attaches it verbatim as an `<attached-file … selection>` block instead of reading a possibly-stale disk copy; line ranges are normalized to an inclusive end. Server startup failure degrades silently (everything else keeps working); deactivation clears the lock and listeners.
+- **e2e coverage for the IDE selection channel**: two new real-extension-host e2e tests — server lifecycle (terminal env injection consistent with the lock advertisement, plus an isolated instance with an injected temp lockRoot verifying the idempotent write/clear lock lifecycle) and WS client round-trip (lock discovery → protocol-v2 handshake with `hello_ack` consumed → receives `selection_changed` carrying coordinates, editor text and the document version).
 
 ### Changed
 
-- **`@` 引用输出格式迁移：相对路径 + `#L` 行区间**：`insertAtMention` 与选区自动引用的输出从 `@绝对路径 L起-止`（空格分隔纯文本提示，旧版 dsh-tui 不解析）改为 **`@相对路径#L起-止`**（相对化基准 = 扩展终端 cwd = VS Code 工作区根；单行 `#L12`、多行 `#L12-14`、空选区裸路径；路径含空白时 `@"路径"#L…` 形式；工作区外兜底正斜杠绝对路径仍带 `#L`）。**dsh-TUI 自上游 #537 起原生解析该语法**并在提交时按行区间切片附加内容。
-- **autoInsertMention 升级为推送语义（默认开启）**：`autoInsertMention`（默认 `true`，不再 experimental）不再把 `@…` 键入运行中的输入框（抢占输入框），而是经 IDE 选区通道把选区坐标推送给运行中的 dsh-tui（不占输入框，提交时自动附加上下文，prompt 下方实时显示「⧉ N lines selected」徽标）；清空选区时向 TUI 推送 `isEmpty` 通知、即时清除徽标与待附加选区；通道不可用（server 未起 / 连接失败）时回退为原键入行为。
+- **`@` mention output format migration: relative path + `#L` line range**: the output of `insertAtMention` and the automatic selection mention changes from `@absolute/path Lstart-end` (space-separated plain-text hint, unparsed by old dsh-tui) to **`@relative/path#Lstart-end`** (relativized against the extension terminal cwd = VS Code workspace root; single line `#L12`, multi-line `#L12-14`, bare path when nothing is selected; `@"path"#L…` for paths with whitespace; outside the workspace it falls back to a forward-slash absolute path still carrying `#L`). This syntax is parsed natively by upstream dsh-TUI from #537 on, and the submit-time attachment is sliced to the line range.
+- **autoInsertMention upgraded to push semantics (on by default)**: with `autoInsertMention` enabled, selections are no longer typed into the running input box (which hijacks it) — they are pushed as coordinates to the running dsh-tui over the IDE selection channel (no input-box takeover; context attaches at submit time; clearing the selection pushes an `isEmpty` notification so the badge and pending attach clear immediately); when the channel is unavailable (server down / not connected) it falls back to the previous typing behavior. On by default.
 
 ### Fixed
 
 ## [0.6.6] - 2026-09-12
 
-> 经 PR [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) 合并 / via PRs #15 and #16
+> via PRs [#15](https://github.com/baobaolaodie/dsh-tui-vscode/pull/15) / [#16](https://github.com/baobaolaodie/dsh-tui-vscode/pull/16) / 经 PR #15、#16 合并
 
 ### Added
 
-- **标题/cwd 兜底支持 DSH 0.1.5 的逐会话账本**：`storages/session_projcache/sessions/<id>.json` 的 `rows.title` / `rows.titleInput.first` / `identity.cwd` 在日志缺标题或缺 cwd 时兜底（懒读、按需只读一次；首条输入兜底截断为 80 字符，与日志首条消息一致；旧 `session_projcache.json` 仍作 legacy 兜底）。
+- **Title/cwd fallback now reads the DSH 0.1.5 per-session ledger**: `rows.title` / `rows.titleInput.first` / `identity.cwd` from `storages/session_projcache/sessions/<id>.json` back up logs without a title or cwd (lazy — one read only when needed; the first-input fallback is capped at 80 chars like the log's first-message title; the legacy `session_projcache.json` stays as fallback).
 
 ### Changed
 
 ### Fixed
 
-- **多会话根与代际选择的配套修复**：删除命令与侧边栏文件监听覆盖 `$DSH_TUI_SESSION_ROOT` 和 `~/.dsh-tui/sessions`；代际日志选择在最高代际不是普通文件时回退到有效低代际；日志 header 的空白 cwd 视为缺失、继续走账本兜底；当时不存在的会话根会以 60s 慢速重试注册监听；删除前校验目标必须是规范会话日志名且处于 `<根>/<分组>/<会话>` 精确层级（纵深防御）；`$DSH_TUI_SESSION_ROOT` 在显式 dshHome 配置下仍优先（与 dsh-tui 自身的写入解析一致）；删除/归档命令改用配置的 `dshHome` 解析会话根，且修改该配置即时生效（无需重载窗口）；设置项说明「绝对**值**路径」更正为「绝对路径」。
+- **Multi-root follow-ups**: the delete command and the sidebar file watchers now cover `$DSH_TUI_SESSION_ROOT` and `~/.dsh-tui/sessions`; generation selection falls back to a valid lower generation when the highest name is not a regular file; a blank header cwd is treated as missing so the ledger fallback still runs; session roots that do not exist yet are re-probed on a 60 s timer so they get watched once created; the delete path verifies the target is a canonical session-log name at the exact `<root>/<group>/<session>` depth (defense in depth); `$DSH_TUI_SESSION_ROOT` still outranks an explicit dshHome pin (matching how dsh-tui itself resolves its write root); the delete/archive commands resolve roots through the configured `dshHome`, which now also takes effect live (no window reload needed); the setting description typo "绝对值路径" is corrected to "绝对路径".
 
-- **侧边栏兼容 DSH 0.1.5 的 Session V3 会话日志**：日志文件按代际匹配（`session.jsonl` / `session.v3.jsonl` 等，可选 `.zstd`，最新代际优先），会话根按 `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` 顺序扫描——修复升级 dsh 0.1.5 后新建会话在侧边栏不可见的问题。
+- **Sidebar now reads DSH 0.1.5 Session V3 logs**: log files are matched by generation (`session.jsonl` / `session.v3.jsonl`, optionally `.zstd`, newest generation winning) and session roots are scanned in the order `$DSH_TUI_SESSION_ROOT` → `<dshHome>/sessions` → `~/.dsh-tui/sessions` — fixes sessions created after upgrading to dsh 0.1.5 disappearing from the sidebar.
 
 ## [0.6.5] - 2026-09-12
 
-> 经 PR [#14](https://github.com/baobaolaodie/dsh-tui-vscode/pull/14) 合并 / via PR #14
+> via PR [#14](https://github.com/baobaolaodie/dsh-tui-vscode/pull/14) / 经 PR #14 合并
 
 ### Added
 
 ### Changed
 
-- **文档与发布包整理**：精简设计文档、README 与设置项说明中的冗余表述；`docs/` 不再随扩展包分发，发布体积相应减小。
+- **Docs and package tidy-up**: tightened wording in the design doc, README, and setting descriptions; `docs/` is no longer bundled into the extension package, reducing the published size.
 
 ### Fixed
 
 ## [0.6.4] - 2026-08-22
 
-> 经 PR [#12](https://github.com/baobaolaodie/dsh-tui-vscode/pull/12) 合并 / via PR #12
+> via PR [#12](https://github.com/baobaolaodie/dsh-tui-vscode/pull/12) / 经 PR #12 合并
 
 ### Added
 
@@ -94,16 +98,16 @@
 
 ### Fixed
 
-- **启动命令恰好发送一次**：`sendTextWhenReady` 增加 sent 幂等标志——此前当 shell integration 晚到（PowerShell profile 加载慢）或在 1.2s 回退已发送后再次触发时，启动命令会被第二次敲进运行中的 dsh-tui 输入框并被尾随回车提交（已在实际使用中复现）；现在无论哪条就绪信号先到，败者路径一律变 no-op。
+- **Exactly-once session launch command**: `sendTextWhenReady` now carries a sent flag — previously, when shell integration activated late (slow PowerShell profile) or fired again after the 1.2 s fallback had already sent the launch command, the command was typed a second time into the running dsh-tui input box and submitted by its trailing Enter (reproduced in the wild); whichever readiness signal wins, the loser path is now a no-op.
 
 ## [0.6.3] - 2026-08-19
 
-> 经 PR [#10](https://github.com/baobaolaodie/dsh-tui-vscode/pull/10) 合并 / via PR #10
+> via PR [#10](https://github.com/baobaolaodie/dsh-tui-vscode/pull/10) / 经 PR #10 合并
 
 ### Added
 
-- **选区变化自动引用（experimental，默认关）**：新增配置 `dsh-tui-vscode.autoInsertMention`（默认 `false`），开启后在编辑器选中代码时自动以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（300ms 防抖、仅当存在运行中会话、对同一选区去重、无会话静默忽略）。本项为 dsh-tui 上的降级近似；与 dsh-TUI 上游 issue #359（相对路径 + #L 行区间）解耦，待上游落地后升级。
-- **快捷键冲突说明**：README 增加默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）与 opencode 等扩展撞键时的重绑方法（「键盘快捷方式」`Ctrl+K Ctrl+S`），右键/命令面板入口不受影响。
+- **Experimental auto @-mention on selection (off by default)**: new setting `dsh-tui-vscode.autoInsertMention` (default `false`). When enabled, selecting code in the editor auto-inserts `@absolute/path Lstart-end` into the running dsh-tui input box (300 ms debounce, only when a session is running, deduped per selection, silently ignored otherwise). This is the dsh-tui degraded approximation, decoupled from upstream dsh-TUI issue #359 (relative paths + #L ranges) and upgraded once the upstream patch lands.
+- **Keybinding-conflict note**: README now documents how to rebind the default `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) when it collides with extensions like opencode ("Keyboard Shortcuts" `Ctrl+K Ctrl+S`); context-menu / command-palette entries are unaffected.
 
 ### Changed
 
@@ -111,11 +115,11 @@
 
 ## [0.6.2] - 2026-08-18
 
-> 经 PR [#7](https://github.com/baobaolaodie/dsh-tui-vscode/pull/7) 合并 / via PR #7
+> via PR [#7](https://github.com/baobaolaodie/dsh-tui-vscode/pull/7)
 
 ### Added
 
-- **插入 @文件引用命令（引用选中代码到输入框）**：新增 `dsh-tui-vscode.insertAtMention`，默认快捷键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`，编辑器聚焦时），也可从命令面板/编辑器右键触发——把当前文件或选中代码以 `@绝对路径 L起-止` 形式插入运行中的 dsh-tui 输入框（正斜杠绝对路径,与 dsh-tui 会话 cwd 无关；未选中仅为 `@绝对路径` 引用整个文件；`@` 引用提交时自动附加文件内容，行区间为空格分隔的纯文本提示——dsh-tui 不支持 `#L` 行区间语法）；无运行会话时回退为复制到剪贴板。以 Claude Code 官方扩展 `insertAtMention` 为基准并做了 dsh-tui 适配。
+- **Insert @-mention command (reference selected code into the input box)**: new `dsh-tui-vscode.insertAtMention` with default shortcut `Ctrl+Alt+K` (macOS `Cmd+Alt+K`, when editor has focus), also available from the Command Palette / editor context menu — it inserts the current file or selection as `@absolute/path Lstart-end` into the running dsh-tui input box (forward-slash absolute path, independent of the dsh-tui session cwd; `@absolute/path` alone references the whole file when nothing is selected; the `@` mention attaches the file's content on submit and the range is a space-separated plain-text hint — dsh-tui does not support `#L` line-range syntax); with no running session it falls back to copying to the clipboard. Based on the official Claude Code extension's `insertAtMention` and adapted for dsh-tui.
 
 ### Changed
 
@@ -123,7 +127,7 @@
 
 ## [0.6.1] - 2026-08-17
 
-> 经 PR [#3](https://github.com/baobaolaodie/dsh-tui-vscode/pull/3) 合并 / via PR #3
+> via PR [#3](https://github.com/baobaolaodie/dsh-tui-vscode/pull/3)
 
 ### Added
 
@@ -131,95 +135,95 @@
 
 ### Fixed
 
-- **修复 Windows 非 PowerShell 终端（Git Bash 等）启动失败**：npm 全局安装会在 Windows 上同时生成 `.cmd` 与无扩展名 bash shim；扩展原先把 `dsh-tui.cmd` 的 Windows 绝对路径直接发给 bash，反斜杠被吞成 `C:Users...: command not found`。现在按终端 shell 类型区分：Git Bash/MSYS/Cygwin/WSL 优先解析 npm 的 bash shim 并把路径转成 POSIX 形式（`/c/...`、`/cygdrive/c/...`、`/mnt/c/...`）后发送，PowerShell/CMD 保持原有 `.cmd/.exe` 解析。
+- **Fixed launching under non-PowerShell Windows terminals (Git Bash etc.)**: npm global installs create both a `.cmd` shim and an extensionless bash shim on Windows; the extension previously sent the Windows absolute path of `dsh-tui.cmd` directly to bash, which swallowed the backslashes and reported `C:Users...: command not found`. The launch path now respects the terminal shell: bash/MSYS/Cygwin/WSL prefer npm's bash shim and convert the path to POSIX form (`/c/...`, `/cygdrive/c/...`, `/mnt/c/...`) before sending; PowerShell/CMD keep the existing `.cmd/.exe` resolution.
 
 ## [0.6.0] - 2026-08-17
 
-> 经 PR [#1](https://github.com/baobaolaodie/dsh-tui-vscode/pull/1) 合并 / via PR #1
+> via PR [#1](https://github.com/baobaolaodie/dsh-tui-vscode/pull/1)
 
 ### Added
 
-- **侧边栏右键重命名/删除会话**：条目上悬停/右键可重命名（向日志追加 `session/title` zstd 帧，`seq` 续接，与 dsh-TUI `/resume` 选择器同一契约；非 zstd 旧日志拒绝追加不损坏）或删除（真实路径 containment 校验，符号链接无法把删除引到会话根之外；删除前模态确认）。
-- **dsh 原生归档**：侧边栏悬停「归档」按钮把会话加入 dsh workspace 域的归档集合（`storages/workspace.json` 的 `archivedSessionIds`——与 dsh web 列表同源）：会话从所有分组表面隐藏，日志与记账槽位保留，随时可恢复；「管理已归档会话」命令（QuickPick）可恢复或彻底删除；列表默认过滤归档会话（与 web 一致）。删除改为右键「永久删除」（危险操作不放在悬停按钮）。
+- **Rename/delete sessions from the sidebar**: hover/right-click an entry to rename (appends a `session/title` zstd frame, `seq` continued — the same contract as the dsh-TUI `/resume` picker; non-zstd legacy logs are refused, never corrupted) or delete (realpath containment check so a symlink cannot steer the removal outside the sessions root; modal confirmation before deleting).
+- **dsh-native archiving**: the hover "Archive" button adds a session to the workspace domain's archive set (`archivedSessionIds` in `storages/workspace.json` — the same source the dsh web list reads): the session disappears from every grouping surface while its log and accounting slot are retained, restorable anytime; the "Manage archived sessions" command (QuickPick) restores or permanently deletes; the list filters archived sessions by default (web-consistent). Delete moved behind the right-click menu as "Delete permanently" (destructive actions stay off the hover buttons).
 
 ### Changed
 
 ### Fixed
 
-- **修复侧边栏空列表**：`dshHome` 配置默认值 `""` 传入数据层后未回退（`??` 不处理空串），导致会话根解析成相对路径 `sessions`、列表恒为空——统一为"空串与未设置等价"的解析，并补回归测试。
-- **修复右键重命名/删除无响应**：`view/item/context` 菜单命令收到的首参是选中 TreeItem 而非命令参数——会话 id/日志路径改由 TreeItem 携带，命令从其上读取。
-- **补监听新组目录**：激活后新出现的组目录（新位置首次会话）不在 fs.watch 列表内，会话进行中列表不自动刷新——每次加载后幂等补监听。
-- **修复重命名/删除在真实 VS Code 中无效**：① 右键菜单命令收到的参数是 TreeItem——会话身份改挂标准字段（`id`/`resourceUri`）并保留自定义字段兜底；② 删除的路径 containment 校验在 Windows 上改为大小写不敏感（`vscode.Uri.file(...).fsPath` 会把盘符规范化为小写，大小写敏感比较会拒绝一切删除）；③ `@bokuweb/zstd-wasm` 模块在长生命周期 Electron 宿主中会损坏（压缩输出全 0 或"魔数正确但内容不可解"的帧）——新增：模块经 `getZstd()` 间接层解析、压缩输出 round-trip 验证（坏帧绝不写入）、损坏检测 + 模块重载重试（列表与重命名双路径）、失败时明确报错而非静默。
-- **测试集扩充（极致测试）**：e2e 新增 4 项真实链路测试——右键命令全链路（对话框打桩 + 临时会话 + TreeItem 参数两种形态）、树视图全链路（工作区过滤/空会话/子代理在真实扩展宿主中验证）、watcher 新组目录自动刷新、wasm 损坏时重命名恢复（健康时诚实 SKIP）；单测新增空串 dshHome 回退、删除 containment 大小写、压缩帧验证等用例。
+- **Fixed empty sidebar session list**: the `dshHome` config default `""` was passed into the data layer and not treated as absent (`??` does not handle empty strings), so the sessions root resolved to the relative path `sessions` and the list was always empty — root resolution now treats empty and unset identically, with a regression test.
+- **Fixed unresponsive right-click rename/delete**: `view/item/context` menu commands receive the selected TreeItem as their first argument, not command arguments — the session id/log path now ride on the TreeItem and are read back by the commands.
+- **Watch newly created group directories**: a group directory that appears after activation (first session in a brand-new working directory) was not in the fs.watch list, so the list did not auto-refresh while the session ran — watchers are now synced idempotently after every reload.
+- **Fixed rename/delete doing nothing in real VS Code**: ① view/item/context commands receive the TreeItem — session identity now rides on the STANDARD fields (`id`/`resourceUri`) with the custom properties kept as fallback; ② the delete containment check is case-insensitive on Windows (`vscode.Uri.file(...).fsPath` lowercases the drive letter, so a case-sensitive prefix test refused every delete); ③ the `@bokuweb/zstd-wasm` module corrupts in long-lived Electron hosts (compress emits all-zero frames, or frames with a valid magic whose content does not decompress) — added: module resolution through a `getZstd()` indirection, round-trip verification of every compressed frame (a corrupt frame is never written), corruption detection + module reload retry (both listing and rename paths), and an explicit error instead of silent failure.
+- **Test-suite hardening (maximal coverage)**: 4 new e2e chain tests — full command chain (dialog stubbing + temp sessions + both TreeItem argument shapes), full tree-view chain (workspace filter / empty / subagent verified in the real extension host), watcher auto-refresh for a new group directory, and rename recovery from a corrupt wasm state (honest SKIP when healthy); new unit tests for empty-string dshHome fallback, delete containment case folding, and frame verification.
 
-- **修复多帧 zstd 会话日志解码失败**：持久化日志是"每次 flush 追加一个 zstd 帧"的串联链，原实现对整文件单次解压——大日志（多帧）解压失败（code -70），导致**进行过对话的会话在侧边栏显示"未命名会话"且丢失工作目录分组**。改为按 RFC 8878 结构式拆帧、逐帧解压、容错跳过坏帧（含尾帧重同步），标题/工作目录全部恢复。
-- **侧边栏只展示当前 VS Code 工作区会话**：沿用 dsh-TUI 的 `sessionCwdMatches` 归属语义（精确 + 工作区子目录；home/盘根/UNC 根为容器边界仅精确匹配；父目录会话不混入），多根工作区取并集，未打开工作区显示空列表。
-- **隐藏空会话与子代理运行**：仅含启动事件、无真人消息的会话（`hasPrompt=false`，与 dsh 浏览器一致）及 header `origin: 'subagent'` 的派遣运行不再出现在列表中；标题兜底改为首条真人消息 → 工作目录名。
-- **性能：会话列表改为有界窗口读取**（64KB 头 + 128KB 尾，仿 dsh-TUI frames.ts）——只读日志两端，中间内容不触碰；被工作区/空会话/子代理过滤掉的日志只读头不读尾。本机 101 会话全量刷新 1714ms → 524ms，带过滤 233ms。
+- **Fixed multi-frame zstd session-log decoding**: persisted logs are chains of zstd frames (one per durable flush); the previous whole-buffer decompress failed on large (multi-frame) logs (code -70), so CONDUCTED sessions showed as "untitled" in the sidebar and lost their working-directory grouping. Frames are now walked structurally (RFC 8878) and decompressed one by one, tolerantly skipping torn frames (with tail re-sync) — titles and cwd are fully recovered.
+- **Sidebar now shows only the current VS Code workspace's sessions**: reuses dsh-TUI's `sessionCwdMatches` ownership semantics (exact + workspace subdirectories; HOME / drive-root / UNC-root container boundaries match exactly only; parent-directory sessions never leak in), union over multi-root workspaces, empty list when no workspace is open.
+- **Boot-only sessions and sub-agent runs are hidden**: sessions with no human prompt (`hasPrompt=false`, same as the dsh browser) and delegated runs with header `origin: 'subagent'` no longer appear; the title fallback chain now ends at first human prompt → working-directory basename.
+- **Performance: session listing now uses bounded window reads** (64 KB head + 128 KB tail, modeled on dsh-TUI's frames.ts) — only the two ends of each log are read; sessions filtered out by workspace/empty/subagent never pay for the tail read. On this machine's 101-session corpus the full refresh dropped from 1714 ms to 524 ms (233 ms filtered).
 
 ## [0.5.1] - 2026-08-16
 
-> 直推提交，无关联 PR / direct-push, no PR
+> direct-push, no PR / 直推提交，无关联 PR
 
-- **修复 Marketplace 页面 README 过期**：v0.5.0 上传的 vsix 内含发布前 README（「暂未上架 Marketplace」）——重新打包发布，Marketplace 页面与仓库同步为「扩展面板安装优先」；
-- **chore**: 清理 Path B 时代残留——`tsconfig.json` 移除已删除的 `src/webview` exclude。
+- **Fixed stale Marketplace-page README**: the vsix uploaded for v0.5.0 contained a pre-publish README ("暂未上架 Marketplace") — republished so the Marketplace page matches the repository (extension-panel install first);
+- **chore**: cleaned up a Path-B-era leftover — removed the deleted `src/webview` entry from `tsconfig.json` excludes.
 
 ## [0.5.0] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
-- **上架 VS Code Marketplace**：v0.5.0 经网页上传正式发布（官方"手动发布"路径），扩展面板可直接搜索安装；
-- **多会话并存（对齐 Claude Code）**：每次点击「启动新会话」/鲸鱼按钮都**新开一个 DeepSeek 终端 + 会话**，不再聚焦旧会话；旧会话在自己的终端里继续运行；「聚焦」与「终止」作用于最近创建的终端；关闭任一终端只结束该会话。
+- **Published to the VS Code Marketplace**: v0.5.0 released via the web upload (the official "manual publish" path); installable directly from the extension panel;
+- **Multiple concurrent sessions (aligned with Claude Code)**: every "Start new session" / whale-button click opens a NEW DeepSeek terminal + session instead of focusing the old one; older sessions keep running in their own terminals; "Focus" and "Terminate" act on the most recently created terminal; closing a terminal ends only that session.
 
 ## [0.4.1] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
-- **会话标题对齐 Web**：读取 dsh-storage 账本（`~/.dsh/storages/session_projcache.json` 的 `rows.title.val`，Web 会话列表的标题来源）——Web 有标题而扩展显示 "未命名会话"的问题修复；标题优先级：日志 `session/title` 事件 → storage 标题 → 首条用户消息。
+- **Session titles aligned with the web**: reads the dsh-storage ledger (`~/.dsh/storages/session_projcache.json` `rows.title.val` — the web session list's title source) — sessions titled in the web no longer show as "未命名会话"; title precedence: log `session/title` event → storage title → first user message.
 
 ## [0.4.0] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
-- **会话历史重做（按项目分组）**：
-  - 侧边栏改为**树形列表：项目组（cwd 短名 + 会话数）→ 会话条目**，直接看出每个会话属于哪个项目；项目按最近活跃排序；
-  - 条目 = 标题（最后 `session/title` 事件 → 首条用户消息 → "未命名会话"）+ 紧凑相对时间；完整路径/ID 进 tooltip；
-  - 组内按**最近使用**（`~/.dsh-tui/last-used.json`，TUI `/resume` 同款 MRU）排序，缺失按创建时间；
-  - **解析宽容化**：无 `session` 头的日志（空日志/格式差异）仍生成条目（id 取会话目录、项目取组目录解码、时间取文件 mtime）——此前被过滤的会话现在全部可见；
-  - **自动刷新**：监听 `~/.dsh/sessions` 变化（含各项目组目录），新会话出现即刷新；终端开/关与手动刷新保留；
-  - 修复组目录解码：驱动器冒号也被编码为 `-`，解码补回（`--C-Users-...--` → `C:\Users\...`）；连字符项目名解码有损为已知限制。
+- **Session history rebuilt (grouped by project)**:
+  - Sidebar becomes a TREE: project groups (cwd short name + session count) → session entries, so it is obvious which project each session belongs to; projects sorted by most recent activity;
+  - Entry = title (last `session/title` event → first user message → "未命名会话") + compact relative time; full path/ID in the tooltip;
+  - Within a group, sorted by last-used (`~/.dsh-tui/last-used.json`, the same MRU the TUI `/resume` uses), falling back to creation time;
+  - **Tolerant parsing**: logs without a `session` header (empty logs/format differences) still yield entries (id from the session dir, project from the group-dir decode, time from the file mtime) — previously filtered sessions are now all visible;
+  - **Auto-refresh**: watches `~/.dsh/sessions` changes (including each project group dir); new sessions appear immediately; terminal open/close and the manual refresh button also trigger a refresh;
+  - Fixed group-dir decoding: the drive colon is also encoded as `-` and is now restored (`--C-Users-...--` → `C:\Users\...`); hyphenated project names decode lossily — a known limitation.
 
 ## [0.3.0] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
-- **改为真实集成终端（对齐 Claude Code 官方终端模式）**：
-  - 删除全部 webview/PTY 基础设施（node-pty、xterm、esbuild、OSC、webview 面板）——vsix 从 3.7MB 缩至 327KB；
-  - `createTerminal({ name: 'DeepSeek', location: { viewColumn: Beside }, env, iconPath, isTransient })` + shell 就绪后运行 CLI——与官方扩展同构；
-  - 打开位置 = 编辑器区**另一侧**新列；终端标签带鲸鱼图标、标题 DeepSeek；
-  - 侧边栏改为**会话历史列表**（标题 + 紧凑相对时间，同 Claude Code sessions 侧边栏）；点击条目恢复指定会话。
-- **修复指定会话恢复**（读启动器源码定位）：`--resume` 会被启动器用 `~/.dsh-tui/resume.txt` 覆盖 env → 改为 `DSH_TUI_RESUME_SESSION` env 直通（profile 的 cordis.patch.yml 启动时读取），不传 `--resume`；
-- **真实恢复验证**：e2e 新增受保护的真实 dsh-tui 恢复测试（恢复后不新建会话 = 成功），8/8 全过；
-- 会话列表 zstd 初始化修复（此前列表恒为空）；
-- 自动启停：关终端 = 停进程；重复打开只聚焦。
+- **Switched to REAL integrated terminals (aligned with the official Claude Code terminal mode)**:
+  - Removed all webview/PTY infrastructure (node-pty, xterm, esbuild, OSC, webview panel) — the vsix shrank from 3.7MB to 327KB;
+  - `createTerminal({ name: 'DeepSeek', location: { viewColumn: Beside }, env, iconPath, isTransient })` + run the CLI once the shell is ready — same shape as the official extension;
+  - Beside placement: a new column beside the editor; terminal tab carries the whale icon and the DeepSeek title;
+  - Sidebar becomes a session-history list (title + compact relative time, like the Claude Code sessions sidebar); clicking an entry resumes that session.
+- **Fixed specific-session resume** (located by reading the launcher source): `--resume` makes the launcher overwrite the env from `~/.dsh-tui/resume.txt` → switched to the `DSH_TUI_RESUME_SESSION` env channel (read at boot by the profile's cordis.patch.yml), without `--resume`;
+- **Real resume verification**: e2e adds a guarded REAL dsh-tui resume test (a successful resume creates no new session), 8/8 green;
+- Fixed session-list zstd initialization (the list used to be always empty);
+- Auto start/stop: closing the terminal stops the process; repeated opens just focus.
 
 ## [0.2.0] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
-- **Path B 重做（Claude Code 官方同款形态）**：
-  - 活动栏 `dsh-tui` 图标 + 侧边栏「会话控制」视图；
-  - 编辑器区独立面板，xterm.js 渲染完整 TUI——**彻底脱离底部集成终端**；
-  - node-pty（Windows ConPTY）真实 PTY；`.cmd/.bat`/POSIX PATH 解析为绝对路径后交 node-pty 内部包裹（自包 cmd /c 会吞子进程 stdin，已实测定位）；
-  - OSC 宿主协作：52 剪贴板、11 背景查询应答、0/1/2 标题、8 超链接保留；
-  - 路径链接：webview web-links + `path:line[:col]` 匹配；
-  - 依赖切 npm（vsce 才能把 node-pty 打进 vsix）；webview 用 esbuild 打包；
-  - e2e 重写为面板/PTY 形态：8 用例在真实扩展宿主通过（Windows 本地 + Linux CI xvfb），含 .cmd shim 输入回环、--resume、kill、open-path。
-  - **注**：0.2.0 的面板形态经用户实测后被 0.3.0 的真实终端形态取代。
+- **Path B rebuild (official-Claude-Code-shaped)**:
+  - Activity-bar `dsh-tui` icon + sidebar "会话控制" view;
+  - Editor-area panel rendering the full TUI with xterm.js — fully detached from the integrated terminal;
+  - node-pty (ConPTY on Windows) real PTY; `.cmd/.bat`/POSIX PATH resolved to absolute paths and wrapped by node-pty internally (self-wrapping `cmd /c` swallows child stdin — verified empirically);
+  - OSC host collaboration: 52 clipboard, 11 background-query answer, 0/1/2 titles, 8 hyperlinks preserved;
+  - Path links: webview web-links + `path:line[:col]` matching;
+  - Switched to npm (vsce needs it to bundle node-pty into the vsix); webview bundled with esbuild;
+  - e2e rewritten for the panel/PTY shape: 8 cases pass in a real extension host (Windows locally + Linux CI xvfb), incl. .cmd shim input round-trip, --resume, kill, open-path.
+  - **Note**: the 0.2.0 panel shape was superseded by 0.3.0's real-terminal shape after user testing.
 
 ## [0.1.0] - 2026-08-16
 
-> 直推提交（分支保护启用前），无关联 PR / direct-push (pre-branch-protection), no PR
+> direct-push (pre-branch-protection), no PR / 直推提交（分支保护启用前），无关联 PR
 
 - Initial Path A MVP (issue ccch1mneyyy/dsh-TUI#161):
   - integrated-terminal sessions with env injection, dedupe, `--resume`;

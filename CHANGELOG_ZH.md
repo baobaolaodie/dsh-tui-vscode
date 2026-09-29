@@ -1,4 +1,3 @@
-<!-- transitional copy: base CI compatibility only - content is Chinese (copied from CHANGELOG_ZH.md), frozen, to be deleted in PR3. English canonical: CHANGELOG.md; maintained Chinese mirror: CHANGELOG_ZH.md. -->
 # Changelog
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。版本记录在 git tag 与本文件中。
