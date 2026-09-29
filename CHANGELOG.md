@@ -1,3 +1,9 @@
+<div align="right">
+
+English · [简体中文](CHANGELOG_ZH.md)
+
+</div>
+
 # Changelog
 
 All notable changes to this project are documented in this file.
