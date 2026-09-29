@@ -10,13 +10,13 @@ npm test
 echo "=== [pre-commit] 双语镜像对称 / Bilingual mirror ==="
 node -e "
 const fs = require('fs');
-const pairs = [['README.md','README_EN.md'],['CONTRIBUTING.md','CONTRIBUTING_EN.md'],
-               ['SECURITY.md','SECURITY_EN.md'],['CHANGELOG.md','CHANGELOG_EN.md']];
-for (const [zh, en] of pairs) {
-  const nz = fs.readFileSync(zh, 'utf8').split('\n').length;
+const pairs = [['README.md','README_ZH.md'],['CONTRIBUTING.md','CONTRIBUTING_ZH.md'],
+               ['SECURITY.md','SECURITY_ZH.md'],['CHANGELOG.md','CHANGELOG_ZH.md']];
+for (const [en, zh] of pairs) {
   const ne = fs.readFileSync(en, 'utf8').split('\n').length;
-  if (Math.abs(nz - ne) > 10) {
-    console.error('双语镜像不对称 / asymmetry: ' + zh + ' ' + nz + ' vs ' + en + ' ' + ne);
+  const nz = fs.readFileSync(zh, 'utf8').split('\n').length;
+  if (Math.abs(ne - nz) > 10) {
+    console.error('双语镜像不对称 / asymmetry: ' + en + ' ' + ne + ' vs ' + zh + ' ' + nz);
     process.exit(1);
   }
 }

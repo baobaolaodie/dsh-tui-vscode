@@ -60,17 +60,41 @@ jobs:
         run: |
           python - <<'EOF'
           import io, os
-          pairs = [('README.md','README_EN.md'),('CONTRIBUTING.md','CONTRIBUTING_EN.md'),
-                   ('SECURITY.md','SECURITY_EN.md'),('CHANGELOG.md','CHANGELOG_EN.md')]
-          # CODE_OF_CONDUCT 除外：标准模板与翻译行数天然不对齐
-          for zh, en in pairs:
-              if not os.path.isfile(zh) or not os.path.isfile(en):
-                  raise SystemExit('missing bilingual pair: %s / %s' % (zh, en))
-              nz = sum(1 for _ in io.open(zh, encoding='utf-8'))
+          pairs = [('README.md','README_ZH.md'),('CONTRIBUTING.md','CONTRIBUTING_ZH.md'),
+                   ('SECURITY.md','SECURITY_ZH.md'),('CHANGELOG.md','CHANGELOG_ZH.md')]
+          # CODE_OF_CONDUCT 与 docs/ 三篇除外：标准模板 / 技术译文行数天然不对齐
+          for en, zh in pairs:
+              if not os.path.isfile(en) or not os.path.isfile(zh):
+                  raise SystemExit('missing bilingual pair: %s / %s' % (en, zh))
               ne = sum(1 for _ in io.open(en, encoding='utf-8'))
-              if abs(nz - ne) > 10:
-                  raise SystemExit('bilingual asymmetry: %s %d vs %s %d' % (zh, nz, en, ne))
+              nz = sum(1 for _ in io.open(zh, encoding='utf-8'))
+              if abs(ne - nz) > 10:
+                  raise SystemExit('bilingual asymmetry: %s %d vs %s %d' % (en, ne, zh, nz))
           print('bilingual pairs OK')
+          EOF
+
+      - name: '主/镜像互链 / Primary-mirror cross links'
+        run: |
+          python - <<'EOF'
+          import io, os
+          # 4 对根级文档 + CoC 对 + docs/ 三对：无后缀文件含 _ZH 文件名、_ZH 含无后缀文件名
+          # CoC 与 docs/ 三对只查互链与存在性，不进行数门禁（技术译文行数天然不对齐）
+          pairs = [('README.md','README_ZH.md'),('CONTRIBUTING.md','CONTRIBUTING_ZH.md'),
+                   ('SECURITY.md','SECURITY_ZH.md'),('CHANGELOG.md','CHANGELOG_ZH.md'),
+                   ('CODE_OF_CONDUCT.md','CODE_OF_CONDUCT_ZH.md'),
+                   ('docs/at-mention-design.md','docs/at-mention-design_ZH.md'),
+                   ('docs/gap-reports.md','docs/gap-reports_ZH.md'),
+                   ('docs/adapters/dsh-tui-vscode-v0.15.md','docs/adapters/dsh-tui-vscode-v0.15_ZH.md')]
+          for en, zh in pairs:
+              if not os.path.isfile(en) or not os.path.isfile(zh):
+                  raise SystemExit('missing mirror pair: %s / %s' % (en, zh))
+              en_text = io.open(en, encoding='utf-8').read()
+              zh_text = io.open(zh, encoding='utf-8').read()
+              if os.path.basename(zh) not in en_text:
+                  raise SystemExit('%s does not link to %s' % (en, os.path.basename(zh)))
+              if os.path.basename(en) not in zh_text:
+                  raise SystemExit('%s does not link to %s' % (zh, os.path.basename(en)))
+          print('primary-mirror cross links OK')
           EOF
 
       - name: 'BOM 防线 / BOM guard'
@@ -125,7 +149,7 @@ jobs:
 
             if (body.includes('- [x] 行为变化已记入 CHANGELOG(Unreleased)/ Behavior changes recorded in CHANGELOG (Unreleased)')) {
               const base = 'origin/main';
-              const clDiff = execSync(`git diff --name-only ${base} HEAD -- CHANGELOG.md CHANGELOG_EN.md`).toString().trim();
+              const clDiff = execSync(`git diff --name-only ${base} HEAD -- CHANGELOG.md CHANGELOG_ZH.md`).toString().trim();
               if (!clDiff) P.push('self-check claims CHANGELOG updated (Unreleased) but no CHANGELOG diff against base');
             }
 
@@ -156,12 +180,12 @@ jobs:
           fetch-depth: 0
       - name: '版本一致性 / Version consistency'
         run: |
-          # package.json / README 双版徽章 / CHANGELOG 双版 五处一致
+          # package.json / README.md-README_ZH.md 徽章 / CHANGELOG.md-CHANGELOG_ZH.md 首版本段 五处一致
           V1=$(node -p "require('./package.json').version")
           V2=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1 | sed 's/version-//')
-          V3=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README_EN.md | head -1 | sed 's/version-//')
+          V3=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README_ZH.md | head -1 | sed 's/version-//')
           V4=$(grep -m1 '^## \[' CHANGELOG.md | sed -E 's/## \[([0-9.]+).*/\1/')
-          V5=$(grep -m1 '^## \[' CHANGELOG_EN.md | sed -E 's/## \[([0-9.]+).*/\1/')
+          V5=$(grep -m1 '^## \[' CHANGELOG_ZH.md | sed -E 's/## \[([0-9.]+).*/\1/')
           echo "version=$V1 README=$V2/$V3 CHANGELOG=$V4/$V5"
           [ "$V1" = "$V2" ] && [ "$V1" = "$V3" ] && [ "$V1" = "$V4" ] && [ "$V1" = "$V5" ] \
             || { echo "版本不一致 / version mismatch"; exit 1; }
@@ -169,7 +193,7 @@ jobs:
         run: |
           # 每个已发布版本段（## [x.y.z]）必须含 PR 链接，或显式 direct-push 标记
           # （分支保护启用前的直推历史无 PR——诚实豁免；新版本必须有 PR 链接）
-          for f in CHANGELOG.md CHANGELOG_EN.md; do
+          for f in CHANGELOG.md CHANGELOG_ZH.md; do
             awk -v file="$f" '
               /^## \[[0-9]/{ver=$2; has[ver]=0}
               /pull\/[0-9]+/{if (ver) has[ver]=1}
@@ -204,4 +228,4 @@ jobs:
       - name: '死链检查 / Dead-link check'
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress README.md README_EN.md CONTRIBUTING.md CONTRIBUTING_EN.md SECURITY.md SECURITY_EN.md CHANGELOG.md CHANGELOG_EN.md CODE_OF_CONDUCT.md CODE_OF_CONDUCT_EN.md .github/
+          args: --no-progress README.md README_ZH.md CONTRIBUTING.md CONTRIBUTING_ZH.md SECURITY.md SECURITY_ZH.md CHANGELOG.md CHANGELOG_ZH.md CODE_OF_CONDUCT.md CODE_OF_CONDUCT_ZH.md .github/
