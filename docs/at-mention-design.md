@@ -1,106 +1,88 @@
-# @-mention 设计说明(dsh-tui-vscode.insertAtMention)
+<div align="right">
 
-> 记录「把选中代码/整个文件引用到 dsh-tui 输入框」的当前实现、dsh-tui 侧机制、以及
-> 与 Claude Code 官方扩展的对齐差距与未来补丁计划。issue #6 · PR #7。
+[简体中文](at-mention-design_ZH.md)
 
-## 1. 背景
+</div>
 
-- issue #6:快捷键把选中代码(未选中时整个文件)「引用」到 dsh-tui 的输入框。
-- 基准:Claude Code 官方 VS Code 扩展的 `insertAtMention`(官方插入 `@path#Lx-y`)。
-- 硬约束:dsh-tui 是**运行在真实 PTY 里的终端程序**(DeepSeek Harness 的 TUI),没有
-  webview、没有官方那种「原生面板 + 选区上下文能力」。扩展与它的唯一输入通道是
-  `terminal.sendText`(往 PTY 键入)。
+# @-mention Design Note (dsh-tui-vscode.insertAtMention)
 
-## 2. dsh-tui 的 @-mention 机制(为什么必须绝对路径)
+> Records the current implementation of "referencing selected code / a whole file into the dsh-TUI input box", the mechanism on the dsh-TUI side, and the alignment gaps with the official Claude Code extension plus the future patch plan. issue #6 · PR #7.
 
-dsh-tui **以「会话自己的工作目录 `state.cwd`」为中心**,自带 `dsh-fs-local` FS 服务,
-**并不感知 VS Code 工作区**。`@` 提及在 **提交时**展开(不是输入时):
+## 1. Background
+
+- issue #6: a shortcut that "references" the selected code (or the whole file when nothing is selected) into the dsh-TUI input box.
+- Baseline: the official Claude Code VS Code extension's `insertAtMention` (the official one inserts `@path#Lx-y`).
+- Hard constraint: dsh-TUI is **a terminal program running in a real PTY** (the DeepSeek Harness TUI); it has no webview and none of the official extension's "native panel + selection context" capability. The only input channel between the extension and it is `terminal.sendText` (typing into the PTY).
+
+## 2. dsh-TUI's @-mention mechanism (why absolute paths are required)
+
+dsh-TUI is **centered on "the session's own working directory `state.cwd`"**, ships with its own `dsh-fs-local` FS service, and **is not aware of the VS Code workspace**. `@` mentions are expanded **at submit time** (not at input time):
 
 ```
 deliverUserText(text) → expandMentions(mentionFs, state.cwd, text)
 ```
 
-`expandMentions(src/dsh-adapter/channel.ts)` 的关键解析:
+Key resolution in `expandMentions(src/dsh-adapter/channel.ts)`:
 
 ```ts
 const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.path)
 ```
 
-- **相对路径** → 以会话 `state.cwd` 为基准解析 → 不在 cwd 下 → 进 `missing` →
-  黄条「未找到引用」(原文仍照发);
-- **绝对路径** → 源码注释原话 *“absolute paths pass through untouched”* → 直通,
-  与 cwd 无关。
-- 附加模型:你的原文永远是第一条 text 块(气泡显示原文);每个成功解析的提及再
-  **追加**一个块——文本 → `<attached-file path="…">`、图片 → image 块、目录 → 列表。
-- **无行区间能力**:`@路径#L12-14` 会被整体当文件名 → 必弹「未找到引用」。
-- **输入通道限制**:PTY raw 模式逐键读;注入文本若带 `\n`/`\r` 会被 ConPTY 当
-  「整行管道」**直接提交**(绕过输入框),所以只能单行注入、**绝不自动回车**。
+- **Relative paths** → resolved against the session's `state.cwd` → not under cwd → they go into `missing` → yellow bar "reference not found" (the original text is still sent as-is);
+- **Absolute paths** → the source comment says it verbatim: *"absolute paths pass through untouched"* → they pass straight through, independent of cwd.
+- Attachment model: your original text is always the first text block (the bubble shows the original text); each successfully resolved mention then **appends** one more block — text → `<attached-file path="…">`, images → an image block, directories → a list.
+- **No line-range capability**: `@path#L12-14` is treated as the filename as a whole → it always raises "reference not found".
+- **Input-channel limitation**: the PTY reads key by key in raw mode; if injected text contains `\n`/`\r`, ConPTY treats it as a "whole-line pipe" and **submits directly** (bypassing the input box), so injection must be single-line and must **never auto-press Enter**.
 
-## 3. 当前实现(适配后的最终形态)
+## 3. Current implementation (final shape after adaptation)
 
-- `@` 路径 = **正斜杠绝对路径**:`editor.document.uri.fsPath` →
-  `normalizeMentionPath()`(反斜杠→`/`),保证与会话 cwd/盘符/分隔符无关。
-- 输出形态:
-  - 未选中:`@D:/repo/src/a.ts`
-  - 单行:`@D:/repo/src/a.ts L12`
-  - 多行:`@D:/repo/src/a.ts L12-14`(行号 1-based)
-  - 路径含空白:双引号形式 `@"D:/My Some/a.ts"`(dsh-tui `extractMentions` 原生支持)
-- 投递:有运行中的 DeepSeek 终端 → `terminal.show()` + `sendText(mention, false)`
-  (单行、不回车 → 落在输入框,用户补问题后回车;提交时 dsh-tui 自动附加整个文件);
-  无会话 → 复制到剪贴板 + 提示。
-- 入口:`Ctrl+Alt+K`(macOS `Cmd+Alt+K`,`editorTextFocus`)+ 命令面板
-  `dsh-tui: Insert @-mention / 插入 @文件引用` + 编辑器右键。
-- 为什么行区间是纯文本而非 `#L`:dsh-tui 不支持,`#L` 会破坏 `@` 解析。
+- `@` path = **forward-slash absolute path**: `editor.document.uri.fsPath` → `normalizeMentionPath()` (backslashes → `/`), guaranteeing independence from the session cwd / drive letter / separator.
+- Output shapes:
+  - no selection: `@D:/repo/src/a.ts`
+  - single line: `@D:/repo/src/a.ts L12`
+  - multiple lines: `@D:/repo/src/a.ts L12-14` (line numbers are 1-based)
+  - path containing whitespace: the double-quoted form `@"D:/My Some/a.ts"` (natively supported by dsh-TUI's `extractMentions`)
+- Delivery: with a running DeepSeek terminal → `terminal.show()` + `sendText(mention, false)` (single line, no Enter → it lands in the input box; the user adds a question and then presses Enter; on submit, dsh-TUI automatically attaches the whole file); no session → copy to the clipboard + show a hint.
+- Entry points: `Ctrl+Alt+K` (macOS `Cmd+Alt+K`, `editorTextFocus`) + Command Palette `dsh-tui: Insert @-mention` + editor context menu.
+- Why the line range is plain text instead of `#L`: dsh-TUI does not support it, and `#L` would break `@` parsing.
 
-## 4. 与 Claude Code 官方扩展的差距
+## 4. Gaps vs. the official Claude Code extension
 
-| 维度 | 官方 Claude Code | dsh-tui-vscode 现状 |
+| Dimension | Official Claude Code | dsh-tui-vscode today |
 | --- | --- | --- |
-| @-mention 路径 | 相对 workspace | 绝对路径(会话 cwd 不感知工作区) |
-| 行区间 | `@path#L12-14` 受支持 | 仅 `L12-14` 纯文本提示,附加整文件 |
-| 选区上下文 | 原生通道直接进对话(显示 N lines) | 无此通道,近似为「整文件附加+行号提示」 |
-| 输入表面 | 原生面板 | 终端输入框(sendText 键入) |
+| @-mention path | relative to workspace | absolute path (the session cwd does not know about the workspace) |
+| Line range | `@path#L12-14` supported | only an `L12-14` plain-text hint; the whole file is attached |
+| Selection context | a native channel feeds it straight into the conversation (shows N lines) | no such channel; approximated as "whole-file attachment + line-number hint" |
+| Input surface | native panel | terminal input box (typed via `sendText`) |
 
-差距源于 dsh-tui 的架构(会话 cwd 中心 + 无选区上下文通道),而非扩展能力不足。
+The gap comes from dsh-TUI's architecture (session cwd-centered + no selection-context channel), not from any lack of capability in the extension.
 
-## 4.1 选区自动引用的能力形态
+## 4.1 The shape of the selection auto-mention capability
 
-官方扩展在面板与终端模式下都支持「编辑器选区进入会话上下文」:选中代码后无需手动操作即可被引用;
-终端模式的手动兜底为快捷键 `Ctrl+Alt+K`(macOS `Cmd+Alt+K`)插入 `@相对路径#L起-止`。该能力的实现细节未公开。
+The official extension supports "editor selection enters the session context" in both panel and terminal modes: once code is selected, it can be referenced without any manual action; the manual fallback in terminal mode is the `Ctrl+Alt+K` shortcut (macOS `Cmd+Alt+K`), which inserts `@relative/path#Lstart-end`. The implementation details of that capability are not public.
 
-dsh-tui(whale,独立 cordis TUI)当前没有等价的选区上下文通道,扩展与它之间也只有 `terminal.sendText`
-一条输入通道,故只能**降级近似**(见下节)。
+dsh-TUI (whale, an independent cordis TUI) currently has no equivalent selection-context channel, and the only input channel between it and the extension is also `terminal.sendText`, so the capability can only be **approximated by downgrading** (see the next section).
 
-## 4.2 降级近似(本仓库已实现,experimental)
+## 4.2 Downgraded approximation (implemented in this repository, experimental)
 
-`dsh-tui-vscode.autoInsertMention`(默认 **false**,experimental):开启后监听选区变化 →
-300ms 防抖 → 自动把 `@绝对路径 L起-止` `sendText` 键入**运行中的** dsh-tui 输入框。
+`dsh-tui-vscode.autoInsertMention` (default **false**, experimental): when enabled, it listens for selection changes → 300ms debounce → automatically types `@absolute/path Lstart-end` into the input box of a **running** dsh-TUI via `sendText`.
 
-- 与官方差异:官方不把引用写进输入框文字;本实现是**实质性往输入框敲字**,
-  故默认关闭、仅当存在运行中会话、对同一选区去重,避免抢占/刷屏。
-- 无运行中会话时**静默忽略**(不复制、不提示),避免打扰。
-- 文件 scheme 外的编辑器(输出/终端等非文件)不触发。
-- 与上游补丁 #359 **解耦**:本次扩展侧可独立交付;`#L` 行区间/相对路径落在 dsh-TUI 上游
-  (issue #359),落地后本文档 §4 差距表与 §5 计划再将实现切回「相对路径 + #L 行区间」。
+- Difference from the official extension: the official one does not write the reference into the input box text; this implementation **literally types into the input box**, so it is off by default, only acts when a session is running, and de-duplicates the same selection to avoid stealing focus / flooding.
+- With no running session it **silently ignores** the event (no copy, no hint) to avoid disturbing the user.
+- Editors outside the file scheme (output/terminal and other non-file editors) do not trigger it.
+- **Decoupled** from upstream patch #359: this extension-side work can be delivered independently; the `#L` line range / relative paths belong to the dsh-TUI upstream (issue #359), and once that lands, the gap table in §4 and the plan in §5 of this document will switch the implementation back to "relative path + #L line range".
 
-## 5. 未来计划:给 dsh-TUI 打补丁,对齐官方设计
+## 5. Future plan: patch dsh-TUI to align with the official design
 
-目标:让 `@相对路径` 与行区间在 dsh-tui 中原生可用,扩展回归「相对路径 + 行区间」,
-体验对齐 Claude Code 官方扩展。方向(以 RFC/Draft 提交到 `ccch1mneyyy/dsh-TUI`):
+Goal: make `@relative/path` and line ranges work natively in dsh-TUI, so the extension can return to "relative path + line range" and the experience aligns with the official Claude Code extension. Directions (to be submitted to `ccch1mneyyy/dsh-TUI` as an RFC/Draft):
 
-1. **相对路径基准**:让 @-mention 支持「工作区/调用方提供的根」——扩展把 workspace
-   根经 stdin 初始提示 / 环境变量 / 轻量 IPC 传给 TUI;**改 `expandMentions` 的相对
-   解析基准**(join 用「工作区根」而非仅 `state.cwd`,或按优先级回退)。
-2. **行区间语法**:实现 `@路径#L12-14` / `#L12` 精确附加指定行(改文件读取路径,
-   按行切片);文档、fixture、conformance 同步(spec 仓库
-   `dsh-ecosystem-spec` 的 TUI-proposal 也可同步一条)。
-3. **(可选)选区上下文通道**:为「N lines selected」提供标准注入点,供 web/tui 策略
-   消费。
-4. **补丁落地后**:本扩展的 `buildAtMention` 可从「绝对路径」切回「相对工作区路径 +
-   #L 行区间」,绝对路径保留为兜底(仍合法)。
+1. **Relative-path base**: make @-mention support a "workspace / caller-provided root" — the extension passes the workspace root to the TUI through the stdin initial prompt / an environment variable / lightweight IPC; **change the relative resolution base in `expandMentions`** (join against the "workspace root" instead of only `state.cwd`, or fall back by priority).
+2. **Line-range syntax**: implement `@path#L12-14` / `#L12` to attach exactly the specified lines (change the file-reading path, slice by line); keep docs, fixtures, and conformance in sync (a TUI-proposal entry in the `dsh-ecosystem-spec` spec repository can be added as well).
+3. **(Optional) selection-context channel**: provide a standard injection point for "N lines selected" for web/tui strategies to consume.
+4. **After the patch lands**: `buildAtMention` in this extension can switch from "absolute path" back to "relative workspace path + #L line range", keeping absolute paths as a fallback (still valid).
 
-## 6. 验收(未来补丁)
+## 6. Acceptance (future patch)
 
-- [ ] dsh-tui 解析 `@相对路径#L12-14`(或等价)并按行附加,越界/缺失明确提示;
-- [ ] 相对路径基于「会话 cwd 或显式传入的工作区根」,跨盘/跨目录稳定;
-- [ ] 扩展侧:相对路径 + 行区间为主,绝对路径兜底;快捷键/右键体验不变。
+- [ ] dsh-TUI parses `@relative/path#L12-14` (or an equivalent) and attaches by line, with a clear warning for out-of-range/missing references;
+- [ ] relative paths are based on "the session cwd or an explicitly passed workspace root" and are stable across drives/directories;
+- [ ] extension side: relative path + line range as the primary form, absolute path as the fallback; shortcut / context-menu experience unchanged.
