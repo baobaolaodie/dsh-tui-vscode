@@ -1,3 +1,9 @@
+<div align="right">
+
+English · [简体中文](dsh-tui-vscode-v0.15_ZH.md)
+
+</div>
+
 # Adapter Note — dsh-tui-vscode (VS Code companion) v0.15
 
 **Status:** Draft / Experimental
@@ -5,64 +11,63 @@
 **Host:** dsh-TUI 0.7.0+ / Cordis 4.x profile; VS Code Extension API ^1.90.0
 **Plugin:** `com.baobaolaodie.dsh-tui-vscode` (pilot declaration)
 
-## 定位
+## Positioning
 
-dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里的角色是“启动/恢复 dsh-TUI 会话的入口提供者”，而不是一个独立的 Cordis 运行时插件。
+dsh-tui-vscode is the VS Code companion extension for dsh-TUI. Its role in the dsh ecosystem is that of a "provider of entry points that start/resume dsh-TUI sessions", rather than a standalone Cordis runtime plugin.
 
-本 Note 记录 dsh-ecosystem-spec v0.15 的 manifest 概念如何映射到该仓库现有实现，以及当前试点声明与规范之间的已知偏差。
+This Note records how the manifest concepts of dsh-ecosystem-spec v0.15 map onto this repository's existing implementation, and the known deviations between the current pilot declaration and the specification.
 
-## Contract 映射
+## Contract Mapping
 
-| Community v0.15 概念 | dsh-tui-vscode 现状 |
+| Community v0.15 concept | Current state in dsh-tui-vscode |
 | --- | --- |
-| `facets.host.entry` | `out/extension.js`（VS Code 扩展入口；**非 dsh 宿主可执行入口**，见偏差 D-1） |
-| `facets.host.apiVersion` | `v1alpha1`（试点值；尚未被 dsh-tui 运行时协商） |
-| `requires.contracts` | `commands.dsh/v1alpha1` + `Command`（启动/恢复命令的声明） |
-| `permissions` | `commands.invoke`（单条；scope 必须是已声明命令 id——宿主正向校验 scope∈commandIds、反向校验每命令必有对应授权，而 std 解析层按 name 去重禁止同 name 多条。当前仅声明 `.start`，`.resume` 待上游裁决后恢复，见 Gap 3） |
-| `contributes.commands` | 当前仅声明 `com.baobaolaodie.dsh-tui-vscode.start`（`.resume` 因 Gap 3 规则冲突暂缓，扩展本体仍提供该命令） |
-| `subscriptions` | 无（当前不订阅 messages.observe 等事件） |
-| Host Descriptor | 上游示例已发布：`registry/host-descriptor.tui.example.json`（`facetApiVersions=["v1alpha1"]`，storage/commands/messages）；dsh-tui 已在运行时构建真实 descriptor 但无发布工件（见 D-2） |
-| effect ledger | 未实现；当前通过 VS Code 终端/会话文件系统读写，无标准 ledger |
+| `facets.host.entry` | `out/extension.js` (VS Code extension entry point; **not an executable entry that the dsh host can load** — see deviation D-1) |
+| `facets.host.apiVersion` | `v1alpha1` (pilot value; not yet negotiated by the dsh-tui runtime) |
+| `requires.contracts` | `commands.dsh/v1alpha1` + `Command` (declaration of the start/resume commands) |
+| `permissions` | `commands.invoke` (single entry; the scope must be a declared command id — the host positively validates scope ∈ commandIds and inversely requires every command to have a corresponding grant, while the std parsing layer dedupes by name and forbids more than one entry with the same name. Only `.start` is declared for now; `.resume` will be restored after the upstream ruling, see Gap 3) |
+| `contributes.commands` | Only `com.baobaolaodie.dsh-tui-vscode.start` is declared for now (`.resume` is on hold because of the Gap 3 rule conflict; the extension itself still provides that command) |
+| `subscriptions` | None (no event subscriptions such as messages.observe at present) |
+| Host Descriptor | The upstream example has been published: `registry/host-descriptor.tui.example.json` (`facetApiVersions=["v1alpha1"]`, storage/commands/messages); dsh-tui already builds a real descriptor at runtime but has no published artifact (see D-2) |
+| effect ledger | Not implemented; the pilot currently reads and writes the VS Code terminal and the session file system, with no standard ledger |
 
-## 已知偏差
+## Known Deviations
 
-- **D-1 entry 不可被 dsh 直接加载**：`out/extension.js` 是 VS Code Extension Host 入口，不能由 dsh/Cordis 直接加载。当前 `dsh-plugin.json` 是“声明性试点”，不是可执行插件。
-- **D-2 真实 Host Descriptor 已实测协商（2026-08-23 闭环）**：spec registry 无可离线复验的 descriptor 发布工件，但 dsh-TUI 已在运行时构建真实 Host Descriptor；本试点已于 2026-08-23 对运行中 dsh-tui 0.8.8 经 `/plugins check` 完成协商 → **`compatible`**（见证据节）。证据等级维持 `Declared` 的理由收窄为「entry 不可被 dsh 直接加载（D-1）+ 无 activation/lifecycle 接入（D-3）」，协商维度已实测。
-- **D-3 本插件侧未接入 effect ledger / lifecycle（2026-08-23 修订）**：宿主侧生命周期实体已实现——dsh-TUI 的效果台账（C-060，`~/.dsh-tui/effect-ledger.jsonl`，pluginId / activationInstance / runtimeGenerationId 三元组）与统一授权存储均已上线；偏差收窄为本扩展作为 VS Code companion 未声明 activation instance、未接入宿主台账，行为仍走 VS Code 终端与会话文件系统。
-- **D-4 与 Cordis bundle 双轨并存**：实际可运行层仍是 `package.json` 的 `dsh.bundle` + `cordis.patch.yml`；`dsh-plugin.json` 是额外试点声明，两者尚未统一。
-- **D-5 证据等级为 Declared**：试点 manifest 已通过上游 dsh-std v0.15 的 schema + 语义校验（`parseManifest` → `projectManifest` → `manifestDefinitions.validate`），并对上游仓库的示例(example)Host Descriptor（`registry/host-descriptor.tui.example.json`）协商出 **`compatible`**（无 required 缺失、无 denied permission）。2026-08-21 起该复核可经官方入口 `npm run validate:manifest` 一键复现（上游 PR #5）。但因 entry 不可被 dsh 直接加载（D-1）且真实 host 协商未发生，证据等级仍为 `Declared`，不能声称 `Tested` / `Verified`。
+- **D-1 entry cannot be loaded directly by dsh**: `out/extension.js` is a VS Code Extension Host entry point and cannot be loaded directly by dsh/Cordis. The current `dsh-plugin.json` is a "declarative pilot", not an executable plugin.
+- **D-2 the real Host Descriptor has been negotiated in practice (closed loop on 2026-08-23)**: the spec registry has no offline-verifiable descriptor publication artifact, but dsh-TUI already builds a real Host Descriptor at runtime; on 2026-08-23 this pilot completed negotiation against a running dsh-tui 0.8.8 via `/plugins check` → **`compatible`** (see the Evidence section). The reason for keeping the evidence level at `Declared` has narrowed to "entry cannot be loaded directly by dsh (D-1) + no activation/lifecycle integration (D-3)"; the negotiation dimension has been verified in practice.
+- **D-3 no effect ledger / lifecycle integration on this plugin side (revised 2026-08-23)**: the host-side lifecycle entities have been implemented — dsh-TUI's effect ledger (C-060, `~/.dsh-tui/effect-ledger.jsonl`, the pluginId / activationInstance / runtimeGenerationId triple) and its unified authorization store are both live; the deviation has narrowed to the fact that this extension, as a VS Code companion, declares no activation instance and does not integrate with the host ledger, while its behavior still goes through the VS Code terminal and the session file system.
+- **D-4 dual-track coexistence with the Cordis bundle**: the actually runnable layer is still `package.json`'s `dsh.bundle` + `cordis.patch.yml`; `dsh-plugin.json` is an additional pilot declaration, and the two have not been unified yet.
+- **D-5 evidence level is Declared**: the pilot manifest has passed the upstream dsh-std v0.15 schema + semantic validation (`parseManifest` → `projectManifest` → `manifestDefinitions.validate`) and negotiated **`compatible`** against the upstream repository's example Host Descriptor (`registry/host-descriptor.tui.example.json`) (no missing required items, no denied permissions). Since 2026-08-21 this re-check can be reproduced with one command through the official entry point `npm run validate:manifest` (upstream PR #5). However, because entry cannot be loaded directly by dsh (D-1) and no real-host negotiation had taken place, the evidence level remains `Declared`, and it cannot claim `Tested` / `Verified`.
 
-## 证据
+## Evidence
 
-- 仓库：https://github.com/baobaolaodie/dsh-tui-vscode
-- 分支：`feat/dsh-ecosystem-spec`
-- `dsh-plugin.json`：本仓库根目录（试点声明）
-- 上游 conformance 复核（2026-08-22 更新）：T-Auto/dsh-ecosystem-spec main HEAD `d406de4`（含 PR #5 官方校验入口）+ 固定 `vendor/dsh-std` @ `614dfa1`：
-  - `npm run test:standalone` 全量 suite 退出码 0（manifest/Host Descriptor/envelope/ledger/claim 正反 fixture 与五态协商矩阵全部符合预期）；
-  - 官方入口 `npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`，exit 0；
-  - 结论维持 **`compatible`**（结构 + 语义 + 协商全过；PR #5 将 admission 算法抽为共用核心 `admission-core.js` 后复核结论不变）。
-- 宿主侧复核（2026-08-23，headless 复刻 `/plugins check` 全链：parseManifest → projectManifest → createContractIndex(vendored registry/permissions) → validatePlugin → buildHostDescriptor → negotiate，dsh-tui 0.8.8 安装副本）：**TUI semantic validation PASS**，negotiate → **`compatible`**（host.dropped=[] / warnings=[]）；最小合规形态（单命令 `.start`）。
-- 真实宿主协商留档（2026-08-23，运行中 dsh-tui 0.8.8，真实终端 `/plugins check D:\...\dsh-plugin.json`）：C-070 信任横幅后输出 **「协商结果：compatible」**。headless 预测与真实宿主一致，negotiated 维度闭环。
-- 注：上游 [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2)（conformance 加载对齐）已合并，修复早期「独立检出无法运行」问题；独立检出现在用 `npm run test:standalone`（等价 `node scripts/conformance.mjs --standalone`）。
-- 已合入上游：本 Note 已随 [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) 合入 `adapters/dsh-tui-vscode-v0.15.md`（生态首篇 Adapter Note；曾列于 README「生态扩展一览表」首行，该表后被上游提交 `69052fd` 移除，见「上游演变跟踪」）。
-- 现有 CI：`npm test` / `npm run test:e2e` 覆盖 VS Code 扩展行为，不覆盖 v0.15 conformance。
+- Repository: https://github.com/baobaolaodie/dsh-tui-vscode
+- Branch: `feat/dsh-ecosystem-spec`
+- `dsh-plugin.json`: repository root (pilot declaration)
+- Upstream conformance re-check (updated 2026-08-22): T-Auto/dsh-ecosystem-spec main HEAD `d406de4` (including PR #5, the official validation entry point) + pinned `vendor/dsh-std` @ `614dfa1`:
+  - `npm run test:standalone` full suite exit code 0 (manifest / Host Descriptor / envelope / ledger / claim positive and negative fixtures and the five-state negotiation matrix all behave as expected);
+  - official entry point `npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`, exit 0;
+  - the conclusion remains **`compatible`** (structure + semantics + negotiation all pass; after PR #5 extracted the admission algorithm into the shared core `admission-core.js`, the re-check conclusion is unchanged).
+- Host-side re-check (2026-08-23; headless replication of the full `/plugins check` chain: parseManifest → projectManifest → createContractIndex(vendored registry/permissions) → validatePlugin → buildHostDescriptor → negotiate, on an installed copy of dsh-tui 0.8.8): **TUI semantic validation PASS**, negotiate → **`compatible`** (host.dropped=[] / warnings=[]); minimal compliant shape (single command `.start`).
+- Real-host negotiation on record (2026-08-23; running dsh-tui 0.8.8; real terminal `/plugins check D:\...\dsh-plugin.json`): after the C-070 trust banner it printed **「协商结果：compatible」**. The headless prediction matched the real host, closing the loop on the negotiated dimension.
+- Note: upstream [PR #2](https://github.com/T-Auto/dsh-ecosystem-spec/pull/2) (conformance loading alignment) has been merged, fixing the earlier "standalone checkout cannot run" problem; a standalone checkout now uses `npm run test:standalone` (equivalent to `node scripts/conformance.mjs --standalone`).
+- Merged upstream: this Note was merged as `adapters/dsh-tui-vscode-v0.15.md` with [T-Auto/dsh-ecosystem-spec PR #3](https://github.com/T-Auto/dsh-ecosystem-spec/pull/3) (the first Adapter Note in the ecosystem; it was once listed in the first row of the README "ecosystem extensions" table, which was later removed by upstream commit `69052fd`, see "Upstream Evolution Tracking").
+- Existing CI: `npm test` / `npm run test:e2e` cover VS Code extension behavior, but not v0.15 conformance.
 
-## 上游演变跟踪
+## Upstream Evolution Tracking
 
-- **2026-08-18 命名空间迁移（PR #4）**：上游把 TUI 私有命名空间 `x-ccch1mneyyy.tui/*` 统一迁移为中性 `tui.dsh/*`（DecisionEvents / Channel / SettingsSection / Scene，坐标 `tui.dsh/v1alpha1`），旧坐标不作隐式别名（协商保持确定性）。**本试点 `requires.contracts` 仅使用 std 的 `commands.dsh/v1alpha1#Command`，不消费任何 `tui.dsh` 私有坐标，故迁移不影响本试点**；若未来使用 TUI 私有能力，须改用 `tui.dsh/v1alpha1` 坐标。
-- **2026-08-18 conformance 可独立跑**：PR #2 合并后 `npm run test:standalone` 可独立验证（31 fixture + 五态协商全绿）；本试点在其上复核结论仍为 `compatible`。
-- **2026-08-21 官方单插件校验入口（PR #5）**：admission 算法自 `conformance/tests/run.js` 抽出为共用核心 `conformance/tests/admission-core.js`，新增 `npm run validate:manifest -- --manifest ./dsh-plugin.json [--host ...] [--grant ...]`（exit 0 = compatible / compatible_degraded / waiting_authorization）。本试点早期的「同款逻辑手工复刻」取证方式自此可由官方 CLI 一键复现。
-- **2026-08-21 RFC 0009 转正为 [PR #8](https://github.com/T-Auto/dsh-ecosystem-spec/pull/8)（open，分支 `dev-supply-chain-vision`）**：维护者本人以正式 PR 提交供应链事件响应——撤销注册表 `registry/retractions-0.15.json`（yanked/deleted 双语义、append-only）与 PLUGIN-ADMISSION-CHECKLIST / SECURITY / governance 增补；自述对现有坐标/schema/registry **零兼容性影响**（纯新增层、旧 parser 忽略未知字段），并顺带把此前缺失的 TUI-OBS-002 / TUI-DEP-001 / TUI-CLAIM-001 / TUI-RUN-001/002 补录进 requirements 矩阵。合并概率高；若合入需评估消费端要求（TUI-SC-003 yanked/deleted 处理）对本试点的影响。
-- **2026-08-18~22 README 门面重写**：提交 `69052fd` 移除「生态扩展一览表」对本仓库与 Adapter Note 的直达链接，生态可见性转由 [tui 插件市场](https://dshtui.com/plugins/)承担（README 徽章口径收录 23 个）；Note 文件本身仍在 `adapters/` 且被上游 `package.json` 的 `files` 收录。同期规范本体零漂移（spec / registry / schemas / `vendor/dsh-std` @ `614dfa1` 均未动）。
-- **2026-08-23 时效审计：dsh-TUI 主仓已落地宿主侧**：[docs/plugins.md](https://github.com/ccch1mneyyy/dsh-TUI/blob/main/docs/plugins.md) 新增「社区互操作规范（Community Consensus v0.15）」章节——`src/plugin-spec/` 校验/协商纯库、vendored profile + `npm run verify:plugin-spec` 漂移检查、Host Descriptor 构建、统一授权存储（8 个注册权限，`commands.invoke` 默认允许）、效果台账与 `/plugins` 诊断面均标记为已落地；边界声明加载强制仍归 dsh CLI Loader。另：全网 `filename:dsh-plugin.json` 命中已达 200+（含多个真实社区插件仓），manifest 格式正在扩散。据此改写本 Note D-2/D-3。
+- **2026-08-18 namespace migration (PR #4)**: upstream migrated the TUI-private namespace `x-ccch1mneyyy.tui/*` to the neutral `tui.dsh/*` (DecisionEvents / Channel / SettingsSection / Scene, coordinate `tui.dsh/v1alpha1`), with no implicit alias for the old coordinates (negotiation stays deterministic). **This pilot's `requires.contracts` only uses std's `commands.dsh/v1alpha1#Command` and consumes no `tui.dsh` private coordinate, so the migration does not affect this pilot**; if TUI-private capabilities are used in the future, the `tui.dsh/v1alpha1` coordinate must be used instead.
+- **2026-08-18 conformance can run standalone**: after PR #2 was merged, `npm run test:standalone` can verify independently (31 fixtures + five-state negotiation all green); the re-check of this pilot on top of it still concludes `compatible`.
+- **2026-08-21 official single-plugin validation entry point (PR #5)**: the admission algorithm was extracted from `conformance/tests/run.js` into the shared core `conformance/tests/admission-core.js`, adding `npm run validate:manifest -- --manifest ./dsh-plugin.json [--host ...] [--grant ...]` (exit 0 = compatible / compatible_degraded / waiting_authorization). The pilot's earlier evidence method of "manually replicating the same logic" can now be reproduced with one command through the official CLI.
+- **2026-08-21 RFC 0009 promoted to [PR #8](https://github.com/T-Auto/dsh-ecosystem-spec/pull/8) (open, branch `dev-supply-chain-vision`)**: the maintainer personally submitted the supply-chain incident response as a formal PR — the retraction registry `registry/retractions-0.15.json` (yanked/deleted dual semantics, append-only) plus additions to PLUGIN-ADMISSION-CHECKLIST / SECURITY / governance; the description states zero compatibility impact on existing coordinates/schema/registry (purely additive layer; old parsers ignore unknown fields), and it also backfills the previously missing TUI-OBS-002 / TUI-DEP-001 / TUI-CLAIM-001 / TUI-RUN-001/002 into the requirements matrix. The merge probability is high; if it is merged, the impact of consumer-side requirements (TUI-SC-003 yanked/deleted handling) on this pilot must be evaluated.
+- **2026-08-18~22 README front-page rewrite**: commit `69052fd` removed the "ecosystem extensions" table's direct links to this repository and its Adapter Note; ecosystem visibility is now carried by the [tui plugin marketplace](https://dshtui.com/plugins/) (the README badge reports 23 plugins); the Note file itself is still in `adapters/` and is included in the upstream `package.json`'s `files`. In the same period the spec itself had zero drift (spec / registry / schemas / `vendor/dsh-std` @ `614dfa1` all unchanged).
+- **2026-08-23 freshness audit: the dsh-TUI main repository has landed the host side**: [docs/plugins.md](https://github.com/ccch1mneyyy/dsh-TUI/blob/main/docs/plugins.md) added a "Community Interop Spec (Community Consensus v0.15)" section — the `src/plugin-spec/` validation/negotiation pure library, the vendored profile + `npm run verify:plugin-spec` drift check, Host Descriptor construction, the unified authorization store (8 registered permissions, `commands.invoke` allowed by default), the effect ledger and the `/plugins` diagnostic surface are all marked as landed; boundary-declaration load enforcement still belongs to the dsh CLI Loader. Also: network-wide `filename:dsh-plugin.json` hits have reached 200+ (including several real community plugin repositories), and the manifest format is spreading. Accordingly, D-2/D-3 of this Note were rewritten.
+- **2026-08-23 upstream rule defect found in practice (Gap 3)**: through a running dsh-tui (0.8.8, `/plugins check`), this pilot manifest exposed the fact that — the @dsh-std/manifest 0.1.0 parsing layer dedupes by `community.dsh/v1alpha1␀Permission␀<name>` (only one entry per name; scope does not participate), while the dsh-tui profile layer requires that "each `commands.invoke` scope must be a declared command id" and inversely that "every declared command has a corresponding invoke grant". Under the three rules combined, **a plugin declaring ≥2 commands has no form that can pass the review**. This pilot currently keeps the minimal compliant single-command (`.start`) shape, staying green on both sides; see `docs/gap-reports.md` Gap 3.
 
-- **2026-08-23 实测发现上游规则缺陷（Gap 3）**：经运行中 dsh-tui（0.8.8，`/plugins check`）实测本试点 manifest 暴露——@dsh-std/manifest 0.1.0 解析层按 `community.dsh/v1alpha1␀Permission␀<name>` 去重（同 name 仅一条，scope 不参与），而 dsh-tui profile 层要求「每条 `commands.invoke` 的 scope 必须是已声明命令 id」且反向要求「每个已声明命令都有对应 invoke 授权」。三条规则合取下，**声明 ≥2 个命令的插件不存在可过审形态**。本试点暂以单命令（`.start`）最小合规形态保持双侧全绿；详见 `docs/gap-reports.md` Gap 3。
+## Convergence Plan
 
-## 收敛计划
-
-1. ✅ 2026-08-23 完成：真实宿主 `/plugins check` 协商 `compatible`（headless 复刻链先行预测一致，均已留档）；
-2. 上游裁决 Gap 3（多命令权限语义冲突）后恢复 `resume` 命令与第二条 invoke 授权声明；
-3. 等 Cordis 或 dsh loader 支持读取 `dsh-plugin.json` 作为包身份层；
-4. 再决定 entry 是否需要改为独立的 Node/Cordis 入口；
-5. 届时补 effect ledger 与 lifecycle 映射，并从 `Declared` 升级到更高证据等级；
-6. 本 Note 已作为第一篇 Adapter Note 随 T-Auto/dsh-ecosystem-spec PR #3 合入上游 `adapters/`（生态首个 VS Code companion 适配参考）；后续增量（证据升级、上游演变跟踪）再以小 PR 向上游同步。
+1. ✅ Completed 2026-08-23: real-host `/plugins check` negotiation `compatible` (the headless replication chain predicted it first; both are on record);
+2. After the upstream ruling on Gap 3 (multi-command permission semantics conflict), restore the `resume` command and the second invoke grant declaration;
+3. Wait until Cordis or the dsh loader supports reading `dsh-plugin.json` as a package identity layer;
+4. Then decide whether entry needs to become a standalone Node/Cordis entry point;
+5. At that point add the effect ledger and lifecycle mappings, and upgrade from `Declared` to a higher evidence level;
+6. This Note has already been merged upstream as the first Adapter Note into `adapters/` via T-Auto/dsh-ecosystem-spec PR #3 (the ecosystem's first VS Code companion adaptation reference); subsequent increments (evidence upgrades, upstream evolution tracking) will be synced upstream via small PRs.
