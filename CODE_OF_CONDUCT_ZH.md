@@ -1,5 +1,3 @@
-<!-- transitional copy: base CI compatibility only - content is Chinese (copied from CODE_OF_CONDUCT_ZH.md), frozen, to be deleted in PR3. The authoritative English text lives in CODE_OF_CONDUCT.md. -->
-
 <div align="right">
 
 [English](CODE_OF_CONDUCT.md) · 中文
