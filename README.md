@@ -2,13 +2,13 @@
 <h1 align="center">dsh-tui-vscode</h1>
 
 <p align="center">
-  <strong>dsh-TUI 的 VS Code companion 扩展——体验与 Claude Code 官方 VS Code 扩展几乎一致</strong>
+  <strong>VS Code companion extension for dsh-TUI — an experience almost identical to the official Claude Code VS Code extension</strong>
   <br />
-  <em>真实集成终端承载 · 编辑器区另一侧打开 · 多会话并存 · 侧边栏会话历史 · 指定会话恢复</em>
+  <em>Real integrated terminal · Beside placement · multiple concurrent sessions · sidebar session history · specific-session resume</em>
 </p>
 
 <p align="center">
-  <a href="#快速开始"><img src="https://img.shields.io/badge/快速开始-4D6BFE?style=for-the-badge" alt="Quick Start" /></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Quick_Start-4D6BFE?style=for-the-badge" alt="Quick Start" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License" /></a>
 </p>
 
@@ -20,41 +20,41 @@
 </p>
 
 <p align="center">
-  <a href="README_EN.md">English</a>
+  <a href="README_ZH.md">简体中文</a>
 </p>
 
 ---
 
 # dsh-tui-vscode
 
-**dsh-tui-vscode** 让 [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI) 跑在 VS Code **真实的集成终端**里（编辑器区另一侧新开一列，Windows 默认 PowerShell）——**与 Claude Code 官方 VS Code 扩展的终端模式同构**（`createTerminal` + 在终端内运行 CLI），没有 webview、没有 xterm 模拟层。
+**dsh-tui-vscode** runs [`dsh-tui`](https://github.com/ccch1mneyyy/dsh-TUI) inside a REAL VS Code integrated terminal (a new editor column beside the active one; default shell — PowerShell on Windows) — **the same shape as the terminal mode of the official Claude Code VS Code extension** (`createTerminal` + run the CLI inside it), with no webview and no xterm emulation.
 
-## 展示
+## Screenshot
 
-点击鲸鱼按钮后，**DeepSeek** 终端在编辑器区另一侧打开并自动运行 dsh-tui——真实终端、真实 shell、完整 TUI：
+Click the whale button and a **DeepSeek** terminal opens on the Beside column, running dsh-tui automatically — a real terminal, a real shell, the full TUI:
 
 <p align="center">
-  <img src="media/screenshot-deepseek-terminal.png" alt="DeepSeek 终端在编辑器区另一侧运行 dsh-TUI" width="720" />
+  <img src="media/screenshot-deepseek-terminal.png" alt="DeepSeek terminal running dsh-TUI on the Beside column" width="720" />
 </p>
 
-## 特性
+## Features
 
-- **真实终端，非模拟**：会话运行在 VS Code 集成终端（你的默认 shell），拥有终端的一切原生能力：shell 集成、原生 Ctrl+C、复制粘贴、字体主题跟随。
-- **打开位置 = 另一侧（默认）**：`ViewColumn.Beside`——在编辑器区**旁边新开一列**，绝不占你正在看的列（同 Claude Code）；`dsh-tui-vscode.terminalLocation` 可改为复用当前列（`active`）或开在底部面板（`panel`）。
-- **多会话并存**：每次点击「启动新会话」都新开一个终端 + 会话，旧会话继续运行（同 Claude Code）。
-- **侧边栏会话历史**：只展示**当前 VS Code 工作区**下的会话（含工作区子目录里启动的会话；多根工作区取并集；未打开工作区时为空列表），隐藏只有启动记录、没有任何对话的空会话、子代理派遣运行与**已归档会话**（与 dsh web 列表同源：读 `storages/workspace.json` 的归档集合）——与 dsh 浏览器默认视图一致；标题 + 紧凑相对时间（与 Web 会话列表同源），点击条目**恢复该指定会话**；条目悬停可**归档**（dsh 原生归档：日志保留、可随时恢复）与**重命名**，右键菜单可**永久删除**（危险操作，默认从右键进入）；「管理已归档会话」命令可恢复或彻底删除；目录变化自动刷新。
-- **一键启动/恢复**：`Start new session`、`Resume last session`、侧边栏指定会话恢复——恢复指定会话走 `DSH_TUI_RESUME_SESSION` 环境变量通道（profile 的 `cordis.patch.yml` 启动时读取），与 `--resume` 互不干扰。
-- **自动启停 + 环境注入**：打开 = 启动，关闭终端 = 进程结束；`$VISUAL` / `DSH_TUI_LANG` / `$DSH_HOME` 自动注入终端环境。
+- **Real terminal, not an emulation**: sessions run in the VS Code integrated terminal (your default shell) with everything native — shell integration, real Ctrl+C, copy/paste, fonts and theme.
+- **Beside placement (default)**: `ViewColumn.Beside` — a NEW column beside the active one, never taking over the column you are looking at (same as Claude Code); `dsh-tui-vscode.terminalLocation` can switch to the current column (`active`) or the bottom panel (`panel`).
+- **Multiple concurrent sessions**: every "Start new session" click opens a new terminal + session; older sessions keep running (same as Claude Code).
+- **Sidebar session history**: shows only sessions of the **current VS Code workspace** (including sessions launched from its subdirectories; union over multi-root workspaces; empty list when no workspace is open), hiding boot-only sessions with no conversation, delegated sub-agent runs and **archived sessions** (same source as the dsh web list: the archive set in `storages/workspace.json`) — matching the dsh browser's default view; title + compact relative time (shared with the web session list); clicking an entry resumes THAT session; hover an entry to **archive** (dsh-native archiving: log retained, restorable anytime) or **rename**, right-click to **permanently delete** (destructive, kept behind the context menu); the "Manage archived sessions" command restores or permanently deletes; auto-refreshes on directory changes.
+- **One-click start / resume**: `Start new session`, `Resume last session`, and specific-session resume from the sidebar — the latter goes through the `DSH_TUI_RESUME_SESSION` environment channel (read at boot by the profile's `cordis.patch.yml`), which does not interfere with `--resume`.
+- **Auto start/stop + env injection**: open = start, closing the terminal ends the process; `$VISUAL` / `DSH_TUI_LANG` / `$DSH_HOME` are injected into the terminal environment.
 
-## 快速开始
+## Quick Start
 
-前置条件：全局安装 DSH CLI 与 dsh-tui（首次启动自动初始化 profile，需 pnpm），运行模型需要 `DEEPSEEK_API_KEY`：
+Prerequisites: install the DSH CLI and dsh-tui globally (the first run bootstraps the profile; pnpm required). Running models needs `DEEPSEEK_API_KEY`:
 
 ```sh
 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 ```
 
-从 **VS Code 扩展面板**安装（推荐）：`Ctrl+Shift+X` 搜索 **`dsh-tui`** 一键安装；或从源码构建：
+Install from the **VS Code extension marketplace** (recommended): press `Ctrl+Shift+X`, search for **`dsh-tui`** and install with one click; or build from source:
 
 ```sh
 git clone https://github.com/baobaolaodie/dsh-tui-vscode.git
@@ -63,116 +63,116 @@ npm install
 npm run install:local
 ```
 
-## 使用
+## Usage
 
-- **启动 / 多开**：点**编辑器标签栏右侧鲸鱼按钮**，或命令 `dsh-tui: Start new session / 启动新会话`——每次都在编辑器区另一侧新开一个 **DeepSeek** 终端并自动运行 dsh-tui；再次点击 = 再开一个，多会话并行。**活动栏鲸鱼图标**打开侧边栏「会话历史」（欢迎页含启动/恢复按钮）。
-- **恢复上次会话**：`dsh-tui: Resume last session / 恢复上次会话`（`--resume`，读 `~/.dsh-tui/resume.txt`）。
-- **恢复指定会话**：侧边栏「会话历史」展开项目 → 点击会话条目——新终端携带 `DSH_TUI_RESUME_SESSION=<id>` 环境变量启动该会话。
-- **终止**：关闭终端标签（只结束该会话），或在 TUI 内双击 `Ctrl+C`；命令 `dsh-tui: Terminate session / 终止会话` 向最近终端发送 Ctrl+C。
-- **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 **`@相对路径#L起-止`** 形式插入运行中的 dsh-tui 输入框（相对路径以工作区根为基准；单行 `#L12`、多行 `#L12-14`、未选中仅 `@相对路径` 引用整个文件；dsh-TUI 提交消息时原生按行区间切片附加内容，不再整文件灌入）。无运行会话时回退为复制到剪贴板。
-  > ⚠️ **版本门槛**：`#L` 行区间语法需 **dsh-TUI ≥ 含 #537（上游已合入）的版本**；`@` 引用可兼容无行区间的普通相对路径。搭配更旧的 dsh-TUI 时新语法会提示文件未找到，请先升级 dsh-TUI。
-  - **快捷键冲突**：默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）可能与 opencode 等扩展撞键（官方终端模式同样默认此键）。若无效或冲突，在「键盘快捷方式」（`Ctrl+K Ctrl+S`）搜索 `dsh_tui` 重绑为你习惯的键位即可；右键/命令面板入口不受影响。
-- **选区自动上下文（默认开）**：`autoInsertMention` 开启后，编辑器选中代码经**IDE 选区通道**实时推送给运行中的 dsh-tui（300ms 防抖、推送坐标与编辑器选区文本，不占输入框），提问时自动附加选中内容并在 transcript 显示「⧉ Selected N lines from …」指示行；通道不可用时回退为键入 `@相对路径#L…`。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
+- **Start / open more**: click the **editor-title whale button**, or run `dsh-tui: Start new session / 启动新会话` — every click opens a NEW **DeepSeek** terminal on the Beside column and runs dsh-tui automatically; click again for another concurrent session. The **activity-bar whale icon** opens the sidebar session history (its welcome view offers start/resume buttons).
+- **Resume the last session**: `dsh-tui: Resume last session / 恢复上次会话` (`--resume`, reads `~/.dsh-tui/resume.txt`).
+- **Resume a specific session**: in the sidebar session history, expand a project and click a session — a new terminal boots it with `DSH_TUI_RESUME_SESSION=<id>` in its environment.
+- **Stop**: close the terminal tab (ends only that session), or double `Ctrl+C` inside the TUI; `dsh-tui: Terminate session / 终止会话` sends Ctrl+C to the most recent terminal.
+- **Reference selected code**: with editor focus, press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`), or use the Command Palette / editor context menu "Insert @-mention" — it inserts the current file or selection as **`@relative/path#Lstart-end`** into the running dsh-tui input box (relativized against the workspace root; single line `#L12`, multi-line `#L12-14`, bare relative path when nothing is selected; dsh-TUI natively slices the attachment to the line range at submit time instead of loading the whole file). With no running session it falls back to copying to the clipboard.
+  > ⚠️ **Version gate**: the `#L` line-range syntax requires a **dsh-TUI build that includes #537 (merged upstream)**; against an older dsh-TUI, `@` mentions report the file as missing — upgrade dsh-TUI first.
+  - **Keybinding conflicts**: the default `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) may collide with extensions like opencode (the official terminal mode uses the same default). If it does not work or conflicts, open "Keyboard Shortcuts" (`Ctrl+K Ctrl+S`), search `dsh_tui`, and rebind it to your preferred keys; the context-menu / command-palette entries are unaffected.
+- **Automatic selection context (on by default)**: editor selections are pushed in real time to the running dsh-tui over the **IDE selection channel** (300 ms debounce, coordinates plus the editor's selection text, never touching the input box); asking a question automatically attaches the selected content and shows a "⧉ Selected N lines from …" indicator line; when the channel is unavailable it falls back to typing `@relative/path#L…`. Requires a dsh-TUI build that includes the IDE selection channel (after upstream merges #562).
 
-## 架构
+## Architecture
 
 ```mermaid
 flowchart LR
   classDef ext fill:#4D6BFE22,stroke:#4D6BFE
   classDef data fill:#2ea04322,stroke:#2ea043
 
-  subgraph host["VS Code 扩展宿主"]
-    CMD["入口：活动栏鲸鱼 · 编辑器标签栏按钮 · 命令面板"]:::ext
+  subgraph host["VS Code extension host"]
+    CMD["Entry: activity-bar whale · editor-title button · command palette"]:::ext
     TERM["createTerminal{ name: DeepSeek, location: Beside, env, iconPath, isTransient }"]:::ext
-    SESS["会话历史 TreeView"]:::ext
-    WATCH["fs.watch 监听会话目录"]:::ext
+    SESS["Session history TreeView"]:::ext
+    WATCH["fs.watch on session dirs"]:::ext
   end
 
-  CMD -->|启动命令| TERM
-  TERM -->|shell 就绪后运行 dsh-tui| SHELL["默认 shell（Windows: PowerShell）"]
-  SHELL -->|node dsh-tui| TUI["dsh-tui 进程"]
-  TUI -->|读写| STORE["~/.dsh/sessions（zstd JSONL）"]:::data
-  TUI -->|最近使用| MRU["~/.dsh-tui/last-used.json"]:::data
-  WEB["dsh web 会话列表"] --- STORE
-  SESS -->|zstd 解码 + 标题三级兜底| STORE
-  SESS -->|storage 账本标题| CACHE["~/.dsh/storages/session_projcache.json"]:::data
-  SESS -->|last-used 排序| MRU
-  WATCH -->|自动刷新| SESS
+  CMD -->|launch command| TERM
+  TERM -->|run dsh-tui when shell is ready| SHELL["Default shell (Windows: PowerShell)"]
+  SHELL -->|node dsh-tui| TUI["dsh-tui process"]
+  TUI -->|read/write| STORE["~/.dsh/sessions (zstd JSONL)"]:::data
+  TUI -->|last-used| MRU["~/.dsh-tui/last-used.json"]:::data
+  WEB["dsh web session list"] --- STORE
+  SESS -->|zstd decode + title fallbacks| STORE
+  SESS -->|storage-ledger titles| CACHE["~/.dsh/storages/session_projcache.json"]:::data
+  SESS -->|last-used sort| MRU
+  WATCH -->|auto refresh| SESS
 ```
 
-要点：
+Key points:
 
-- **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
-- **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
-- **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行/已归档会话，组内按 last-used 排序。
-- **IDE 选区通道**：扩展激活时在 `127.0.0.1` 随机端口起回环 WebSocket 服务端并写 lock 文件（`~/.dsh-tui/ide/<port>.lock`：`{port, token, workspaceFolders, pid}`）；它启动的会话终端经 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量直连（env 直连优先），手动启动的 dsh-tui 则扫描 lock 目录按工作区匹配发现（lock 扫描兜底）。选区变化防抖 300ms 后以 `selection_changed` 通知推送**坐标与编辑器选区文本**（0-based `{path, startLine, endLine, isEmpty, text, documentVersion}`；`text` 含未保存修改），dsh-TUI 提交时原样附加；握手为协议 v2（`ide/hello` → `ide/hello_ack`，token 或版本不符即拒）、仅回环、启动失败静默降级、停用清理 lock。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
+- **Session = real terminal**: the extension only calls `createTerminal` and sends the launch command — process, signals, scrollback, copy/paste are all handled by the VS Code terminal (the same architecture as the official extension).
+- **Specific-session resume**: the profile's `cordis.patch.yml` reads `DSH_TUI_RESUME_SESSION` at boot; `--resume` is deliberately NOT passed (the launcher would overwrite the env from `~/.dsh-tui/resume.txt` — verified in `bin/dsh-tui.js`).
+- **Session-history data sources**: session logs (concatenated multi-frame zstd, **bounded window reads**: 64 KB head + 128 KB tail, decoded frame by frame, tolerantly) → title from log `session/title` event → dsh-storage ledger (the web list's own source) → first human prompt (incl. `agent/inbox/spliced`) → working-directory basename; the view is filtered to the current workspace with empty sessions, sub-agent runs and archived sessions hidden; within a group, sorted by last-used.
+- **IDE selection channel**: on activation the extension starts a loopback WebSocket server on a random `127.0.0.1` port and writes a lock file (`~/.dsh-tui/ide/<port>.lock`: `{port, token, workspaceFolders, pid}`); terminals it spawns connect directly via the `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` environment variables (env-direct first), while manually launched dsh-tui instances discover it by scanning the lock directory matched against the workspace (lock-scan fallback). Selection changes are debounced 300 ms and pushed as `selection_changed` notifications carrying **coordinates and the editor's selection text** (0-based `{path, startLine, endLine, isEmpty, text, documentVersion}`; `text` includes unsaved edits), which dsh-TUI attaches verbatim. The handshake is protocol v2 (`ide/hello` → `ide/hello_ack`; a token or version mismatch is refused), loopback only, silent degradation on startup failure, lock cleared on deactivation. Requires a dsh-TUI build that includes the IDE selection channel (after upstream merges #562).
 
-## 配置
+## Configuration
 
-| 键 | 默认 | 说明 |
+| Key | Default | Description |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | 启动命令（按宿主 PATH 解析为绝对路径后发送） |
-| `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
-| `dsh-tui-vscode.terminalLocation` | `editor` | 终端位置：`editor`（中间编辑区新列）/ `active`（当前编辑列）/ `panel`（底部面板） |
-| `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
-| `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
-| `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
-| `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
-| `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码推送给运行中的 dsh-TUI（300ms 防抖；携带坐标与编辑器选区文本、不占输入框；dsh-TUI 提交时原样附加内容并显示指示行）。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本；通道不可用时回退为键入 `@相对路径#L起-止` |
+| `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved to an absolute path against the HOST PATH before being sent) |
+| `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
+| `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
+| `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
+| `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
+| `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
+| `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
+| `dsh-tui-vscode.autoInsertMention` | `true` | On selection change, push the selected code to the running dsh-TUI over the IDE selection channel (300 ms debounce; coordinates plus the editor's selection text, no input-box takeover; dsh-TUI attaches the content verbatim at submit and shows an indicator line). Requires a dsh-TUI build that includes the IDE selection channel (after upstream merges #562); falls back to typing `@relative/path#Lstart-end` when the channel is unavailable. |
 
-## 目录结构
+## Directory Structure
 
 ```
 dsh-tui-vscode/
 ├── src/
-│   ├── extension.ts        # 激活入口：命令注册、createTerminal、视图注册
-│   ├── session.ts          # 环境注入与启动命令解析（宿主 PATH）
-│   ├── sessions.ts         # 会话数据层（多帧 zstd 拆帧解码 + 有界窗口读取 + storage 账本 + 工作区过滤 + 重命名/删除 + MRU 排序）
-│   ├── sessions-view.ts    # 侧边栏会话历史（当前工作区 + 隐藏空会话/子代理 + fs.watch 自动刷新）
-│   ├── status.ts           # 状态栏项
-│   ├── test/               # 数据层单元测试（node:test）
-│   └── test-suite/         # 真实扩展宿主 e2e（@vscode/test-electron）
-├── media/icon.svg          # DeepSeek 鲸鱼图标（活动栏 / 终端标签）
-├── media/icon.png          # Marketplace 图标
+│   ├── extension.ts        # Activation: command registration, createTerminal, views
+│   ├── session.ts          # Env injection + launch-command resolution (host PATH)
+│   ├── sessions.ts         # Session data layer (multi-frame zstd decode + bounded window reads + storage ledger + workspace filter + rename/delete + MRU sort)
+│   ├── sessions-view.ts    # Sidebar session history (current workspace, empty/subagent hidden + fs.watch refresh)
+│   ├── status.ts           # Status-bar item
+│   ├── test/               # Data-layer unit tests (node:test)
+│   └── test-suite/         # Real extension-host e2e (@vscode/test-electron)
+├── media/icon.svg          # DeepSeek whale icon (activity bar / terminal tab)
+├── media/icon.png          # Marketplace icon
 ├── scripts/
-│   ├── install-commit-hook.mjs  # 本地钩子安装脚本
-│   └── install-local.mjs        # 安装本地打包的 vsix（从 package.json 动态取版本号）
-├── .githooks/              # pre-commit / commit-msg（入库分发）
+│   ├── install-commit-hook.mjs  # local hook installer
+│   └── install-local.mjs        # installs the locally packaged vsix (version read from package.json)
+├── .githooks/              # pre-commit / commit-msg (shipped in the repo)
 ├── .github/
-│   ├── workflows/ci.yml    # 完整 CI（test 矩阵/e2e/quality/pr-policy/release-consistency/security-scan/docs-links）
+│   ├── workflows/ci.yml    # full CI (test matrix/e2e/quality/pr-policy/release-consistency/security-scan/docs-links)
 │   ├── PULL_REQUEST_TEMPLATE.md
-│   └── ISSUE_TEMPLATE/     # 四类 issue 表单
-├── CONTRIBUTING.md / CONTRIBUTING_EN.md
-├── SECURITY.md / SECURITY_EN.md
-├── CODE_OF_CONDUCT.md / CODE_OF_CONDUCT_EN.md
-├── CHANGELOG.md / CHANGELOG_EN.md
-├── README_EN.md
+│   └── ISSUE_TEMPLATE/     # four issue forms
+├── CONTRIBUTING.md / CONTRIBUTING_ZH.md
+├── SECURITY.md / SECURITY_ZH.md
+├── CODE_OF_CONDUCT.md / CODE_OF_CONDUCT_ZH.md
+├── CHANGELOG.md / CHANGELOG_ZH.md
+├── README_ZH.md
 ├── package.json
 └── LICENSE
 ```
 
-## 技术栈
+## Tech Stack
 
-| 层 | 技术 |
+| Layer | Technology |
 | --- | --- |
-| 语言 | TypeScript 5.6（源码 ESM 语法，编译产物 CommonJS；Node 24 开发运行时） |
-| 平台 | VS Code Extension API（engines `^1.90.0`） |
-| 运行时依赖 | `@bokuweb/zstd-wasm`（会话日志 zstd 解压，唯一依赖） |
-| 测试 | `node:test` 单测 + `@vscode/test-electron` 真实扩展宿主 e2e |
-| 打包 | `@vscode/vsce` |
-| CI | GitHub Actions（Linux/Windows 矩阵 + xvfb） |
+| Language | TypeScript 5.6 (ESM syntax in source, compiled to CommonJS; Node 24 dev runtime) |
+| Platform | VS Code Extension API (engines `^1.90.0`) |
+| Runtime dependency | `@bokuweb/zstd-wasm` (session-log zstd decompression — the only dependency) |
+| Testing | `node:test` unit tests + `@vscode/test-electron` real extension-host e2e |
+| Packaging | `@vscode/vsce` |
+| CI | GitHub Actions (Linux/Windows matrix + xvfb) |
 
-## CI / 验证
+## CI / Verification
 
-`.github/workflows/ci.yml` 在每次 push/PR 运行：**test job**（Linux/Windows × Node 22/24 矩阵：`npm ci` → `typecheck` → `npm test`）与 **e2e job**（Linux + xvfb：`npm ci` → `npm run test:e2e` → `npm run package`）。
-另有 quality（双语镜像对称 / BOM 防线 / actionlint）、pr-policy（Conventional Commits 标题、分支前缀、PR 模板完整性、CHANGELOG 自查真实性）、release-consistency（版本五处一致 + 每版本段 PR 链接）、security-scan（凭据扫描）与 docs-links（死链检查）job。
+`.github/workflows/ci.yml` runs on every push/PR: the **test job** (Linux/Windows × Node 22/24 matrix: `npm ci` → `typecheck` → `npm test`) and the **e2e job** (Linux + xvfb: `npm ci` → `npm run test:e2e` → `npm run package`).
+Additional jobs: quality (bilingual mirror symmetry / BOM guard / actionlint), pr-policy (Conventional Commits title, branch prefix, PR template completeness, CHANGELOG self-check honesty), release-consistency (five-point version sync + per-version PR links), security-scan (credential scan) and docs-links (dead-link check).
 
-e2e 覆盖：命令注册、真实终端创建与环境注入、输入回环、多会话、Ctrl+C 终止、`--resume` 恢复、指定会话恢复（env 通道、不传 `--resume`），以及受保护的真实 dsh-tui 恢复测试（恢复成功 = 不新建会话，可观测）。
+The e2e suite covers: command registration, real terminal creation with env injection, input round-trip, multiple sessions, Ctrl+C termination, `--resume` resume, specific-session resume (env channel, no `--resume`), and a guarded REAL dsh-tui resume test (a successful resume creates no new session — observable).
 
-## 贡献
+## Contributing
 
-请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（中英双语）——分支前缀、Conventional Commits 提交、PR 模板与验证要求由 CI 强制。
+See [CONTRIBUTING.md](CONTRIBUTING.md) — branch prefixes, Conventional Commits, the PR template and verification requirements are enforced by CI.
 
-## 许可
+## License
 
-MIT © 2026 baobaolaodie。dsh-tui 本体为 [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（MIT）。
+MIT © 2026 baobaolaodie. dsh-tui itself is [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) (MIT).

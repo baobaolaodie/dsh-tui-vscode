@@ -1,4 +1,3 @@
-<!-- transitional copy: base CI compatibility only - content is Chinese (copied from README_ZH.md), frozen, to be deleted in PR3. English canonical: README.md; maintained Chinese mirror: README_ZH.md. -->
 <!-- BEAUTIFIED -->
 <h1 align="center">dsh-tui-vscode</h1>
 
