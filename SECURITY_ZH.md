@@ -1,4 +1,3 @@
-<!-- transitional copy: base CI compatibility only - content is Chinese (copied from SECURITY_ZH.md), frozen, to be deleted in PR3. English canonical: SECURITY.md; maintained Chinese mirror: SECURITY_ZH.md. -->
 <div align="right">
 
 [English](SECURITY.md) · 中文
