@@ -1,69 +1,69 @@
 <div align="right">
 
-[English](CONTRIBUTING_EN.md) · 中文
+English · [中文](CONTRIBUTING_ZH.md)
 
 </div>
 
-# 贡献指南（dsh-tui-vscode）
+# Contributing to dsh-tui-vscode
 
-感谢你考虑为 dsh-tui-vscode 做贡献！以下是参与开发的流程与约定，**均由 CI 服务端强制**（贡献者无法通过修改仓库文件削弱检查）。
+Thank you for considering contributing to dsh-tui-vscode! The workflow and conventions below are **enforced server-side by CI** (contributors cannot weaken the checks by editing repo files).
 
-## 开发环境
+## Development environment
 
-- Node.js 24（开发默认；CI 测试矩阵为 Node 22/24）；包管理用 **npm**（`npm ci` 安装）。
-- e2e 的"真实 dsh-tui 恢复测试"需要本机全局安装 `dsh` CLI 与 `dsh-tui`（无则自动跳过该用例）。
-- 开发时建议安装本地钩子：`node scripts/install-commit-hook.mjs`（拦截提交消息格式等快速可逆问题）。
+- Node.js 24 (dev default; the CI test matrix runs Node 22/24); package management uses **npm** (`npm ci`).
+- The e2e "real dsh-tui resume" test needs a global `dsh` CLI and `dsh-tui` (skipped automatically when absent).
+- Install the local hook for development: `node scripts/install-commit-hook.mjs` (blocks fast-to-revert issues like commit-message format).
 
-## 运行测试
+## Running tests
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # 编译 + 数据层单元测试（node:test）
-npm run test:e2e         # 真实扩展宿主测试（@vscode/test-electron；Linux 用 xvfb-run -a）
-npm run package          # 编译 + 生成 .vsix
+npm test                 # compile + data-layer unit tests (node:test)
+npm run test:e2e         # real extension-host tests (@vscode/test-electron; Linux: xvfb-run -a)
+npm run package          # compile + build the .vsix
 ```
 
-## 变更流程
+## Change workflow
 
-1. 从 `main` 创建功能分支，**分支前缀**必须是 `feat/` `fix/` `docs/` `chore/` `hotfix/` `ci/` `test/`（CI pr-policy 强制，`feature/` 会被拒绝）。
-2. 提交消息遵循 **Conventional Commits**：`fix: ...` / `feat: ...` / `docs: ...` / `ci: ...`（CI 逐个提交审计）。
-3. 发起 Pull Request：**标题同样遵循 Conventional Commits**；正文使用 `.github/PULL_REQUEST_TEMPLATE.md` 的五段结构（摘要 / 改动范围 / 验证 / 自查 / 审查注意点），**删除或省略任何段落或勾选项即失败**。勾选项行（含全角标点）会被 CI 逐字节精确匹配——原样保留模板文本、只切换 `[ ]`/`[x]`，勿手打复述。
-4. 行为变化**必须记入 `CHANGELOG.md` 的 Unreleased 段**（中英同步）；勾选"行为变化已记入 CHANGELOG"时，分支必须相对基线有实际的 CHANGELOG diff（防虚假自查）。
-5. 文档改动必须**中英双语同步**（CI 强制行数差 ≤ 10，CoC 除外）。
+1. Branch from `main` with a **prefix** of `feat/` `fix/` `docs/` `chore/` `hotfix/` `ci/` `test/` (enforced by the CI pr-policy; `feature/` is rejected).
+2. Commit messages follow **Conventional Commits**: `fix: ...` / `feat: ...` / `docs: ...` / `ci: ...` (CI audits every commit).
+3. Open a Pull Request: the **title must also be Conventional Commits**; the body uses the five-section structure of `.github/PULL_REQUEST_TEMPLATE.md` (Summary / Scope of Changes / Verification / Self-check / Review Notes) — **deleting or omitting any section or checkbox fails the PR**. Checkbox lines (including full-width punctuation) are matched byte-exactly by CI — keep the template text as-is and only toggle `[ ]`/`[x]`; do not retype it from memory.
+4. Behavior changes **must be recorded in the Unreleased section of `CHANGELOG.md`** (both languages); ticking "Behavior changes recorded in CHANGELOG (Unreleased)" requires an actual CHANGELOG diff against the base (no fake self-checks).
+5. Docs are **English-primary**: write the canonical English file first, then sync the Chinese mirror under `*_ZH.md` (CI enforces a line-count difference of 0–10; CoC excluded).
 
-## 代码约定
+## Code conventions
 
-- 与 VS Code API 无关的纯逻辑放 `src/session.ts` / `src/sessions.ts`，**不带 `vscode` import**，便于单元测试。
-- **断言平台无关**：路径分隔符用 `join()` 构造期望值；CI 在 Linux 与 Windows 双平台运行，Windows 风格硬编码断言会在 Linux 失败（已有前车之鉴）。
-- 只暂存显式路径，不用 `git add -A` 大杂烩；提交前自查 `git diff --check`。
-- 不提交凭据、密钥、个人路径或本地产物（`.vsix`、`.e2e-workspace` 等已在 `.gitignore`）。
+- Pure logic that does not need the VS Code API lives in `src/session.ts` / `src/sessions.ts` — **no `vscode` import** — so it is unit-testable.
+- **Platform-independent assertions**: build expected paths with `join()`; CI runs on Linux and Windows, and hardcoded Windows-style separators fail on Linux (a lesson already learned).
+- Stage explicit paths only — no `git add -A` grab-bags; run `git diff --check` before committing.
+- Never commit credentials, keys, personal paths, or local artifacts (`.vsix`, `.e2e-workspace`, etc. are in `.gitignore`).
 
-## 提交规范
+## Commit conventions
 
-- 每个变更单独提交，勿混入无关改动。
-- 提交信息：`<type>(<scope>): <subject>`，如 `fix(sessions): projectNameOf 双分隔符解析`。
+- One logical change per commit; no unrelated edits mixed in.
+- Format: `<type>(<scope>): <subject>`, e.g. `fix(sessions): projectNameOf 双分隔符解析`.
 
-## 提交流程
+## Submission flow
 
-1. Fork 本仓库，从 `main` 建分支（`git checkout -b fix/your-change`）。
-2. 提交改动（`git commit -m 'fix: describe the change'`）。
-3. 推送到分支（`git push origin fix/your-change`）。
-4. 发起 Pull Request（标题同样遵循 Conventional Commits 前缀）。
+1. Fork this repository and branch from `main` (`git checkout -b fix/your-change`).
+2. Commit your changes (`git commit -m 'fix: describe the change'`).
+3. Push the branch (`git push origin fix/your-change`).
+4. Open a Pull Request (title with a Conventional Commits prefix, same as commits).
 
-本地预检：安装 pre-commit 钩子（`node scripts/install-commit-hook.mjs`），CI 服务端兜底其余检查。
+Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.mjs`); CI covers the rest server-side.
 
-## 发布 / Publishing
+## Publishing
 
-- 当前发布方式：`npm run package` 生成 vsix → https://marketplace.visualstudio.com/manage 网页上传（官方"手动发布"路径，无需 PAT）。
-- 版本流程：改 `package.json` version → 同步 README 徽章与 CHANGELOG（release-consistency CI 强制五处一致）→ 打 `v*` tag → 网页上传新版本。
-- 注意：Azure DevOps 全局 PAT 将于 2026-12-01 退休；届时如需 CLI/CI 自动化发布，改用 Entra ID（`vsce publish --azure-credential`，vsce ≥ 2.26.1）。
-- 切勿使用"移除（Remove）"：扩展名移除后**永久保留不可复用**；下架请用"Unpublish"。
+- Current publishing flow: `npm run package` to build the vsix, then upload it at https://marketplace.visualstudio.com/manage (the official "manual publish" path — no PAT required).
+- Version flow: bump `package.json` version → sync the README badges and CHANGELOG (the release-consistency CI enforces the five-point match) → create the `v*` tag → upload the new version via the web.
+- Note: Azure DevOps global PATs are retired on 2026-12-01; for future CLI/CI automation, switch to Entra ID (`vsce publish --azure-credential`, vsce >= 2.26.1).
+- Never use "Remove": an extension name is permanently reserved after removal and cannot be reused; use "Unpublish" to take it down.
 
-### 更新发布（新版本）清单 / Publishing an update (new version)
+### Publishing an update (new version)
 
-1. **新版本号强制**：Marketplace 的版本**不可覆盖、删除后不可复用**——每次发布必须用**递增的新版本号**（同版本号网页上传会被拒绝）。
-2. **CHANGELOG**：把 `Unreleased` 内容转为新版本段 `## [x.y.z] - 日期`，段内**链接本批已合并的 PR**（release-consistency CI 强制每版本段含 PR 链接或 direct-push 标记）。
-3. **五处一致**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英），CI 验证。
-4. `npm run package` → 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
-5. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与商店版本保持一致。
-6. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。
+1. **A new version number is mandatory**: Marketplace versions cannot be overwritten or reused after deletion — every release must use an incremented version number (uploading the same version is rejected).
+2. **CHANGELOG**: move the `Unreleased` content into a version section `## [x.y.z] - date`, linking the PRs merged in this batch (the release-consistency CI requires a PR link or a direct-push marker in every version section).
+3. **Five-point sync**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) — verified by CI.
+4. `npm run package`, then upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
+5. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
+6. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
