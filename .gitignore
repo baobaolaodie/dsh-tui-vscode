@@ -31,3 +31,8 @@ docs/superpowers/
 
 # e2e 临时 git 父仓库（run-tests.ts 构造的子目录工作区场景）
 .e2e-git-parent/
+# flow-comet 工具链与本地运行产物（不随仓库分发）
+.flow-comet/
+.dsh/
+flow-kit/
+AGENTS.md
