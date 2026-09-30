@@ -49,6 +49,11 @@ jobs:
       - run: npm ci
       - run: xvfb-run -a npm run test:e2e
       - run: npm run package
+      - name: 'VSIX l10n 冒烟 / VSIX l10n smoke'
+        run: |
+          # 打包物必须真带上 zh-cn 的 nls（贡献点）与 bundle（运行时文案）——防 .vscodeignore 回归
+          unzip -l dsh-tui-vscode-*.vsix | grep -F 'extension/package.nls.zh-cn.json'
+          unzip -l dsh-tui-vscode-*.vsix | grep -F 'extension/l10n/bundle.l10n.zh-cn.json'
 
   # ── 质量：双语镜像 + BOM 防线 + workflow lint / Quality ──
   quality:
@@ -130,6 +135,67 @@ jobs:
               echo "非预期 BOM / unexpected BOM in: $f"; exit 1
             fi
           done
+
+      - name: 'NLS/Bundle 键一致 / NLS + bundle key parity'
+        run: |
+          python - <<'EOF'
+          import io, json
+
+          def keys(path):
+              with io.open(path, encoding='utf-8') as f:
+                  return set(json.load(f))
+
+          # 两组键集合必须逐字一致：nls = 贡献点（命令/视图/设置），bundle = 运行时（英文原文即 key）
+          for en_path, zh_path in (('package.nls.json', 'package.nls.zh-cn.json'),
+                                   ('l10n/bundle.l10n.json', 'l10n/bundle.l10n.zh-cn.json')):
+              en, zh = keys(en_path), keys(zh_path)
+              missing, extra = sorted(en - zh), sorted(zh - en)
+              if missing or extra:
+                  raise SystemExit('%s key mismatch vs %s: missing=%s extra=%s' % (en_path, zh_path, missing, extra))
+              print('%s == %s (%d keys)' % (en_path, zh_path, len(en)))
+          print('key parity OK')
+          EOF
+
+      - name: 'L10n 字面量覆盖 / l10n.t literal coverage'
+        run: |
+          python - <<'EOF'
+          import ast, io, json, os, re
+
+          # src/**/*.ts 里 l10n.t 的字符串字面量必须全部登记进英文 bundle（英文原文即 key）
+          # 模板串 / 变量 key 无法静态提取，不在本门禁覆盖范围（由 review 兜底）
+          CALL = re.compile(r"""l10n\.t\(\s*(?P<lit>'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")""")
+
+          def ts_files(root):
+              for dirpath, dirnames, filenames in os.walk(root):
+                  dirnames.sort()
+                  for name in sorted(filenames):
+                      if name.endswith('.ts'):
+                          yield os.path.join(dirpath, name)
+
+          def literal_calls(path):
+              # 逐个产出 (行号, 字面量值)；转义按 Python 字面量语义解开（与 TS 常规转义一致）
+              text = io.open(path, encoding='utf-8').read()
+              for m in CALL.finditer(text):
+                  literal = m.group('lit')
+                  try:
+                      value = ast.literal_eval(literal)
+                  except (SyntaxError, ValueError):
+                      value = literal
+                  yield text.count('\n', 0, m.start()) + 1, value
+
+          bundle = set(json.load(io.open('l10n/bundle.l10n.json', encoding='utf-8')))
+          scanned, missing = 0, []
+          for path in ts_files('src'):
+              for line, value in literal_calls(path):
+                  scanned += 1
+                  if value not in bundle:
+                      missing.append('%s:%d %s' % (path, line, value))
+          if not scanned:
+              raise SystemExit('no l10n.t literals scanned - regex sanity check failed')
+          if missing:
+              raise SystemExit('l10n.t literals missing from l10n/bundle.l10n.json:\n  ' + '\n  '.join(missing))
+          print('l10n.t literal coverage OK (%d literals scanned, %d bundle keys)' % (scanned, len(bundle)))
+          EOF
 
       - name: 'Workflow lint (actionlint)'
         uses: reviewdog/action-actionlint@v1
