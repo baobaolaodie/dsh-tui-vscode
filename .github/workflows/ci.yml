@@ -76,14 +76,33 @@ jobs:
       - name: '主/镜像互链 / Primary-mirror cross links'
         run: |
           python - <<'EOF'
-          import io, os
+          import io, os, re
           # 4 对根级文档 + CoC 对 + docs/ 三对共 8 对：无后缀主文件互链 _ZH、_ZH 互链主文件
           # CoC 与 docs/ 三对只查互链与存在性，不进行数门禁（技术译文行数天然不对齐）
+          # strip_noise/linked 与本地镜像验证 .specs/english-primary-docs/verify-new-ci.sh 同口径：改动需两处同步
+
+          def strip_noise(text):
+              # 判定前剥离 fenced code block（``` / ```bash 等围栏；未闭合时丢弃其后内容）
+              kept, in_fence = [], False
+              for line in text.splitlines():
+                  if line.lstrip().startswith('```'):
+                      in_fence = not in_fence
+                      continue
+                  if not in_fence:
+                      kept.append(line)
+              # 再剥离 HTML 注释 <!-- ... -->（跨行匹配）
+              return re.sub(r'<!--.*?-->', '', '\n'.join(kept), flags=re.S)
 
           def linked(text, name):
-              # 真实链接语义（非裸子串）：markdown ](name) 或 HTML href="name"
-              # （README 与 docs/gap-reports 用 href，其余用 markdown 链接）
-              return ('](%s)' % name) in text or ('href="%s"' % name) in text
+              # 真实链接语义（非裸子串）：markdown ](name) / ](name#anchor) / ](name "title")
+              # 或 HTML href="name" / href='name'（README 与 docs/gap-reports 用 href，其余用 markdown）
+              esc = re.escape(name)
+              patterns = (
+                  r'\]\(\s*' + esc + r'(?:#[^)\s]*)?(?:\s+(?:"[^"]*"|\'[^\']*\'))?\s*\)',
+                  r'href\s*=\s*"' + esc + r'(?:#[^"]*)?"',
+                  r"href\s*=\s*'" + esc + r"(?:#[^']*)?'",
+              )
+              return any(re.search(p, text) for p in patterns)
 
           pairs = [('README.md','README_ZH.md'),('CONTRIBUTING.md','CONTRIBUTING_ZH.md'),
                    ('SECURITY.md','SECURITY_ZH.md'),('CHANGELOG.md','CHANGELOG_ZH.md'),
@@ -94,8 +113,8 @@ jobs:
           for en, zh in pairs:
               if not os.path.isfile(en) or not os.path.isfile(zh):
                   raise SystemExit('missing mirror pair: %s / %s' % (en, zh))
-              en_text = io.open(en, encoding='utf-8').read()
-              zh_text = io.open(zh, encoding='utf-8').read()
+              en_text = strip_noise(io.open(en, encoding='utf-8').read())
+              zh_text = strip_noise(io.open(zh, encoding='utf-8').read())
               if not linked(en_text, os.path.basename(zh)):
                   raise SystemExit('%s does not link to %s' % (en, os.path.basename(zh)))
               if not linked(zh_text, os.path.basename(en)):
