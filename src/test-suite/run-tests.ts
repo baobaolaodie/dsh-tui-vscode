@@ -6,7 +6,7 @@
  */
 import { runTests } from '@vscode/test-electron'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 async function main(): Promise<void> {
@@ -88,6 +88,44 @@ async function main(): Promise<void> {
     launchArgs: [ws, '--disable-workspace-trust'],
   })
   console.log('[e2e] runTests completed')
+
+  // ── zh-cn fake language pack: cold registration + hot assertions (T04) ─────
+  // ADR-005 / L-003: `--locale=zh-cn` only reaches `vscode.env.language` once
+  // a language pack has been scanned into the SAME profile, and the first
+  // launch only performs that registration. Copy the in-repo 2-file fixture
+  // into a fixed extensions dir, then launch A (warm-up) and B (assertions)
+  // against the same fixed extensions/user-data dirs.
+  const l10nExts = join(ws, 'l10n-exts')
+  const l10nProfile = join(ws, 'l10n-user')
+  const packId = 'dsh-tui-vscode-e2e.e2e-language-pack-zh-cn-0.0.1'
+  const fixture = join(root, 'src', 'test-suite', 'fixtures', 'e2e-language-pack-zh-cn')
+  // Fixed paths, wiped first: launch A must be a genuine cold registration
+  // even when `.e2e-workspace` survived an earlier run.
+  rmSync(l10nExts, { recursive: true, force: true })
+  rmSync(l10nProfile, { recursive: true, force: true })
+  mkdirSync(join(l10nExts, packId), { recursive: true })
+  cpSync(fixture, join(l10nExts, packId), { recursive: true })
+
+  const zhArgs = [
+    ws,
+    '--disable-workspace-trust',
+    `--extensions-dir=${l10nExts}`,
+    `--user-data-dir=${l10nProfile}`,
+    '--locale=zh-cn',
+  ]
+  const zhLaunch = async (mode: 'warmup' | 'zh-cn'): Promise<void> => {
+    const startedAt = Date.now()
+    await runTests({
+      extensionDevelopmentPath: root,
+      extensionTestsPath: join(__dirname, 'index.js'),
+      launchArgs: zhArgs,
+      extensionTestsEnv: { DSH_E2E_L10N_MODE: mode },
+    })
+    console.log(`[e2e] zh-cn ${mode} launch completed in ${Date.now() - startedAt}ms`)
+  }
+  await zhLaunch('warmup') // launch A: language-pack registration only
+  await zhLaunch('zh-cn') // launch B: env.language + localized UI assertions
+  console.log('[e2e] zh-cn language-pack flow completed')
 }
 
 main().catch(error => {
