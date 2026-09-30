@@ -120,6 +120,14 @@ flowchart LR
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
 | `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码推送给运行中的 dsh-TUI（300ms 防抖；携带坐标与编辑器选区文本、不占输入框；dsh-TUI 提交时原样附加内容并显示指示行）。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本；通道不可用时回退为键入 `@相对路径#L起-止` |
 
+## 界面语言
+
+扩展 UI 跟随 **VS Code 显示语言**（`vscode.env.language`）：命令面板标题、视图名、设置描述与运行时文案均通过标准 `package.nls*.json` + `vscode.l10n` 机制本地化，默认英文、缺翻译自动回退英文。
+
+要获得**中文界面**，请安装 **中文（简体）语言包**并重启 VS Code——语言包在首次启动时完成登记、重启后生效（VS Code 标准行为，已实测）。
+
+这与 `dsh-tui-vscode.lang` 相互独立：后者只通过 `DSH_TUI_LANG` 设置 **TUI 自身**语言，不会翻译扩展 UI。
+
 ## 目录结构
 
 ```

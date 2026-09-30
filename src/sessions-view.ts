@@ -6,23 +6,13 @@
  */
 import * as vscode from 'vscode'
 import { SessionWatcherSet } from './session-watchers'
+import { relativeTime } from './relative-time'
 import {
   listSessions,
   sessionLabel,
   sessionRoots,
   type SessionRecord,
 } from './sessions'
-
-/** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
-function relativeTime(epochMs: number): string {
-  const diff = Date.now() - epochMs
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
-}
 
 interface ProjectNode {
   project: string
@@ -127,16 +117,16 @@ export class SessionsTreeProvider
     if ('sessions' in element) {
       const count = element.sessions.length
       const item = new vscode.TreeItem(
-        `${element.project}（${count}）`,
+        vscode.l10n.t('{0} ({1})', element.project, count),
         vscode.TreeItemCollapsibleState.Expanded,
       )
       item.contextValue = 'dshProject'
       return item
     }
     // Label chain (pure, tested in sessions.test.ts): display title →
-    // working-directory basename → generic placeholder — a titled list
-    // beats one full of 未命名会话.
-    const label = sessionLabel(element)
+    // working-directory basename → '' — the view supplies the localized
+    // placeholder so the data layer stays free of UI copy.
+    const label = sessionLabel(element) || vscode.l10n.t('Untitled session')
     const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None) as SessionTreeItem
     // Context-menu commands receive this TreeItem. Identity rides on the
     // STANDARD fields (id, resourceUri) — guaranteed to survive whatever
@@ -147,12 +137,15 @@ export class SessionsTreeProvider
     item.sessionFile = element.file
     const when = element.lastUsed ?? element.createdAt
     if (when !== undefined) {
-      item.description = relativeTime(when)
+      // The pure module's sub-minute bucket is the English l10n key
+      // 'just now'; translate that bucket here (numeric units stay neutral).
+      const elapsed = relativeTime(when)
+      item.description = elapsed === 'just now' ? vscode.l10n.t('just now') : elapsed
     }
     item.tooltip = [element.title?.trim() ?? label, element.cwd ?? '', element.id].join('\n')
     item.command = {
       command: 'dsh-tui-vscode.resumeSession',
-      title: '恢复会话',
+      title: vscode.l10n.t('Resume session'),
       arguments: [element.id],
     }
     item.contextValue = 'dshSession'
@@ -164,7 +157,7 @@ export class SessionsTreeProvider
       // Group by project; most recently active project first.
       const groups = new Map<string, ProjectNode>()
       for (const s of this.sessions) {
-        const key = s.project?.trim() || '未命名项目'
+        const key = s.project?.trim() || vscode.l10n.t('Untitled project')
         const node = groups.get(key)
         if (node) {
           node.sessions.push(s)

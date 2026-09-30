@@ -12,12 +12,12 @@ export class SessionStatusBar {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
     this.item.text = '$(terminal) dsh-tui'
     this.item.command = 'dsh-tui-vscode.open'
-    this.item.tooltip = 'dsh-tui — click to open the session panel'
+    this.item.tooltip = vscode.l10n.t('dsh-tui — click to open the session panel')
   }
 
   update(running: boolean): void {
     if (running) {
-      this.item.tooltip = 'dsh-tui session is running — click to open the panel'
+      this.item.tooltip = vscode.l10n.t('dsh-tui session is running — click to open the panel')
       this.item.show()
     } else {
       this.item.hide()
