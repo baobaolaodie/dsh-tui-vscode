@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
+import { relativeTime } from './relative-time'
 import {
   appendSessionTitle,
   deleteSessionLog,
@@ -31,17 +32,6 @@ import {
 import { IdeServer, selectionLineRange } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
-
-/** Compact relative time, Claude Code style: 刚刚 / 12m / 3h / 2d. */
-function relativeTime(epochMs: number): string {
-  const diff = Date.now() - epochMs
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
-}
 
 interface Settings {
   command: string

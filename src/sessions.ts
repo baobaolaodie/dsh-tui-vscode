@@ -265,9 +265,9 @@ export function pathBase(p: string): string | undefined {
 
 /**
  * The sidebar label for one session: display title → working-directory
- * basename → generic placeholder. Mirrors the TUI's last-resort chain (its
- * `fallback` title source is the cwd basename), kept pure so the tree view
- * stays trivially testable.
+ * basename → '' (the view layer supplies the localized placeholder, ADR-004).
+ * Mirrors the TUI's last-resort chain (its `fallback` title source is the cwd
+ * basename), kept pure so the tree view stays trivially testable.
  */
 export function sessionLabel(rec: SessionRecord): string {
   const title = rec.title?.trim()
@@ -276,7 +276,7 @@ export function sessionLabel(rec: SessionRecord): string {
     const base = pathBase(rec.cwd.trim())
     if (base) return base
   }
-  return '未命名会话'
+  return ''
 }
 
 /** Short project name from the session cwd, falling back to the group dir. */

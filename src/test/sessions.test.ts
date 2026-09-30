@@ -332,13 +332,14 @@ test('listSessions uses windowed reads; filtered-out sessions still listed right
   }
 })
 
-test('sessionLabel: title → cwd basename → placeholder (separator-agnostic)', () => {
+test('sessionLabel: title → cwd basename → empty fallback (separator-agnostic)', () => {
   const rec = (over: Partial<Parameters<typeof sessionLabel>[0]>): Parameters<typeof sessionLabel>[0] => ({
     id: 'x', hasPrompt: true, file: '/f', ...over,
   })
-  assert.equal(sessionLabel(rec({ title: ' 标题 ' })), '标题')
-  assert.equal(sessionLabel(rec({ title: '   ' })), '未命名会话')
-  assert.equal(sessionLabel(rec({})), '未命名会话')
+  assert.equal(sessionLabel(rec({ title: ' My session ' })), 'My session')
+  // Fallback is a stable empty string: the view layer owns the UI copy (ADR-004).
+  assert.equal(sessionLabel(rec({ title: '   ' })), '')
+  assert.equal(sessionLabel(rec({})), '')
   // Windows-style cwd resolves even on POSIX hosts.
   assert.equal(sessionLabel(rec({ cwd: 'D:\\LongYinHaHa\\VSCode\\deepsharness\\dsh-tui-vscode' })), 'dsh-tui-vscode')
   assert.equal(sessionLabel(rec({ cwd: 'D:\\a\\b\\' })), 'b')
