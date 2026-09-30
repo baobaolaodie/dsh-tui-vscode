@@ -22,7 +22,7 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 | Community v0.15 概念 | dsh-tui-vscode 现状 |
 | --- | --- |
 | `facets.host.entry` | `out/extension.js`（VS Code 扩展入口；**非 dsh 宿主可执行入口**，见偏差 D-1） |
-| `facets.host.apiVersion` | `v1alpha1`（试点值；尚未被 dsh-tui 运行时协商） |
+| `facets.host.apiVersion` | `v1alpha1`（试点值；该 facet 版本已在 2026-08-23 真实宿主 `/plugins check` 链中通过校验，与 D-2/D-5 及证据节一致） |
 | `requires.contracts` | `commands.dsh/v1alpha1` + `Command`（启动/恢复命令的声明） |
 | `permissions` | `commands.invoke`（单条；scope 必须是已声明命令 id——宿主正向校验 scope∈commandIds、反向校验每命令必有对应授权，而 std 解析层按 name 去重禁止同 name 多条。当前仅声明 `.start`，`.resume` 待上游裁决后恢复，见 Gap 3） |
 | `contributes.commands` | 当前仅声明 `com.baobaolaodie.dsh-tui-vscode.start`（`.resume` 因 Gap 3 规则冲突暂缓，扩展本体仍提供该命令） |

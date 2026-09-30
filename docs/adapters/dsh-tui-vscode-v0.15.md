@@ -22,7 +22,7 @@ This Note records how the manifest concepts of dsh-ecosystem-spec v0.15 map onto
 | Community v0.15 concept | Current state in dsh-tui-vscode |
 | --- | --- |
 | `facets.host.entry` | `out/extension.js` (VS Code extension entry point; **not an executable entry that the dsh host can load** — see deviation D-1) |
-| `facets.host.apiVersion` | `v1alpha1` (pilot value; not yet negotiated by the dsh-tui runtime) |
+| `facets.host.apiVersion` | `v1alpha1` (pilot value; the facet version has already passed validation in the real-host `/plugins check` chain on 2026-08-23 — consistent with D-2/D-5 and the Evidence section) |
 | `requires.contracts` | `commands.dsh/v1alpha1` + `Command` (declaration of the start/resume commands) |
 | `permissions` | `commands.invoke` (single entry; the scope must be a declared command id — the host positively validates scope ∈ commandIds and inversely requires every command to have a corresponding grant, while the std parsing layer dedupes by name and forbids more than one entry with the same name. Only `.start` is declared for now; `.resume` will be restored after the upstream ruling, see Gap 3) |
 | `contributes.commands` | Only `com.baobaolaodie.dsh-tui-vscode.start` is declared for now (`.resume` is on hold because of the Gap 3 rule conflict; the extension itself still provides that command) |
