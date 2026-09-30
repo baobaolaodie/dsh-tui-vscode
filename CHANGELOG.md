@@ -16,7 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
-- **Docs are now English-primary**: the Chinese originals moved to `_ZH` mirrors, the legacy `_EN` files stay as transitional copies until the follow-up cleanup PR deletes them, and the `docs/` design notes gained English versions.
+- **Docs are now English-primary with `_ZH` mirrors**: the Chinese originals moved to `_ZH` mirrors, the migration is completed within this change (the legacy `_EN` compatibility copies are removed), and the `docs/` design notes gained English versions.
 
 ### Fixed
 
