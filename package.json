@@ -1,7 +1,7 @@
 {
   "name": "dsh-tui-vscode",
   "displayName": "dsh-tui (VS Code)",
-  "description": "Run dsh-TUI in a real VS Code integrated terminal — an experience almost identical to the official Claude Code extension: Beside placement, multiple concurrent sessions, sidebar session history, one-click start/resume. 让 dsh-TUI 跑在真实集成终端里，体验与 Claude Code 官方扩展几乎一致。",
+  "description": "Run dsh-TUI in a real VS Code integrated terminal — an experience almost identical to the official Claude Code extension: Beside placement, multiple concurrent sessions, sidebar session history, one-click start/resume.",
   "version": "0.7.2",
   "publisher": "baobaolaodie",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "claude-code-style"
   ],
   "main": "./out/extension.js",
+  "l10n": "./l10n",
   "activationEvents": [
     "onStartupFinished",
     "onView:dsh-tui-vscode.sessions"
@@ -44,14 +45,14 @@
       "dsh-tui-vscode": [
         {
           "id": "dsh-tui-vscode.sessions",
-          "name": "会话历史"
+          "name": "%view.dsh-tui-vscode.sessions.name%"
         }
       ]
     },
     "viewsWelcome": [
       {
         "view": "dsh-tui-vscode.sessions",
-        "contents": "还没有会话。\n[启动新会话](command:dsh-tui-vscode.start)\n[恢复上次会话](command:dsh-tui-vscode.resume)"
+        "contents": "%view.dsh-tui-vscode.sessions.welcome%"
       }
     ],
     "menus": {
@@ -89,67 +90,67 @@
     "commands": [
       {
         "command": "dsh-tui-vscode.open",
-        "title": "dsh-tui: Open panel / 打开会话面板",
+        "title": "%command.dsh-tui-vscode.open.title%",
         "category": "dsh-tui",
         "icon": "media/icon.svg"
       },
       {
         "command": "dsh-tui-vscode.start",
-        "title": "dsh-tui: Start new session / 启动新会话",
+        "title": "%command.dsh-tui-vscode.start.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.resume",
-        "title": "dsh-tui: Resume last session / 恢复上次会话",
+        "title": "%command.dsh-tui-vscode.resume.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.focus",
-        "title": "dsh-tui: Focus session panel / 聚焦会话面板",
+        "title": "%command.dsh-tui-vscode.focus.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.insertAtMention",
-        "title": "dsh-tui: Insert @-mention / 插入 @文件引用",
+        "title": "%command.dsh-tui-vscode.insertAtMention.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.kill",
-        "title": "dsh-tui: Terminate session / 终止会话",
+        "title": "%command.dsh-tui-vscode.kill.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.refreshSessions",
-        "title": "dsh-tui: Refresh sessions / 刷新会话列表",
+        "title": "%command.dsh-tui-vscode.refreshSessions.title%",
         "category": "dsh-tui",
         "icon": "$(refresh)"
       },
       {
         "command": "dsh-tui-vscode.resumeSession",
-        "title": "dsh-tui: Resume session / 恢复会话",
+        "title": "%command.dsh-tui-vscode.resumeSession.title%",
         "category": "dsh-tui"
       },
       {
         "command": "dsh-tui-vscode.renameSession",
-        "title": "dsh-tui: Rename session / 重命名会话",
+        "title": "%command.dsh-tui-vscode.renameSession.title%",
         "category": "dsh-tui",
         "icon": "$(edit)"
       },
       {
         "command": "dsh-tui-vscode.archiveSession",
-        "title": "dsh-tui: Archive session / 归档会话",
+        "title": "%command.dsh-tui-vscode.archiveSession.title%",
         "category": "dsh-tui",
         "icon": "$(archive)"
       },
       {
         "command": "dsh-tui-vscode.manageArchived",
-        "title": "dsh-tui: Manage archived sessions / 管理已归档会话",
+        "title": "%command.dsh-tui-vscode.manageArchived.title%",
         "category": "dsh-tui",
         "icon": "$(archive)"
       },
       {
         "command": "dsh-tui-vscode.deleteSession",
-        "title": "dsh-tui: Delete session permanently / 永久删除会话",
+        "title": "%command.dsh-tui-vscode.deleteSession.title%",
         "category": "dsh-tui",
         "icon": "$(trash)"
       }
@@ -168,7 +169,7 @@
         "dsh-tui-vscode.command": {
           "type": "string",
           "default": "dsh-tui",
-          "description": "Command / executable that launches dsh-TUI. On Windows this is resolved through PATH (dsh-tui.cmd), or set it to an absolute path."
+          "description": "%config.dsh-tui-vscode.command.description%"
         },
         "dsh-tui-vscode.extraArgs": {
           "type": "array",
@@ -176,7 +177,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra CLI arguments appended to every dsh-tui launch, e.g. [\"--lang\", \"en\"]."
+          "description": "%config.dsh-tui-vscode.extraArgs.description%"
         },
         "dsh-tui-vscode.terminalLocation": {
           "type": "string",
@@ -186,12 +187,12 @@
             "panel"
           ],
           "enumDescriptions": [
-            "Open the session terminal in the central editor area, in a new column beside the active one (historical behavior).",
-            "Open the session terminal in the currently active editor column.",
-            "Open the session terminal in the bottom panel, next to ordinary terminals."
+            "%config.dsh-tui-vscode.terminalLocation.enum.editor%",
+            "%config.dsh-tui-vscode.terminalLocation.enum.active%",
+            "%config.dsh-tui-vscode.terminalLocation.enum.panel%"
           ],
           "default": "editor",
-          "description": "Where a new dsh-tui session terminal opens."
+          "description": "%config.dsh-tui-vscode.terminalLocation.description%"
         },
         "dsh-tui-vscode.lang": {
           "type": "string",
@@ -201,32 +202,32 @@
             "en"
           ],
           "enumDescriptions": [
-            "Do not set DSH_TUI_LANG; dsh-tui uses its own default (Chinese).",
-            "Force the Chinese UI.",
-            "Force the English UI."
+            "%config.dsh-tui-vscode.lang.enum.%",
+            "%config.dsh-tui-vscode.lang.enum.zh%",
+            "%config.dsh-tui-vscode.lang.enum.en%"
           ],
           "default": "",
-          "description": "Sets DSH_TUI_LANG for the dsh-tui process."
+          "description": "%config.dsh-tui-vscode.lang.description%"
         },
         "dsh-tui-vscode.injectEditor": {
           "type": "boolean",
           "default": true,
-          "description": "When $VISUAL/$EDITOR are unset, export VISUAL=<editorCommand> so the TUI's Ctrl+X external editor opens in VS Code."
+          "description": "%config.dsh-tui-vscode.injectEditor.description%"
         },
         "dsh-tui-vscode.editorCommand": {
           "type": "string",
           "default": "code -w",
-          "description": "Value exported as $VISUAL when dsh-tui-vscode.injectEditor is on and no VISUAL/EDITOR exists. Use the VS Code CLI with -w to wait for the file to close."
+          "description": "%config.dsh-tui-vscode.editorCommand.description%"
         },
         "dsh-tui-vscode.dshHome": {
           "type": "string",
           "default": "",
-          "description": "Optional $DSH_HOME override for the dsh-tui session ('' keeps the value inherited from the VS Code process)."
+          "description": "%config.dsh-tui-vscode.dshHome.description%"
         },
         "dsh-tui-vscode.autoInsertMention": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "选区变化时把选中代码推送给运行中的 dsh-TUI（IDE 选区通道，300ms 防抖；dsh-TUI 在提交时附加选区内容，并在输入框下方实时显示 `⧉ N lines selected`）。需 dsh-TUI 含 IDE 选区通道（协议 v2）的版本；通道不可用时回退为把 `@相对路径#L起-止` 键入运行中的 dsh-tui 输入框。默认开启以对齐官方 Claude Code 的选区体验。"
+          "markdownDescription": "%config.dsh-tui-vscode.autoInsertMention.description%"
         }
       }
     }
@@ -234,7 +235,7 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js out/test/session-watchers.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js out/test/session-watchers.test.js out/test/relative-time.test.js",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
     "package": "npm run compile && vsce package",
     "install:local": "npm run package && node scripts/install-local.mjs"
