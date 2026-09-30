@@ -46,7 +46,7 @@ const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.pat
   - multiple lines: `@D:/repo/src/a.ts L12-14` (line numbers are 1-based)
   - path containing whitespace: the double-quoted form `@"D:/My Some/a.ts"` (natively supported by dsh-TUI's `extractMentions`)
 - Delivery: with a running DeepSeek terminal → `terminal.show()` + `sendText(mention, false)` (single line, no Enter → it lands in the input box; the user adds a question and then presses Enter; on submit, dsh-TUI automatically attaches the whole file); no session → copy to the clipboard + show a hint.
-- Entry points: `Ctrl+Alt+K` (macOS `Cmd+Alt+K`, `editorTextFocus`) + Command Palette `dsh-tui: Insert @-mention` + editor context menu.
+- Entry points: `Ctrl+Alt+K` (macOS `Cmd+Alt+K`, `editorTextFocus`) + Command Palette `dsh-tui: Insert @-mention / 插入 @文件引用` (the title declared in `package.json`, quoted verbatim; its English half `dsh-tui: Insert @-mention` refers to the same Command Palette entry) + editor context menu.
 - Why the line range is plain text instead of `#L`: dsh-TUI does not support it, and `#L` would break `@` parsing.
 
 ## 4. Gaps vs. the official Claude Code extension

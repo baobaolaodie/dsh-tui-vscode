@@ -64,7 +64,8 @@ const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.pat
   (单行、不回车 → 落在输入框,用户补问题后回车;提交时 dsh-tui 自动附加整个文件);
   无会话 → 复制到剪贴板 + 提示。
 - 入口:`Ctrl+Alt+K`(macOS `Cmd+Alt+K`,`editorTextFocus`)+ 命令面板
-  `dsh-tui: Insert @-mention / 插入 @文件引用` + 编辑器右键。
+  `dsh-tui: Insert @-mention / 插入 @文件引用`(即 `package.json` 声明的完整 title,
+  逐字引用;其英文部分 `dsh-tui: Insert @-mention` 指同一命令面板项)+ 编辑器右键。
 - 为什么行区间是纯文本而非 `#L`:dsh-tui 不支持,`#L` 会破坏 `@` 解析。
 
 ## 4. 与 Claude Code 官方扩展的差距
