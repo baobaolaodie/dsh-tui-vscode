@@ -22,5 +22,7 @@
   "{0} ({1})": "{0} ({1})",
   "Untitled session": "Untitled session",
   "Resume session": "Resume session",
-  "Untitled project": "Untitled project"
+  "Untitled project": "Untitled project",
+  "dsh-tui — click to open the session panel": "dsh-tui — click to open the session panel",
+  "dsh-tui session is running — click to open the panel": "dsh-tui session is running — click to open the panel"
 }

@@ -22,5 +22,7 @@
   "{0} ({1})": "{0}（{1}）",
   "Untitled session": "未命名会话",
   "Resume session": "恢复会话",
-  "Untitled project": "未命名项目"
+  "Untitled project": "未命名项目",
+  "dsh-tui — click to open the session panel": "dsh-tui — 点击打开会话面板",
+  "dsh-tui session is running — click to open the panel": "dsh-tui 会话正在运行 — 点击打开面板"
 }
