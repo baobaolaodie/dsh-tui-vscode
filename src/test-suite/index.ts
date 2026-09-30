@@ -39,6 +39,43 @@ const STDIN_OUT = join(WS, 'stdin-out.txt')
 const EXITED = join(WS, 'exited.txt')
 const TERMINAL_NAME = 'DeepSeek'
 
+// ---- l10n expectations (T04 / ADR-005) -------------------------------------
+// The e2e suite runs OUTSIDE the extension under test, so `vscode.l10n.t`
+// called here would resolve the HOST's bundle, never this extension's
+// (L-003). Expected UI strings are read from the same resources the product
+// ships: `l10n/bundle.l10n.json` (English identity fallback) overlaid by
+// `l10n/bundle.l10n.<locale>.json` (display-language override).
+const REPO_ROOT = join(__dirname, '..', '..') // out-test/test-suite -> repo root
+
+const bundleCache = new Map<string, Record<string, string>>()
+
+/** English fallback + `<locale>` override for the given locale, cached. */
+function bundleFor(locale: string): Record<string, string> {
+  const cached = bundleCache.get(locale)
+  if (cached) return cached
+  const bundle = JSON.parse(
+    readFileSync(join(REPO_ROOT, 'l10n', 'bundle.l10n.json'), 'utf8'),
+  ) as Record<string, string>
+  if (locale && locale !== 'en') {
+    const localized = join(REPO_ROOT, 'l10n', `bundle.l10n.${locale}.json`)
+    if (existsSync(localized)) {
+      Object.assign(bundle, JSON.parse(readFileSync(localized, 'utf8')) as Record<string, string>)
+    }
+  }
+  bundleCache.set(locale, bundle)
+  return bundle
+}
+
+/** `vscode.l10n.t`-shaped lookup: `{0}` args + current display language. */
+function t(key: string, ...args: Array<string | number>): string {
+  const template = bundleFor(vscode.env.language)[key]
+  assert.ok(template !== undefined, `missing l10n bundle key: ${key}`)
+  return template.replace(
+    /\{(\d+)\}/g,
+    (_match: string, index: string) => String(args[Number(index)] ?? ''),
+  )
+}
+
 interface Api {
   sendInput(text: string): void
   hasTerminal(): boolean
@@ -387,7 +424,7 @@ test('renameSession/deleteSession act on the TreeItem-provided session (full com
     }) as typeof vscode.window.showInputBox
     vscode.window.showWarningMessage = (async () => {
       warnShown = true
-      return '永久删除'
+      return t('Delete permanently')
     }) as typeof vscode.window.showWarningMessage
 
     // deleteSessionLog resolves the sessions root from $DSH_HOME — point it
@@ -644,7 +681,7 @@ test('deleteSession removes sessions from the configured dshHome and the env roo
     // The config-change listener re-points the global tree asynchronously.
     await sleep(300)
     // Headless confirmation (restored below).
-    vscode.window.showWarningMessage = (async () => '永久删除') as typeof vscode.window.showWarningMessage
+    vscode.window.showWarningMessage = (async () => t('Delete permanently')) as typeof vscode.window.showWarningMessage
     provider.startWatching(home)
     provider.refresh()
     const records = await poll(() => {
@@ -744,7 +781,7 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
         picks += 1
         const arr = items as unknown[]
         if (picks === 1) return arr[0]
-        return arr.find(i => String((i as { label?: string }).label ?? '').includes('恢复'))
+        return arr.find(i => String((i as { label?: string }).label ?? '').includes(t('Restore session')))
       }) as typeof vscode.window.showQuickPick
       try {
         await vscode.commands.executeCommand('dsh-tui-vscode.manageArchived')
@@ -760,13 +797,13 @@ test('archiveSession archives via the dsh web archive set; manageArchived restor
       await vscode.commands.executeCommand('dsh-tui-vscode.archiveSession', item)
       assert.ok(sessionsMod.readWorkspaceMeta(home).archivedSessionIds.includes('arch-1'))
       const origWarn = vscode.window.showWarningMessage
-      vscode.window.showWarningMessage = (async () => '永久删除') as typeof vscode.window.showWarningMessage
+      vscode.window.showWarningMessage = (async () => t('Delete permanently')) as typeof vscode.window.showWarningMessage
       picks = 0
       vscode.window.showQuickPick = (async (items: unknown) => {
         picks += 1
         const arr = items as unknown[]
         if (picks === 1) return arr[0]
-        return arr.find(i => String((i as { label?: string }).label ?? '').includes('彻底删除'))
+        return arr.find(i => String((i as { label?: string }).label ?? '').includes(t('Delete permanently')))
       }) as typeof vscode.window.showQuickPick
       try {
         await vscode.commands.executeCommand('dsh-tui-vscode.manageArchived')
@@ -867,7 +904,10 @@ test('insertAtMention copies @-mention to clipboard when no session is running',
 
     try {
       await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
-      assert.ok(infoShown?.includes('已复制'), `fallback must inform the user, got ${infoShown}`)
+      assert.ok(
+        infoShown?.includes(t('Copied {0}. Paste it into the dsh-tui input box', expected)),
+        `fallback must inform the user, got ${infoShown}`,
+      )
       if (!clipboardHealthy) {
         // OS 剪贴板被锁时诚实跳过内容比对（写入发生与否由上一行的「已复制」
         // 消息断言锁定；健康环境下下方仍做短轮询内容断言）。
@@ -1035,7 +1075,10 @@ test('insertAtMention relativizes against the opened workspace root, not the git
 
     try {
       await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
-      assert.ok(infoShown?.includes('已复制'), `fallback must inform the user, got ${infoShown}`)
+      assert.ok(
+        infoShown?.includes(t('Copied {0}. Paste it into the dsh-tui input box', expected)),
+        `fallback must inform the user, got ${infoShown}`,
+      )
       if (!clipboardHealthy) {
         console.log(
           '[e2e] SKIP clipboard content assertion: system clipboard unavailable (OS-level lock)',
@@ -1358,7 +1401,168 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
   }
 })
 
+// ---- T04 zh-cn language-pack subset ----------------------------------------
+// ADR-005 / L-003: a repo-local fake language pack must go through one cold
+// registration launch before `--locale=zh-cn` changes `vscode.env.language`
+// and loads the extension bundle. run-tests.ts drives both launches; this
+// entry runs only the localized assertions on the hot (second) launch.
+//
+// The strings asserted below come from REAL product code paths (command
+// handlers and their dialogs). `vscode.l10n.t` is never called from this test
+// context — it would resolve the host's bundle, not the extension's (L-003).
+async function runZhCnSubset(): Promise<void> {
+  const ext = vscode.extensions.getExtension(EXT_ID)
+  assert.ok(ext, `extension ${EXT_ID} not found`)
+  await ext!.activate()
+  assert.equal(
+    vscode.env.language,
+    'zh-cn',
+    'the hot launch must observe the registered zh-cn language pack',
+  )
+  console.log(`[e2e] zh-cn hot launch: vscode.env.language=${vscode.env.language}`)
+
+  await checkZhFocusHint()
+  await checkZhEmptyArchiveHint()
+  await checkZhRenameDialog()
+  await checkZhDeleteDialog()
+
+  console.log(
+    `[e2e] zh-cn subset verified ${zhSampledKeys.length} localized strings: ${zhSampledKeys.join(' | ')}`,
+  )
+}
+
+/** Keys sampled by the zh-cn subset; each must be overridden by the zh bundle. */
+const zhSampledKeys: string[] = []
+
+/**
+ * `t(key)` plus the guard that zh-cn really overrides it: without this guard,
+ * comparing product UI to `t(key)` could pass vacuously through the English
+ * identity fallback.
+ */
+function expectZh(key: string, ...args: Array<string | number>): string {
+  const en = bundleFor('en')
+  assert.ok(key in en, `key missing from the English identity bundle: ${key}`)
+  assert.notEqual(bundleFor('zh-cn')[key], en[key], `zh-cn bundle must override: ${key}`)
+  zhSampledKeys.push(key)
+  return t(key, ...args)
+}
+
+/** Replace one `vscode.window` dialog method while `run` executes, then restore. */
+async function withDialogStub(
+  method: 'showInformationMessage' | 'showInputBox' | 'showWarningMessage',
+  stub: unknown,
+  run: () => Thenable<unknown>,
+): Promise<void> {
+  const win = vscode.window as unknown as Record<string, unknown>
+  const original = win[method]
+  win[method] = stub
+  try {
+    await run()
+  } finally {
+    win[method] = original
+  }
+}
+
+/** Session identity for the zh-cn dialogs; never read (both dialogs cancel). */
+const ZH_FAKE_ITEM = { id: 'zh-1', file: join(tmpdir(), 'dsh-e2e-zh-missing.jsonl.zstd') }
+
+/** insertAtMention with no editor → the localized fallback information message. */
+async function checkZhFocusHint(): Promise<void> {
+  const messages: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { messages.push(String(message)) },
+    async () => {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+      await vscode.commands.executeCommand('dsh-tui-vscode.insertAtMention')
+    },
+  )
+  assert.equal(
+    messages[0],
+    expectZh('Focus an editor first, then insert an @file reference'),
+    'insertAtMention without an editor must show the localized hint',
+  )
+}
+
+/** manageArchived with an empty archive set → the localized empty message. */
+async function checkZhEmptyArchiveHint(): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-zh-'))
+  const savedHome = process.env.DSH_HOME
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const savedCfgHome = cfg.get<string>('dshHome', '')
+  const messages: string[] = []
+  try {
+    process.env.DSH_HOME = home
+    await cfg.update('dshHome', '', vscode.ConfigurationTarget.Global)
+    await sleep(300) // the config-change listener re-points the global tree
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => { messages.push(String(message)) },
+      () => vscode.commands.executeCommand('dsh-tui-vscode.manageArchived'),
+    )
+    assert.equal(
+      messages[0],
+      expectZh('No archived sessions'),
+      'manageArchived with no archived sessions must show the localized empty message',
+    )
+  } finally {
+    if (savedHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = savedHome
+    await cfg.update('dshHome', savedCfgHome, vscode.ConfigurationTarget.Global)
+    await rmTempDir(home)
+  }
+}
+
+/** renameSession dialog → the localized prompt and placeholder. */
+async function checkZhRenameDialog(): Promise<void> {
+  let options: vscode.InputBoxOptions | undefined
+  await withDialogStub(
+    'showInputBox',
+    async (boxOptions?: vscode.InputBoxOptions) => {
+      options = boxOptions
+      return undefined // cancelled — this subset never writes
+    },
+    () => vscode.commands.executeCommand('dsh-tui-vscode.renameSession', ZH_FAKE_ITEM),
+  )
+  assert.equal(options?.prompt, expectZh('Rename session {0}…', 'zh-1'), 'rename prompt must be localized')
+  assert.equal(options?.placeHolder, expectZh('Enter a new title'), 'rename placeholder must be localized')
+}
+
+/** deleteSession confirmation dialog → the localized warning body. */
+async function checkZhDeleteDialog(): Promise<void> {
+  let body: unknown
+  await withDialogStub(
+    'showWarningMessage',
+    async (...args: unknown[]) => {
+      body = args[0]
+      return undefined // cancelled — nothing is deleted
+    },
+    () => vscode.commands.executeCommand('dsh-tui-vscode.deleteSession', ZH_FAKE_ITEM),
+  )
+  assert.equal(
+    body,
+    expectZh(
+      'Permanently delete session {0}…? Its log directory will be removed and this cannot be undone. Consider archiving it first.',
+      'zh-1',
+    ),
+    'delete confirmation must be localized',
+  )
+}
+
 export async function run(): Promise<void> {
+  const l10nMode = process.env.DSH_E2E_L10N_MODE
+  if (l10nMode === 'warmup') {
+    // ADR-005 launch A: VS Code scans/registers the fake language pack while
+    // it starts; assert nothing here — launch B observes the hot state.
+    console.log('[e2e] zh-cn warm-up launch: language-pack registration only')
+    return
+  }
+  if (l10nMode === 'zh-cn') {
+    await runZhCnSubset()
+    console.log('[e2e] zh-cn subset passed')
+    return
+  }
+
   console.log(`[e2e] running ${tests.length} tests`)
   // Inject the fake launcher dir into PATH so the bare command
   // 'fake-dsh-tui' resolves to the shim in the terminal's shell.

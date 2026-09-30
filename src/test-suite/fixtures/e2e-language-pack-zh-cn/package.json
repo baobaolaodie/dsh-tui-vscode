@@ -1,0 +1,28 @@
+{
+  "name": "e2e-language-pack-zh-cn",
+  "displayName": "E2E Chinese Simplified language pack",
+  "description": "In-repo fake language pack used by the zh-cn e2e flow (ADR-005): an empty translation set (contents: {}) registered for zh-cn, which is what the cold/hot double launch pins.",
+  "version": "0.0.1",
+  "publisher": "dsh-tui-vscode-e2e",
+  "engines": {
+    "vscode": "*"
+  },
+  "categories": [
+    "Language Packs"
+  ],
+  "contributes": {
+    "localizations": [
+      {
+        "languageId": "zh-cn",
+        "languageName": "Chinese Simplified",
+        "localizedLanguageName": "中文(简体)",
+        "translations": [
+          {
+            "id": "vscode",
+            "path": "./translations/main.i18n.json"
+          }
+        ]
+      }
+    ]
+  }
+}
