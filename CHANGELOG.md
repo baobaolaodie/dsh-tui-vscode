@@ -14,7 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **UI localization**: command-palette titles, view names, setting descriptions and runtime messages now follow the VS Code display language through the standard `package.nls*` + `vscode.l10n` pipeline — English is the default, with `zh-cn` translations bundled.
+
 ### Changed
+
+- **Command titles are no longer "English / 中文" pairs**: the 12 command titles now resolve single-language `%key%` references from `package.nls*.json`, so they follow the display language instead of always showing a bilingual concatenation.
 
 - **Docs are now English-primary with `_ZH` mirrors**: the Chinese originals moved to `_ZH` mirrors, the migration is completed within this change (the legacy `_EN` compatibility copies are removed), and the `docs/` design notes gained English versions.
 

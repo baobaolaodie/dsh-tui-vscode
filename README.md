@@ -120,6 +120,14 @@ Key points:
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
 | `dsh-tui-vscode.autoInsertMention` | `true` | On selection change, push the selected code to the running dsh-TUI over the IDE selection channel (300 ms debounce; coordinates plus the editor's selection text, no input-box takeover; dsh-TUI attaches the content verbatim at submit and shows an indicator line). Requires a dsh-TUI build that includes the IDE selection channel (after upstream merges #562); falls back to typing `@relative/path#Lstart-end` when the channel is unavailable. |
 
+## UI language
+
+The extension UI follows the **VS Code display language** (`vscode.env.language`): command-palette titles, view names, setting descriptions and runtime messages are localized through the standard `package.nls*.json` + `vscode.l10n` pipeline, with English as the default and an automatic fallback.
+
+For a **Chinese UI**, install the **Chinese (Simplified) Language Pack** and restart VS Code — the pack is registered on first launch and takes effect after the restart (standard VS Code behavior; verified in our e2e).
+
+This is separate from `dsh-tui-vscode.lang`, which only sets the **TUI's own** language through `DSH_TUI_LANG`; it does not translate the extension UI.
+
 ## Directory Structure
 
 ```

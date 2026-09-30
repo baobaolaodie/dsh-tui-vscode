@@ -37,6 +37,7 @@ npm run package          # 编译 + 生成 .vsix
 - **断言平台无关**：路径分隔符用 `join()` 构造期望值；CI 在 Linux 与 Windows 双平台运行，Windows 风格硬编码断言会在 Linux 失败（已有前车之鉴）。
 - 只暂存显式路径，不用 `git add -A` 大杂烩；提交前自查 `git diff --check`。
 - 不提交凭据、密钥、个人路径或本地产物（`.vsix`、`.e2e-workspace` 等已在 `.gitignore`）。
+- **用户可见 UI 文案必须走 l10n 管线**：运行时文案用 `vscode.l10n.t()`，并与 `l10n/bundle.l10n.json`（英文 identity）和 `l10n/bundle.l10n.zh-cn.json` 同步；贡献点文案（命令标题、视图名、设置描述）写在 `package.nls.json` / `package.nls.zh-cn.json` 且两组 key 必须一致。禁止硬编码用户可见字面量。
 
 ## 提交规范
 
