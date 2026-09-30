@@ -117,7 +117,7 @@ export class SessionsTreeProvider
     if ('sessions' in element) {
       const count = element.sessions.length
       const item = new vscode.TreeItem(
-        `${element.project}（${count}）`,
+        vscode.l10n.t('{0} ({1})', element.project, count),
         vscode.TreeItemCollapsibleState.Expanded,
       )
       item.contextValue = 'dshProject'
@@ -137,12 +137,15 @@ export class SessionsTreeProvider
     item.sessionFile = element.file
     const when = element.lastUsed ?? element.createdAt
     if (when !== undefined) {
-      item.description = relativeTime(when)
+      // The pure module's sub-minute bucket is the English l10n key
+      // 'just now'; translate that bucket here (numeric units stay neutral).
+      const elapsed = relativeTime(when)
+      item.description = elapsed === 'just now' ? vscode.l10n.t('just now') : elapsed
     }
     item.tooltip = [element.title?.trim() ?? label, element.cwd ?? '', element.id].join('\n')
     item.command = {
       command: 'dsh-tui-vscode.resumeSession',
-      title: '恢复会话',
+      title: vscode.l10n.t('Resume session'),
       arguments: [element.id],
     }
     item.contextValue = 'dshSession'
@@ -154,7 +157,7 @@ export class SessionsTreeProvider
       // Group by project; most recently active project first.
       const groups = new Map<string, ProjectNode>()
       for (const s of this.sessions) {
-        const key = s.project?.trim() || '未命名项目'
+        const key = s.project?.trim() || vscode.l10n.t('Untitled project')
         const node = groups.get(key)
         if (node) {
           node.sessions.push(s)

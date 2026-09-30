@@ -294,7 +294,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.insertAtMention', async () => {
     const editor = vscode.window.activeTextEditor
     if (!editor) {
-      void vscode.window.showInformationMessage('请先聚焦一个编辑器,再插入 @文件引用')
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Focus an editor first, then insert an @file reference'),
+      )
       return
     }
     const mentionPath = normalizeMentionPath(editor.document.uri.fsPath)
@@ -317,7 +319,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
     // 无运行中的 dsh-tui 会话:回退为复制到剪贴板(未投递时的回退路径)。
     await vscode.env.clipboard.writeText(mention)
-    void vscode.window.showInformationMessage(`已复制 ${mention},请粘贴到 dsh-tui 输入框`)
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t('Copied {0}. Paste it into the dsh-tui input box', mention),
+    )
   })
   // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
   // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
@@ -505,8 +509,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // The command may run before any list refresh initialized the wasm.
     await ensureZstd()
     const title = await vscode.window.showInputBox({
-      prompt: `重命名会话 ${session.id.slice(0, 8)}…`,
-      placeHolder: '输入新标题',
+      prompt: vscode.l10n.t('Rename session {0}…', session.id.slice(0, 8)),
+      placeHolder: vscode.l10n.t('Enter a new title'),
       ignoreFocusOut: true,
     })
     if (title === undefined) return // cancelled
@@ -524,7 +528,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (result === 'appended') {
       sessionsTree.refresh()
     } else {
-      void vscode.window.showErrorMessage('重命名失败：会话日志不可写')
+      void vscode.window.showErrorMessage(
+        vscode.l10n.t('Rename failed: the session log is not writable'),
+      )
     }
   })
   register('dsh-tui-vscode.archiveSession', async (item: unknown) => {
@@ -536,7 +542,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (setSessionArchived(session.id, true, sessionsTree.dshHomeForCommands()) === 'ok') {
       sessionsTree.refresh()
     } else {
-      void vscode.window.showErrorMessage('归档失败：无法写入会话域存储')
+      void vscode.window.showErrorMessage(
+        vscode.l10n.t('Archive failed: cannot write to the workspace-domain storage'),
+      )
     }
   })
   register('dsh-tui-vscode.manageArchived', async () => {
@@ -545,7 +553,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const dshHome = sessionsTree.dshHomeForCommands()
     const archivedIds = readWorkspaceMeta(dshHome).archivedSessionIds
     if (archivedIds.length === 0) {
-      void vscode.window.showInformationMessage('没有已归档的会话')
+      void vscode.window.showInformationMessage(vscode.l10n.t('No archived sessions'))
       return
     }
     const all = await listSessions(dshHome, {})
@@ -553,43 +561,68 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const items: vscode.QuickPickItem[] = archivedIds.map(id => {
       const rec = byId.get(id)
       const when = rec?.lastUsed ?? rec?.createdAt
+      // relativeTime is a pure module (no vscode) whose sub-minute bucket is
+      // the English l10n key 'just now'; translate that bucket here so the
+      // wording follows the display language, while the numeric units
+      // (12m / 3h / 2d) stay language-neutral.
+      const elapsed = rec && when !== undefined ? relativeTime(when) : undefined
+      let description = vscode.l10n.t('Log missing')
+      if (elapsed !== undefined) {
+        description = elapsed === 'just now' ? vscode.l10n.t('just now') : elapsed
+      }
       return {
         label: rec?.title?.trim() || id.slice(0, 12),
-        description: rec && when !== undefined ? relativeTime(when) : '日志缺失',
+        description,
         detail: id,
       }
     })
     const picked = await vscode.window.showQuickPick(items, {
-      title: '已归档会话',
-      placeHolder: '选择会话',
+      title: vscode.l10n.t('Archived sessions'),
+      placeHolder: vscode.l10n.t('Select a session'),
       ignoreFocusOut: true,
     })
     if (!picked || !picked.detail) return
-    const action = await vscode.window.showQuickPick(
-      [
-        { label: '$(archive) 恢复会话', detail: '移回侧边栏，日志与位置原样保留' },
-        { label: '$(trash) 彻底删除', detail: '永久移除该会话的日志目录，不可恢复' },
-      ],
-      { title: `会话：${picked.label}`, ignoreFocusOut: true },
-    )
+    // Actions carry stable ids: comparing rendered labels would be
+    // locale-sensitive and silently break under any non-English UI language.
+    const actions: Array<vscode.QuickPickItem & { action: 'restore' | 'delete' }> = [
+      {
+        action: 'restore',
+        label: `$(archive) ${vscode.l10n.t('Restore session')}`,
+        detail: vscode.l10n.t('Move it back to the sidebar; the log and its position stay intact'),
+      },
+      {
+        action: 'delete',
+        label: `$(trash) ${vscode.l10n.t('Delete permanently')}`,
+        detail: vscode.l10n.t('Permanently remove this session log directory; this cannot be undone'),
+      },
+    ]
+    const action = await vscode.window.showQuickPick(actions, {
+      title: vscode.l10n.t('Session: {0}', picked.label),
+      ignoreFocusOut: true,
+    })
     if (!action) return
-    if (action.label.includes('恢复')) {
+    if (action.action === 'restore') {
       if (setSessionArchived(picked.detail, false, dshHome) === 'ok') {
         sessionsTree.refresh()
-        void vscode.window.showInformationMessage('会话已恢复')
+        void vscode.window.showInformationMessage(vscode.l10n.t('Session restored'))
       } else {
-        void vscode.window.showErrorMessage('恢复失败：无法写入会话域存储')
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t('Restore failed: cannot write to the workspace-domain storage'),
+        )
       }
       return
     }
     const rec = byId.get(picked.detail)
     if (!rec) return
+    const deleteLabel = vscode.l10n.t('Delete permanently')
     const confirm = await vscode.window.showWarningMessage(
-      `永久删除归档会话 ${picked.detail.slice(0, 8)}…？日志目录将被彻底移除，不可恢复。`,
+      vscode.l10n.t('Permanently delete archived session {0}…? Its log directory will be removed for good; this cannot be undone.',
+        picked.detail.slice(0, 8),
+      ),
       { modal: true },
-      '永久删除',
+      deleteLabel,
     )
-    if (confirm !== '永久删除') return
+    if (confirm !== deleteLabel) return
     if (deleteSessionLog(rec.file, dshHome) === 'deleted') {
       // Drop the id from the archive set too (its log is gone).
       void setSessionArchived(picked.detail, false, dshHome)
@@ -599,12 +632,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.deleteSession', async (item: unknown) => {
     const session = sessionIdentity(item)
     if (!session) return
+    const deleteLabel = vscode.l10n.t('Delete permanently')
     const answer = await vscode.window.showWarningMessage(
-      `永久删除会话 ${session.id.slice(0, 8)}…？其日志目录将被彻底移除，此操作不可撤销。建议先归档。`,
+      vscode.l10n.t('Permanently delete session {0}…? Its log directory will be removed and this cannot be undone. Consider archiving it first.',
+        session.id.slice(0, 8),
+      ),
       { modal: true },
-      '永久删除',
+      deleteLabel,
     )
-    if (answer !== '永久删除') return
+    if (answer !== deleteLabel) return
     if (deleteSessionLog(session.file, sessionsTree.dshHomeForCommands()) === 'deleted') {
       sessionsTree.refresh()
     }
