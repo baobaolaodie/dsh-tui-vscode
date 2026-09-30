@@ -24,3 +24,7 @@ CLAUDE.md
 
 .githooks/
 scripts/
+.specs/
+.dsh/
+.flow-comet/
+flow-kit/
