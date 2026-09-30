@@ -37,6 +37,7 @@ npm run package          # compile + build the .vsix
 - **Platform-independent assertions**: build expected paths with `join()`; CI runs on Linux and Windows, and hardcoded Windows-style separators fail on Linux (a lesson already learned).
 - Stage explicit paths only — no `git add -A` grab-bags; run `git diff --check` before committing.
 - Never commit credentials, keys, personal paths, or local artifacts (`.vsix`, `.e2e-workspace`, etc. are in `.gitignore`).
+- **User-visible UI strings must go through the l10n pipeline**: runtime strings use `vscode.l10n.t()` and stay in sync with `l10n/bundle.l10n.json` (English identity) and `l10n/bundle.l10n.zh-cn.json`; contribution-point text (command titles, view names, setting descriptions) lives in `package.nls.json` / `package.nls.zh-cn.json` with identical key sets. Do not hardcode user-visible literals.
 
 ## Commit conventions
 
