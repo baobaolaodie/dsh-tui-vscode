@@ -12,15 +12,22 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.7.3] - 2026-09-30
+
+> 经 PRs [#32](https://github.com/baobaolaodie/dsh-tui-vscode/pull/32), [#33](https://github.com/baobaolaodie/dsh-tui-vscode/pull/33), [#34](https://github.com/baobaolaodie/dsh-tui-vscode/pull/34) 合并
+
+### Added
+
 - **UI 本地化**：命令面板标题、视图名、设置描述与运行时文案改走标准的 `package.nls*` + `vscode.l10n` 管线，跟随 VS Code 显示语言——默认英文，内置 `zh-cn` 中文翻译。
 
 ### Changed
 
 - **命令标题不再是「English / 中文」拼接**：12 条命令标题改为从 `package.nls*.json` 解析单语言 `%key%` 引用，随显示语言呈现，而不再始终显示中英拼接。
-
 - **文档转为英文主、中文 `_ZH` 镜像**：中文原文迁至 `_ZH` 镜像并已在本变更内完成迁移，旧 `_EN` 兼容副本已删除，`docs/` 设计文档补充英文版。
-
-### Fixed
 
 ## [0.7.2] - 2026-09-26
 
