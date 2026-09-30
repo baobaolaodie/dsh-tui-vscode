@@ -6,7 +6,9 @@
 
 # @-mention Design Note (dsh-tui-vscode.insertAtMention)
 
-> Records the current implementation of "referencing selected code / a whole file into the dsh-TUI input box", the mechanism on the dsh-TUI side, and the alignment gaps with the official Claude Code extension plus the future patch plan. issue #6 · PR #7.
+> **Historical snapshot (0.6.2–0.6.3).** This note describes the extension's pre-0.7.0 behavior: `dsh-tui-vscode.autoInsertMention` defaulting to `false`, the forward-slash absolute path plus the space-separated `L` line hint, and no IDE selection channel. For the current behavior see [README.md](../README.md) / [README_ZH.md](../README_ZH.md) and [CHANGELOG.md](../CHANGELOG.md) / [CHANGELOG_ZH.md](../CHANGELOG_ZH.md).
+>
+> It records "referencing selected code / a whole file into the dsh-TUI input box", the mechanism on the dsh-TUI side, and the alignment gaps with the official Claude Code extension plus the future patch plan. issue #6 · PR #7.
 
 ## 1. Background
 
@@ -14,7 +16,7 @@
 - Baseline: the official Claude Code VS Code extension's `insertAtMention` (the official one inserts `@path#Lx-y`).
 - Hard constraint: dsh-TUI is **a terminal program running in a real PTY** (the DeepSeek Harness TUI); it has no webview and none of the official extension's "native panel + selection context" capability. The only input channel between the extension and it is `terminal.sendText` (typing into the PTY).
 
-## 2. dsh-TUI's @-mention mechanism (why absolute paths are required)
+## 2. dsh-TUI's @-mention mechanism (why the extension uses absolute paths)
 
 dsh-TUI is **centered on "the session's own working directory `state.cwd`"**, ships with its own `dsh-fs-local` FS service, and **is not aware of the VS Code workspace**. `@` mentions are expanded **at submit time** (not at input time):
 
@@ -28,8 +30,9 @@ Key resolution in `expandMentions(src/dsh-adapter/channel.ts)`:
 const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.path)
 ```
 
-- **Relative paths** → resolved against the session's `state.cwd` → not under cwd → they go into `missing` → yellow bar "reference not found" (the original text is still sent as-is);
-- **Absolute paths** → the source comment says it verbatim: *"absolute paths pass through untouched"* → they pass straight through, independent of cwd.
+- **Relative paths** → resolved as `join(cwd, mention.path)` against the session's `state.cwd`: `dsh-fs-local` treats `cwd` as the **resolution default, not a boundary** — a `..` segment can escape it, so **referencing a path outside cwd does not require an absolute path**;
+- **Absolute paths** → `isAbsolute(mention.path)` skips the join entirely and is independent of cwd; the source comment says it verbatim: *"absolute paths pass through untouched"*;
+- **Resolution outcome** → a mention is attached only when resolution succeeds **and** the target exists (`stat`); a resolution or `stat` failure goes into `missing` → yellow bar "reference not found" (the original text is still sent as-is);
 - Attachment model: your original text is always the first text block (the bubble shows the original text); each successfully resolved mention then **appends** one more block — text → `<attached-file path="…">`, images → an image block, directories → a list.
 - **No line-range capability**: `@path#L12-14` is treated as the filename as a whole → it always raises "reference not found".
 - **Input-channel limitation**: the PTY reads key by key in raw mode; if injected text contains `\n`/`\r`, ConPTY treats it as a "whole-line pipe" and **submits directly** (bypassing the input box), so injection must be single-line and must **never auto-press Enter**.

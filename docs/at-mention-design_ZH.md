@@ -6,7 +6,13 @@
 
 # @-mention 设计说明(dsh-tui-vscode.insertAtMention)
 
-> 记录「把选中代码/整个文件引用到 dsh-tui 输入框」的当前实现、dsh-tui 侧机制、以及
+> **历史快照(0.6.2–0.6.3)。** 本文描述的是扩展 0.7.0 之前的行为:
+> `dsh-tui-vscode.autoInsertMention` 默认 `false`、正斜杠绝对路径 + 空格分隔的 `L`
+> 行号提示、无 IDE 选区通道。当前行为见 [README.md](../README.md) /
+> [README_ZH.md](../README_ZH.md) 与 [CHANGELOG.md](../CHANGELOG.md) /
+> [CHANGELOG_ZH.md](../CHANGELOG_ZH.md)。
+>
+> 记录「把选中代码/整个文件引用到 dsh-tui 输入框」的实现、dsh-tui 侧机制、以及
 > 与 Claude Code 官方扩展的对齐差距与未来补丁计划。issue #6 · PR #7。
 
 ## 1. 背景
@@ -17,7 +23,7 @@
   webview、没有官方那种「原生面板 + 选区上下文能力」。扩展与它的唯一输入通道是
   `terminal.sendText`(往 PTY 键入)。
 
-## 2. dsh-tui 的 @-mention 机制(为什么必须绝对路径)
+## 2. dsh-tui 的 @-mention 机制(为什么扩展侧采用绝对路径)
 
 dsh-tui **以「会话自己的工作目录 `state.cwd`」为中心**,自带 `dsh-fs-local` FS 服务,
 **并不感知 VS Code 工作区**。`@` 提及在 **提交时**展开(不是输入时):
@@ -32,10 +38,13 @@ deliverUserText(text) → expandMentions(mentionFs, state.cwd, text)
 const absolute = isAbsolute(mention.path) ? mention.path : join(cwd, mention.path)
 ```
 
-- **相对路径** → 以会话 `state.cwd` 为基准解析 → 不在 cwd 下 → 进 `missing` →
-  黄条「未找到引用」(原文仍照发);
-- **绝对路径** → 源码注释原话 *“absolute paths pass through untouched”* → 直通,
-  与 cwd 无关。
+- **相对路径** → 经 `join(cwd, mention.path)` 以会话 `state.cwd` 为基准解析:
+  `dsh-fs-local` 把 `cwd` 当**解析默认而非限制边界**——`..` 片段可**逃出** cwd,
+  故**引用 cwd 外路径并不要求绝对路径**;
+- **绝对路径** → 经 `isAbsolute(mention.path)` 跳过 join,与 cwd 无关;
+  源码注释原话 *“absolute paths pass through untouched”*;
+- **解析结果** → 仅当解析成功**且**目标存在(`stat` 通过)时才附加;解析或 `stat`
+  失败才进 `missing` → 黄条「未找到引用」(原文仍照发);
 - 附加模型:你的原文永远是第一条 text 块(气泡显示原文);每个成功解析的提及再
   **追加**一个块——文本 → `<attached-file path="…">`、图片 → image 块、目录 → 列表。
 - **无行区间能力**:`@路径#L12-14` 会被整体当文件名 → 必弹「未找到引用」。
