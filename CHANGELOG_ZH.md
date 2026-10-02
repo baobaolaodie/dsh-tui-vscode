@@ -14,9 +14,15 @@
 
 ### Changed
 
-- **编辑器标题栏按钮改带品牌名**：`dsh-tui-vscode.open` 命令（编辑器标题栏按钮及其在命令面板里的同源条目）的标题由「打开会话面板」改为 **「打开 dsh-TUI」**——hover 提示能直接看出属于谁，措辞也不再指向已下线的 webview 面板。`category` 未改动，命令面板仍渲染为 `dsh-tui: 打开 dsh-TUI`；装了语言包的用户需重载窗口才能看到新名字。
-
 ### Fixed
+
+## [0.7.4] - 2026-10-03
+
+> 经 PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36) 合并
+
+### Changed
+
+- **编辑器标题栏按钮改带品牌名**：`dsh-tui-vscode.open` 命令（编辑器标题栏按钮及其在命令面板里的同源条目）的标题由「打开会话面板」改为 **「打开 dsh-TUI」**——hover 提示能直接看出属于谁，措辞也不再指向已下线的 webview 面板。`category` 未改动，命令面板仍渲染为 `dsh-tui: 打开 dsh-TUI`；装了语言包的用户需重载窗口才能看到新名字。
 
 ## [0.7.3] - 2026-09-30
 
