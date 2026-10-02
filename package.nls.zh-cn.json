@@ -1,5 +1,5 @@
 {
-  "command.dsh-tui-vscode.open.title": "打开会话面板",
+  "command.dsh-tui-vscode.open.title": "打开 dsh-TUI",
   "command.dsh-tui-vscode.start.title": "启动新会话",
   "command.dsh-tui-vscode.resume.title": "恢复上次会话",
   "command.dsh-tui-vscode.focus.title": "聚焦会话面板",

@@ -1,5 +1,5 @@
 {
-  "command.dsh-tui-vscode.open.title": "Open panel",
+  "command.dsh-tui-vscode.open.title": "Open dsh-TUI",
   "command.dsh-tui-vscode.start.title": "Start new session",
   "command.dsh-tui-vscode.resume.title": "Resume last session",
   "command.dsh-tui-vscode.focus.title": "Focus session panel",
