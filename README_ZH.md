@@ -72,7 +72,7 @@ npm run install:local
 - **引用选中代码**：编辑器聚焦时按 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`），或命令面板/编辑器右键「插入 @文件引用」——把当前文件或选中代码以 **`@相对路径#L起-止`** 形式插入运行中的 dsh-tui 输入框（相对路径以工作区根为基准；单行 `#L12`、多行 `#L12-14`、未选中仅 `@相对路径` 引用整个文件；dsh-TUI 提交消息时原生按行区间切片附加内容，不再整文件灌入）。无运行会话时回退为复制到剪贴板。
   > ⚠️ **版本门槛**：`#L` 行区间语法需 **dsh-TUI ≥ 含 #537（上游已合入）的版本**；`@` 引用可兼容无行区间的普通相对路径。搭配更旧的 dsh-TUI 时新语法会提示文件未找到，请先升级 dsh-TUI。
   - **快捷键冲突**：默认键 `Ctrl+Alt+K`（macOS `Cmd+Alt+K`）可能与 opencode 等扩展撞键（官方终端模式同样默认此键）。若无效或冲突，在「键盘快捷方式」（`Ctrl+K Ctrl+S`）搜索 `dsh_tui` 重绑为你习惯的键位即可；右键/命令面板入口不受影响。
-- **选区自动上下文（默认开）**：`autoInsertMention` 开启后，编辑器选中代码经**IDE 选区通道**实时推送给运行中的 dsh-tui（300ms 防抖、推送坐标与编辑器选区文本，不占输入框），提问时自动附加选中内容并在 transcript 显示「⧉ Selected N lines from …」指示行；通道不可用时回退为键入 `@相对路径#L…`。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
+- **选区自动上下文（默认开）**：`autoInsertMention` 开启后，编辑器选中代码经**IDE 选区通道**实时推送给运行中的 dsh-tui（300ms 防抖、推送坐标与编辑器选区文本，不占输入框），提问时自动附加选中内容并在 transcript 显示「⧉ Selected N lines from …」指示行；通道不可用时回退为键入 `@相对路径#L…`。需 **dsh-TUI ≥ 0.11.0**（IDE 选区通道随 [上游 PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562) 于 v0.11.0 发布，2026-09-24）。
 
 ## 架构
 
@@ -105,7 +105,7 @@ flowchart LR
 - **会话 = 真实终端**：扩展只负责 `createTerminal` 与发送启动命令，进程、信号、滚动、复制粘贴全部由 VS Code 终端承载（与官方扩展同一架构）。
 - **指定会话恢复**：profile 的 `cordis.patch.yml` 在启动时读取 `DSH_TUI_RESUME_SESSION` env；刻意不传 `--resume`（启动器遇到 `--resume` 会用 `~/.dsh-tui/resume.txt` 覆盖 env——已读 `bin/dsh-tui.js` 源码确认）。
 - **会话历史数据源**：会话日志（zstd 多帧串联，**有界窗口读取**：64KB 头 + 128KB 尾，逐帧拆解容错解码）→ 标题取日志 `session/title` 事件 → dsh-storage 账本（Web 列表同源）→ 首条真人消息（含 `agent/inbox/spliced`）→ 工作目录名兜底；按当前工作区过滤 + 隐藏空会话/子代理运行/已归档会话，组内按 last-used 排序。
-- **IDE 选区通道**：扩展激活时在 `127.0.0.1` 随机端口起回环 WebSocket 服务端并写 lock 文件（`~/.dsh-tui/ide/<port>.lock`：`{port, token, workspaceFolders, pid}`）；它启动的会话终端经 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量直连（env 直连优先），手动启动的 dsh-tui 则扫描 lock 目录按工作区匹配发现（lock 扫描兜底）。选区变化防抖 300ms 后以 `selection_changed` 通知推送**坐标与编辑器选区文本**（0-based `{path, startLine, endLine, isEmpty, text, documentVersion}`；`text` 含未保存修改），dsh-TUI 提交时原样附加；握手为协议 v2（`ide/hello` → `ide/hello_ack`，token 或版本不符即拒）、仅回环、启动失败静默降级、停用清理 lock。需 dsh-TUI ≥ 含 IDE 选区通道（上游合并 #562 后）的版本。
+- **IDE 选区通道**：扩展激活时在 `127.0.0.1` 随机端口起回环 WebSocket 服务端并写 lock 文件（`~/.dsh-tui/ide/<port>.lock`：`{port, token, workspaceFolders, pid}`）；它启动的会话终端经 `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` 环境变量直连（env 直连优先），手动启动的 dsh-tui 则扫描 lock 目录按工作区匹配发现（lock 扫描兜底）。选区变化防抖 300ms 后以 `selection_changed` 通知推送**坐标与编辑器选区文本**（0-based `{path, startLine, endLine, isEmpty, text, documentVersion}`；`text` 含未保存修改），dsh-TUI 提交时原样附加；握手为协议 v2（`ide/hello` → `ide/hello_ack`，token 或版本不符即拒）、仅回环、启动失败静默降级、停用清理 lock。需 **dsh-TUI ≥ 0.11.0**（IDE 选区通道随 [上游 PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562) 于 v0.11.0 发布，2026-09-24）。
 
 ## 配置
 

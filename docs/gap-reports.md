@@ -144,10 +144,11 @@ The three rules are mutually contradictory when combined (all confirmed by actua
 
 ## Repos
 
-- `Yan-Zero/dsh-std` (dedup key in the @dsh-std/manifest parsing layer)
+- `Yan-Zero/dsh-std` (dedup key in the @dsh-std/manifest parsing layer; the upstream mount has pointed at `T-Auto/dsh-std` since 2026-10-02)
 - `ccch1mneyyy/dsh-TUI` (`src/plugin-spec/validate.js` forward/reverse validation)
 - `T-Auto/dsh-ecosystem-spec` (vendor pin and conformance fixtures lack multi-command coverage)
 
 ## Status Tracking
 
 - **Kept as a local record**: per the 2026-08 decision, no upstream issue is submitted for now; this pilot stays all-green on both sides in the single-command minimal compliant shape, and the `resume` declaration will be restored after the upstream decision.
+- **2026-10-03 upstream-state note**: the observations above were taken on dsh-tui **0.8.8** with spec pin `614dfa1` / `@dsh-std/manifest` 0.1.0. Since then the upstream spec repository was restructured (the old `conformance/` and the root `package.json` entry point are gone from main; the dsh-std mount now points at `T-Auto/dsh-std`, 2026-10-02) and dsh-TUI is at **0.12.0** (2026-09-30). No upstream ruling on the Gap 3 rule conflict has been observed as of this date, so this pilot still keeps the single-command shape; the recorded reproduction steps are a local record of the 0.8.8-era state.

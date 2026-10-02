@@ -8,7 +8,7 @@
 
 **Status:** Draft / Experimental
 **Spec version:** community-v0.15
-**Host:** dsh-TUI 0.7.0+ / Cordis 4.x profile; VS Code Extension API ^1.90.0
+**Host:** dsh-TUI ≥ 0.7.0（manifest 声明的下限；2026-10-03 复核时上游为 **0.12.0**）/ Cordis 4.x profile; VS Code Extension API ^1.90.0
 **Plugin:** `com.baobaolaodie.dsh-tui-vscode` (pilot declaration)
 
 ## 定位
@@ -63,6 +63,8 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 - **2026-08-23 时效审计：dsh-TUI 主仓已落地宿主侧**：[docs/plugins.md](https://github.com/ccch1mneyyy/dsh-TUI/blob/main/docs/plugins.md) 新增「社区互操作规范（Community Consensus v0.15）」章节——`src/plugin-spec/` 校验/协商纯库、vendored profile + `npm run verify:plugin-spec` 漂移检查、Host Descriptor 构建、统一授权存储（8 个注册权限，`commands.invoke` 默认允许）、效果台账与 `/plugins` 诊断面均标记为已落地；边界声明加载强制仍归 dsh CLI Loader。另：全网 `filename:dsh-plugin.json` 命中已达 200+（含多个真实社区插件仓），manifest 格式正在扩散。据此改写本 Note D-2/D-3。
 
 - **2026-08-23 实测发现上游规则缺陷（Gap 3）**：经运行中 dsh-tui（0.8.8，`/plugins check`）实测本试点 manifest 暴露——@dsh-std/manifest 0.1.0 解析层按 `community.dsh/v1alpha1␀Permission␀<name>` 去重（同 name 仅一条，scope 不参与），而 dsh-tui profile 层要求「每条 `commands.invoke` 的 scope 必须是已声明命令 id」且反向要求「每个已声明命令都有对应 invoke 授权」。三条规则合取下，**声明 ≥2 个命令的插件不存在可过审形态**。本试点暂以单命令（`.start`）最小合规形态保持双侧全绿；详见 `docs/gap-reports.md` Gap 3。
+
+- **2026-10-03 上游状态复核（试点未变，上游动得多）**：dsh-TUI 已到 **0.12.0**（2026-09-30 发布），而上方宿主侧证据采于 **0.8.8**。对**留档 pin**（spec HEAD `d406de4` + vendored `dsh-std` @ `614dfa1`，两者均未变）重跑原官方入口：`npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`，exit 0。**但上游仓库自身已重构**（提交 `4ec6933`，2026-09-09，「生态入口」布局）：旧 `conformance/`、根 `package.json`（即上面用的 `validate:manifest` 入口）与 `adapters/` **均已不在 main**，dsh-std 挂载改指 `T-Auto/dsh-std`（提交 `5517a42`，2026-10-02）。两点后果：(a) 上文「官方入口一键复现」与「已并入上游 `adapters/`」描述的是**当时**状态，下次复核前必须按新布局重新定位入口与 Note 归宿；(b) 宿主侧（0.8.8）证据**尚未**在 0.12.0 上复验——这就是下一次复核动作。观察触发器未触发：PR #8（RFC 0009）仍 open，Gap 3 亦未观察到上游裁决。
 
 ## 收敛计划
 
