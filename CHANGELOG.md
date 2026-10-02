@@ -16,9 +16,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
-- **The editor title bar button now names the brand**: the `dsh-tui-vscode.open` command — the editor title bar button and its Command Palette entry — is titled **"Open dsh-TUI"** instead of "Open panel", so the hover tooltip identifies the extension and the wording no longer refers to the retired webview panel. The `category` is unchanged, so the palette renders it as `dsh-tui: Open dsh-TUI`; with a language pack installed, reload the window to see the new label.
-
 ### Fixed
+
+## [0.7.4] - 2026-10-03
+
+> via PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36)
+
+### Changed
+
+- **The editor title bar button now names the brand**: the `dsh-tui-vscode.open` command — the editor title bar button and its Command Palette entry — is titled **"Open dsh-TUI"** instead of "Open panel", so the hover tooltip identifies the extension and the wording no longer refers to the retired webview panel. The `category` is unchanged, so the palette renders it as `dsh-tui: Open dsh-TUI`; with a language pack installed, reload the window to see the new label.
 
 ## [0.7.3] - 2026-09-30
 
