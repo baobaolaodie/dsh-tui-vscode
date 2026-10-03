@@ -144,10 +144,11 @@ component spec.facets[0].permissions contains duplicate permission
 
 ## 涉及仓库 / Repos
 
-- `Yan-Zero/dsh-std`（@dsh-std/manifest 解析层去重键）
+- `Yan-Zero/dsh-std`（@dsh-std/manifest 解析层去重键；上游挂载自 2026-10-02 起指向 `T-Auto/dsh-std`）
 - `ccch1mneyyy/dsh-TUI`（`src/plugin-spec/validate.js` 正反向校验）
 - `T-Auto/dsh-ecosystem-spec`（vendor pin 与 conformance fixture 未覆盖多命令场景）
 
 ## 状态跟踪 / Status
 
 - **维持本地记录**：按 2026-08 决策暂不提交上游 issue；本试点已按单命令最小合规形态保持双侧全绿，上游裁决后恢复 `resume` 声明。
+- **2026-10-03 上游状态备注**：以上观察采于 dsh-tui **0.8.8** + spec pin `614dfa1` / `@dsh-std/manifest` 0.1.0。此后上游 spec 仓库已重构（旧 `conformance/` 与根 `package.json` 入口均不在 main；dsh-std 挂载自 2026-10-02 起指向 `T-Auto/dsh-std`），dsh-TUI 亦已到 **0.12.0**（2026-09-30）。截至本日未观察到上游对 Gap 3 规则冲突的裁决，故本试点仍保持单命令形态；文中记录的复现步骤属 0.8.8 时期状态的本地留档。
