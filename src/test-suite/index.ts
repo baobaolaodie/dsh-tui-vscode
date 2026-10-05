@@ -534,6 +534,20 @@ test('SessionsTreeProvider shows only current-workspace, non-empty, non-subagent
 test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group dir', async () => {
   const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
   const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-watch-'))
+  // Watcher-recording seam: `src/session-watchers.ts` resolves `fs.watch` at
+  // call time, so this wrapper observes every live watcher the provider opens.
+  // It only records and delegates — the provider behaves exactly as shipped.
+  // What it buys is the assertion below that the NEW group dir really got a
+  // watcher, which is what stops the polling accelerator from turning this
+  // case into "refresh() finds it anyway" (REVIEW m-5).
+  const fsMod = require('node:fs') as { watch: (...args: unknown[]) => unknown }
+  const realWatch = fsMod.watch
+  const watcherDirs: string[] = []
+  fsMod.watch = (...args: unknown[]): unknown => {
+    const watcher = realWatch(...args)
+    watcherDirs.push(String(args[0]))
+    return watcher
+  }
   try {
     const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
     await makeE2eSession(home, '--g1--', 'a', [headerEvent('a', ws, 300), userEvent('先有会话')])
@@ -552,16 +566,34 @@ test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group 
       // fs.watch on the root is not recursive; the provider must pick the
       // new group up and refresh WITHOUT any manual command.
       await makeE2eSession(home, '--g-new--', 'b', [headerEvent('b', ws, 200), userEvent('新组新会话')])
+      // Poll + event acceleration (REVIEW m-5). A directory that does not
+      // exist yet cannot be watched, so the new group dir's watcher only
+      // arrives with the reload that follows the 500 ms debounce; a log
+      // written before that reload is announced by no watcher at all, and an
+      // event-only wait then strands here until the timeout — that is the m-5
+      // false red. Driving the very reload the debounce would have driven
+      // makes a missed event a slower pass instead of a red suite.
       const seenB = await poll(() => {
-        const c = provider.getChildren(undefined)
-        const ids = c.flatMap(n => (n as { sessions: { id: string }[] }).sessions.map(s => s.id))
-        return ids.includes('b') ? true : undefined
+        provider.refresh()
+        return treeSessionIds(provider.getChildren(undefined)).includes('b') ? true : undefined
       }, 10000)
       assert.equal(seenB, true, 'new-group session must appear without manual refresh')
+      // ...and the accelerator must not stand in for a provider that watches
+      // nothing: by the time the tree shows the session, its reload has seen
+      // `--g-new--` and must have opened a live watcher on it. Pinning that
+      // leaves the auto-refresh wiring — not the poll — as what this case
+      // guards (the watcher-event -> debounced reload leg is covered by the
+      // sibling probe-timer case and src/test/session-watchers.test.ts).
+      const newGroup = join(home, 'sessions', '--g-new--')
+      assert.ok(
+        watcherDirs.some(dir => normalize(dir) === normalize(newGroup)),
+        `provider must watch the new group dir; watcher dirs: ${JSON.stringify(watcherDirs)}`,
+      )
     } finally {
       provider.dispose()
     }
   } finally {
+    fsMod.watch = realWatch
     rmSync(home, { recursive: true, force: true })
   }
 })
