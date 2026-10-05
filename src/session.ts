@@ -321,11 +321,63 @@ export function normalizeTerminalLocation(value: string | undefined): TerminalLo
   return 'editor'
 }
 
+/**
+ * Terminal image protocol preference, mirroring the
+ * `dsh-tui-vscode.imageProtocol` setting (and dsh-tui's own
+ * `DSH_TUI_IMAGE_PROTOCOL` value space, minus `kitty`).
+ */
+export type TerminalImageProtocol = 'auto' | 'sixel' | 'none'
+
+/**
+ * Decide which `DSH_TUI_IMAGE_PROTOCOL` value the session terminal receives —
+ * or `undefined` when the key must not be injected at all.
+ *
+ * The host can only paint terminal images when
+ * `terminal.integrated.enableImages` is on AND the window was reloaded
+ * afterwards (the image addon loads with the WebGL renderer), so the default
+ * `sixel` request is gated on that capability: asking for sixel without a
+ * renderer makes dsh-tui drop its half-block fallback and paint nothing — an
+ * empty slot is worse than a coarse but visible character image.
+ *
+ * `auto` is the escape hatch that hands the decision back to dsh-tui itself;
+ * it must inject NOTHING (not the string `'auto'`), which is also the exit
+ * path once upstream renders kitty correctly.
+ *
+ * Pure and total: a missing preference means the `sixel` default, and an
+ * unknown one — or an unreadable host capability — lands on the same
+ * never-blank branch.
+ */
+export function resolveTerminalImageProtocol(
+  preference: TerminalImageProtocol | undefined,
+  hostImagesEnabled: boolean | undefined,
+): 'sixel' | 'none' | undefined {
+  // User intent first: an explicit `none` wins over the host capability.
+  if (preference === 'none') return 'none'
+  // `auto` = "let dsh-tui decide" — the caller skips the key entirely.
+  if (preference === 'auto') return undefined
+  // `'sixel'` (the default) and anything unrecognized: only a host that can
+  // actually paint may be asked for the raster path.
+  return hostImagesEnabled === true ? 'sixel' : 'none'
+}
+
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
   base?: Record<string, string | undefined>
   /** '' | 'zh' | 'en' — exported as DSH_TUI_LANG when non-empty. */
   lang?: string
+  /**
+   * The `dsh-tui-vscode.imageProtocol` preference, resolved through
+   * {@link resolveTerminalImageProtocol} into DSH_TUI_IMAGE_PROTOCOL;
+   * `auto` deliberately injects nothing.
+   */
+  imageProtocol?: TerminalImageProtocol
+  /**
+   * Whether the host can render terminal images
+   * (`terminal.integrated.enableImages`). Gates the default `sixel` choice:
+   * false — or unknown, e.g. unreadable configuration — falls back to `none`
+   * so the TUI always keeps a visible rendering path.
+   */
+  hostImagesEnabled?: boolean
   /** Inject $VISUAL when both $VISUAL and $EDITOR are unset. Default true. */
   injectEditor?: boolean
   /** Value exported as $VISUAL, default 'code -w'. */
@@ -347,6 +399,10 @@ export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
   const lang = input.lang?.trim() ?? ''
   if (lang) {
     env.DSH_TUI_LANG = lang
+  }
+  const imageProtocol = resolveTerminalImageProtocol(input.imageProtocol, input.hostImagesEnabled)
+  if (imageProtocol) {
+    env.DSH_TUI_IMAGE_PROTOCOL = imageProtocol
   }
   const dshHome = input.dshHome?.trim() ?? ''
   if (dshHome) {

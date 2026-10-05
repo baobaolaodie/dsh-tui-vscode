@@ -11,6 +11,9 @@ import {
   createSendOnceGate,
   formatWorkspaceTargetArg,
   normalizeTerminalLocation,
+  resolveTerminalImageProtocol,
+  buildLaunchEnv,
+  type TerminalImageProtocol,
 } from '../session.js'
 
 test('resolveLaunchCommand finds .cmd/.bat/.exe on Windows PATH', () => {
@@ -390,4 +393,83 @@ test('normalizeTerminalLocation maps the setting to a placement kind', () => {
   assert.equal(normalizeTerminalLocation('panel'), 'panel')
   assert.equal(normalizeTerminalLocation(' PANEL '), 'panel') // trim + case-insensitive
   assert.equal(normalizeTerminalLocation('beside'), 'editor') // unknown → safe default
+})
+
+// 终端图像协议门禁(DESIGN D1/D2):宿主能力(terminal.integrated.enableImages)
+// × 用户偏好(dsh-tui-vscode.imageProtocol) → 决定注入哪个 DSH_TUI_IMAGE_PROTOCOL。
+// 核心不变量:没有渲染器时绝不走真图分支——那会得到"槽位全空"(既非图也非字符画),
+// 是本 change 要根除的最差结果;'auto' 则是"交回 dsh-tui 自行判定"的退出路径,
+// 必须**完全不注入该键**。
+test('resolveTerminalImageProtocol gates the default sixel choice on the host capability', () => {
+  // 默认偏好(不传 / 显式 'sixel')× 宿主能力两种取值 = AC-1 / AC-2
+  for (const preference of [undefined, 'sixel'] as const) {
+    assert.equal(resolveTerminalImageProtocol(preference, true), 'sixel', `preference=${preference} on`)
+    assert.equal(resolveTerminalImageProtocol(preference, false), 'none', `preference=${preference} off`)
+  }
+  // 读不到该配置(undefined)按"没有渲染器"处理:宁可字符画,绝不空白
+  assert.equal(resolveTerminalImageProtocol(undefined, undefined), 'none')
+})
+
+test('resolveTerminalImageProtocol lets an explicit none override the host capability (AC-3)', () => {
+  assert.equal(resolveTerminalImageProtocol('none', true), 'none')
+  assert.equal(resolveTerminalImageProtocol('none', false), 'none')
+})
+
+test('resolveTerminalImageProtocol yields nothing for auto (AC-4)', () => {
+  assert.equal(resolveTerminalImageProtocol('auto', true), undefined)
+  assert.equal(resolveTerminalImageProtocol('auto', false), undefined)
+})
+
+test('an unrecognized preference still lands on the capability gate', () => {
+  // 取值来自用户 VS Code 配置(JSON),TS 的联合类型管不到运行时:未知值必须走
+  // 与默认分支相同的安全出口——有能力 sixel / 无能力 none——绝不原样注入未知字符串。
+  const unknown = 'kitty' as TerminalImageProtocol
+  assert.equal(resolveTerminalImageProtocol(unknown, true), 'sixel')
+  assert.equal(resolveTerminalImageProtocol(unknown, false), 'none')
+})
+
+test('buildLaunchEnv injects DSH_TUI_IMAGE_PROTOCOL per the host capability gate (AC-1 / AC-2)', () => {
+  assert.equal(
+    buildLaunchEnv({ lang: 'zh', imageProtocol: 'sixel', hostImagesEnabled: true }).DSH_TUI_IMAGE_PROTOCOL,
+    'sixel',
+  )
+  assert.equal(
+    buildLaunchEnv({ lang: 'zh', imageProtocol: 'sixel', hostImagesEnabled: false }).DSH_TUI_IMAGE_PROTOCOL,
+    'none',
+  )
+  // 不传 imageProtocol 与显式 'sixel' 走同一条默认路径
+  assert.equal(buildLaunchEnv({ hostImagesEnabled: true }).DSH_TUI_IMAGE_PROTOCOL, 'sixel')
+  // 宿主能力未知(配置读取失败)同样退回 none
+  assert.equal(buildLaunchEnv({}).DSH_TUI_IMAGE_PROTOCOL, 'none')
+})
+
+test('buildLaunchEnv keeps DSH_TUI_LANG untouched next to the new key (AC-6)', () => {
+  const env = buildLaunchEnv({ base: {}, lang: 'zh', imageProtocol: 'sixel', hostImagesEnabled: true })
+  assert.equal(env.DSH_TUI_LANG, 'zh')
+  assert.equal(env.DSH_TUI_IMAGE_PROTOCOL, 'sixel')
+  // 既有语义不变:lang 为空时不注入该键
+  assert.ok(
+    !Object.keys(buildLaunchEnv({ imageProtocol: 'sixel', hostImagesEnabled: true })).includes('DSH_TUI_LANG'),
+  )
+})
+
+test('buildLaunchEnv keeps none when the user disabled images explicitly (AC-3)', () => {
+  const env = buildLaunchEnv({ imageProtocol: 'none', hostImagesEnabled: true })
+  assert.equal(env.DSH_TUI_IMAGE_PROTOCOL, 'none')
+})
+
+test('buildLaunchEnv never emits DSH_TUI_IMAGE_PROTOCOL for auto (AC-4)', () => {
+  for (const hostImagesEnabled of [true, false]) {
+    const env = buildLaunchEnv({ lang: 'zh', imageProtocol: 'auto', hostImagesEnabled })
+    assert.ok(
+      !Object.keys(env).includes('DSH_TUI_IMAGE_PROTOCOL'),
+      `auto must not inject the key (hostImagesEnabled=${hostImagesEnabled}): ${JSON.stringify(env)}`,
+    )
+  }
+  // extra 仍是 last-writer-wins 的显式覆盖通道(既有合并语义不变)
+  assert.equal(
+    buildLaunchEnv({ imageProtocol: 'auto', extra: { DSH_TUI_IMAGE_PROTOCOL: 'sixel' } })
+      .DSH_TUI_IMAGE_PROTOCOL,
+    'sixel',
+  )
 })
