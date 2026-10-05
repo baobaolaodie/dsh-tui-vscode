@@ -115,6 +115,22 @@ async function configureFakeLauncher(): Promise<void> {
   await cfg.update('dshHome', 'C:\\e2e-home', vscode.ConfigurationTarget.Global)
 }
 
+/**
+ * Put the fake launcher's directory FIRST on the HOST's PATH while `run`
+ * executes. The extension resolves the configured command against that PATH
+ * (session.ts `resolveLaunchCommand` — the terminal shell rebuilds PATH, so it
+ * is not trusted), which is what makes the bare `fake-dsh-tui` resolve.
+ */
+async function withFakeLauncherOnPath<T>(run: () => Promise<T>): Promise<T> {
+  const originalPath = process.env.PATH ?? ''
+  process.env.PATH = WS + (process.platform === 'win32' ? ';' : ':') + originalPath
+  try {
+    return await run()
+  } finally {
+    process.env.PATH = originalPath
+  }
+}
+
 const tests: Array<[string, () => Promise<void>]> = []
 function test(name: string, fn: () => Promise<void>): void {
   tests.push([name, fn])
@@ -1549,6 +1565,225 @@ async function checkZhDeleteDialog(): Promise<void> {
   )
 }
 
+// ---- Terminal-image protocol subsets (T-FIX-02) -----------------------------
+// REVIEW F-2: the image-capability orchestration had NO in-repo coverage. F-3
+// made the host capability a function of TWO observations — the value of
+// `terminal.integrated.enableImages` when THIS window started (the snapshot
+// extension.ts takes once in activate()) and its live value (session.ts
+// `resolveTerminalImageCapability`) — so neither half can be exercised in the
+// main suite host, which always starts with the setting off:
+//   * a window that started off can never reach `sixel`, however the setting
+//     is written inside it (that IS F-3's fix), and
+//   * a window that started on cannot produce the "written, not reloaded"
+//     offer at all (the capability is already satisfied).
+// run-tests.ts therefore launches one dedicated host per window-start state,
+// each with its own wiped `--user-data-dir`, and routes here through
+// DSH_E2E_IMAGE_MODE.
+//
+// The one-time offer is per window as well (extension.ts marks it in
+// globalState BEFORE awaiting the notification), which is why the AC-5 offer
+// assertions live in the ON host: its first start has nothing to offer — a
+// window that really loaded the renderer is never nagged — so the window's one
+// offer slot is still free for them.
+
+/** The env lines the fake launcher wrote for the `start` we just issued. */
+async function launchedEnvLines(): Promise<string[]> {
+  const text = await poll(() => {
+    const content = readFile(ENV_OUT)
+    return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
+  }, 20000)
+  return text.trim().split(/\r?\n/).map(line => line.trim())
+}
+
+/** Issue `start` and return the env the fake launcher reports for it. */
+async function startAndReadEnv(): Promise<string[]> {
+  rmSync(ENV_OUT, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  return launchedEnvLines()
+}
+
+/** True when the child received `DSH_TUI_IMAGE_PROTOCOL=<value>`. */
+const injectedImageProtocol = (lines: string[], value: string): boolean =>
+  lines.includes(`DSH_TUI_IMAGE_PROTOCOL=${value}`)
+
+/** The LIVE `terminal.integrated.enableImages` value (fresh read each call). */
+const readEnableImages = (): boolean =>
+  vscode.workspace.getConfiguration('terminal.integrated').get<boolean>('enableImages', false)
+
+/**
+ * (a2) A write the window never reloaded must not upgrade the capability: the
+ * injection stays `none` — asking for `sixel` here is precisely REVIEW F-3's
+ * permanent-blank state — and the user is offered the reload instead. Must run
+ * FIRST in this window: the offer is one per window, and this is the start that
+ * reaches the `reloadWindow` branch.
+ */
+async function checkInWindowWriteStaysNone(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let written: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { offers.push(String(message)) },
+    async () => { written = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(written, 'none'),
+    `an enableImages write this window never reloaded must keep the injection on none (F-3); got: ${written.join(' | ')}`,
+  )
+  assert.equal(offers.length, 1, `exactly one offer expected, got ${offers.length}: ${offers.join(' | ')}`)
+  assert.equal(
+    offers[0],
+    t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+    'the offer must ask for the window reload',
+  )
+  console.log('[e2e] PASS images: an in-window enableImages write stays on none and offers the reload')
+}
+
+/** (a1) With the setting off, the injection is `none`. */
+async function checkOffInjectsNone(images: vscode.WorkspaceConfiguration): Promise<void> {
+  await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+  const silent: string[] = []
+  let off: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { silent.push(String(message)) },
+    async () => { off = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(off, 'none'),
+    `enableImages off must inject none; got: ${off.join(' | ')}`,
+  )
+  assert.equal(silent.length, 0, `the one-time offer must not come back: ${silent.join(' | ')}`)
+  console.log('[e2e] PASS images: enableImages off injects none')
+}
+
+/**
+ * A leg (a1 + a2), host `DSH_E2E_IMAGE_MODE=images-off`: the window started
+ * with `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
+ * launching against a wiped `--user-data-dir` (no settings.json).
+ */
+async function runImagesOffSubset(): Promise<void> {
+  // Activate FIRST: the window-start snapshot is taken in activate(), and this
+  // subset writes the setting in-window — a late activation would read that
+  // write and never exercise the "started off" state at all.
+  const ext = vscode.extensions.getExtension(EXT_ID)
+  assert.ok(ext, `extension ${EXT_ID} not found`)
+  await ext!.activate()
+  assert.notEqual(
+    readEnableImages(),
+    true,
+    'this host must start with terminal.integrated.enableImages off — run-tests.ts must launch it with a wiped --user-data-dir',
+  )
+  await configureFakeLauncher()
+  const images = vscode.workspace.getConfiguration('terminal.integrated')
+  try {
+    await checkInWindowWriteStaysNone(images)
+    await checkOffInjectsNone(images)
+  } finally {
+    // Leave no setting behind for a rerun against a surviving profile.
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+  }
+}
+
+/** (B) The end-to-end positive leg: only this window state may inject `sixel`. */
+async function checkEnabledWindowInjectsSixel(): Promise<void> {
+  const nagged: string[] = []
+  let on: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { nagged.push(String(message)) },
+    async () => { on = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(on, 'sixel'),
+    `a window that started with images enabled must inject sixel; got: ${on.join(' | ')}`,
+  )
+  assert.equal(nagged.length, 0, `nothing to offer in this window: ${nagged.join(' | ')}`)
+  console.log('[e2e] PASS images: a window that started with images enabled injects sixel')
+}
+
+/**
+ * (b) The one-time offer appears exactly once and writes nothing before the
+ * click. Turning the setting off in-window is what produces the offer here —
+ * the same `enableImages` branch a window that started off would take.
+ */
+async function checkOfferOnceWithoutWrite(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await images.update('enableImages', false, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let enabledAtOffer: boolean | undefined
+  let off: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => {
+      offers.push(String(message))
+      enabledAtOffer = readEnableImages()
+      // "Not Now": the user declines, so nothing may be written.
+      return t('Not Now')
+    },
+    async () => { off = await startAndReadEnv() },
+  )
+  assert.equal(offers.length, 1, `the offer must appear exactly once, got ${offers.length}: ${offers.join(' | ')}`)
+  assert.equal(
+    offers[0],
+    t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.'),
+    'the offer must name the setting it wants to turn on',
+  )
+  assert.equal(enabledAtOffer, false, 'the setting must still be untouched while the offer is on screen')
+  assert.equal(readEnableImages(), false, 'answering Not Now must not write the setting')
+  assert.ok(
+    injectedImageProtocol(off, 'none'),
+    `a setting that is off must inject none; got: ${off.join(' | ')}`,
+  )
+  console.log('[e2e] PASS images: the offer appears once and writes nothing before the click')
+}
+
+/** (c) "Not Now" is remembered: the next start does not offer again. */
+async function checkNotNowRemembered(): Promise<void> {
+  const again: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { again.push(String(message)) },
+    async () => { await startAndReadEnv() },
+  )
+  assert.equal(again.length, 0, `the offer must not come back after Not Now: ${again.join(' | ')}`)
+  console.log('[e2e] PASS images: answering Not Now stops the offer')
+}
+
+/**
+ * A leg (b + c) and the B leg, host `DSH_E2E_IMAGE_MODE=images-on`: the window
+ * started with `terminal.integrated.enableImages` already true, which
+ * run-tests.ts guarantees by pre-writing the profile's settings.json.
+ *
+ * The AC-5 offer assertions live in THIS host because the offer is one per
+ * window and this window's first start has nothing to offer (a window that
+ * really loaded the renderer is never nagged) — so its offer slot is still free.
+ */
+async function runImagesOnSubset(): Promise<void> {
+  // Activate FIRST: activate() is where the window-start snapshot is taken, and
+  // the preset must be what it sees (run-tests.ts writes it before launching).
+  const ext = vscode.extensions.getExtension(EXT_ID)
+  assert.ok(ext, `extension ${EXT_ID} not found`)
+  await ext!.activate()
+  assert.equal(
+    readEnableImages(),
+    true,
+    'this host must start with terminal.integrated.enableImages preset to true — run-tests.ts writes its settings.json',
+  )
+  await configureFakeLauncher()
+  const images = vscode.workspace.getConfiguration('terminal.integrated')
+  try {
+    await checkEnabledWindowInjectsSixel()
+    await checkOfferOnceWithoutWrite(images)
+    await checkNotNowRemembered()
+  } finally {
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+  }
+}
+
 export async function run(): Promise<void> {
   const l10nMode = process.env.DSH_E2E_L10N_MODE
   if (l10nMode === 'warmup') {
@@ -1562,20 +1797,36 @@ export async function run(): Promise<void> {
     console.log('[e2e] zh-cn subset passed')
     return
   }
+  // Terminal-image hosts (T-FIX-02): one dedicated host per window-start state
+  // of `terminal.integrated.enableImages` — see the subsets above.
+  const imageMode = process.env.DSH_E2E_IMAGE_MODE
+  if (imageMode !== undefined && imageMode !== '') {
+    if (imageMode !== 'images-off' && imageMode !== 'images-on') {
+      // Falling through on a typo would run the MAIN suite in an image host and
+      // still look green — coverage that silently does not exist, which is the
+      // exact failure this task exists to remove (REVIEW F-2). Fail loudly.
+      throw new Error(`unknown DSH_E2E_IMAGE_MODE: ${imageMode}`)
+    }
+    await withFakeLauncherOnPath(async () => {
+      if (imageMode === 'images-off') await runImagesOffSubset()
+      else await runImagesOnSubset()
+    })
+    console.log(`[e2e] ${imageMode} subset passed`)
+    return
+  }
 
   console.log(`[e2e] running ${tests.length} tests`)
-  // Inject the fake launcher dir into PATH so the bare command
-  // 'fake-dsh-tui' resolves to the shim in the terminal's shell.
-  const originalPath = process.env.PATH ?? ''
-  process.env.PATH = WS + (process.platform === 'win32' ? ';' : ':') + originalPath
   try {
-    for (const [name, fn] of tests) {
-      await fn()
-      console.log(`[e2e] PASS ${name}`)
-    }
-    console.log(`[e2e] all ${tests.length} tests passed`)
+    // Inject the fake launcher dir into PATH so the bare command
+    // 'fake-dsh-tui' resolves when the extension looks it up.
+    await withFakeLauncherOnPath(async () => {
+      for (const [name, fn] of tests) {
+        await fn()
+        console.log(`[e2e] PASS ${name}`)
+      }
+      console.log(`[e2e] all ${tests.length} tests passed`)
+    })
   } finally {
-    process.env.PATH = originalPath
     const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
     await cfg.update('command', 'dsh-tui', vscode.ConfigurationTarget.Global)
     await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
