@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, mkdtempSync, rmSync, chmodSync } from 'node:fs'
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import ts from 'typescript'
 import {
   resolveLaunchCommand,
   quoteShellArg,
@@ -517,5 +518,156 @@ test('an enableImages write that was never reloaded never reaches sixel (F-3)', 
   assert.equal(
     buildLaunchEnv({ hostImagesEnabled: capability.hostImagesEnabled }).DSH_TUI_IMAGE_PROTOCOL,
     'none',
+  )
+})
+
+// ---- F-5:枚举取值空间的绑定断言 ------------------------------------------
+// 取值空间同形地写在三处(package.json 的 enum、session.ts 的 TerminalImageProtocol、
+// extension.ts 的归一化白名单),REVIEW F-5 实测三者当前一致,却没有任何断言绑定:
+// 将来加第四档(如上游修好 kitty 后加 kitty)时最可能的错法是只改 package.json——
+// 设置界面出现新选项,运行期却被静默归一化回 sixel,CI 全绿。
+// 下面把「类型」这一侧变成运行期可见的真源:Record<TerminalImageProtocol, true> 的
+// 对象字面量必须**在编译期**穷尽该联合类型(少一个成员 → 缺少属性;多一个 → 多余
+// 属性),再与 package.json 里实际声明的 enum / default 逐值比对。
+const TERMINAL_IMAGE_PROTOCOLS: Record<TerminalImageProtocol, true> = {
+  auto: true,
+  sixel: true,
+  none: true,
+}
+
+test('the package.json imageProtocol enum stays bound to TerminalImageProtocol (F-5)', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as {
+    contributes?: {
+      configuration?: { properties?: Record<string, { enum?: string[]; default?: string }> }
+    }
+  }
+  const declared = pkg.contributes?.configuration?.properties?.['dsh-tui-vscode.imageProtocol']
+  const declaredEnum = declared?.enum ?? []
+  assert.deepEqual(
+    [...declaredEnum].sort(),
+    Object.keys(TERMINAL_IMAGE_PROTOCOLS).sort(),
+    'contributes.configuration enum must list exactly the TerminalImageProtocol values',
+  )
+  assert.ok(
+    declaredEnum.includes(declared?.default ?? ''),
+    `the declared default (${String(declared?.default)}) must be one of the enum values`,
+  )
+})
+
+// ---- F-8 / F-9:extension.ts 接线的结构护栏 -------------------------------
+// extension.ts 在模块顶层 import 'vscode',`npm test` 无法 require 它(REVIEW F-2/T5
+// 记录的覆盖缺口),其接线因此没有行为级单测。下面两条断言把源码**当数据**读入
+// (与 ci.yml 的键集扫描、TEST.md 为 AC-5 记的 grep「结构担保」同形),用仓库既有的
+// typescript 编译器解析成 AST 再检查——比按行/按缩进的正则更抗格式变动,锚点找不到
+// 时会显式失败而不是静默放行。
+const SESSION_START_FUNCTIONS = ['runCommand', 'buildEnv', 'createTerminal']
+
+const extensionSourcePath = join(__dirname, '..', '..', 'src', 'extension.ts')
+const extensionFile = ts.createSourceFile(
+  extensionSourcePath,
+  readFileSync(extensionSourcePath, 'utf8'),
+  ts.ScriptTarget.Latest,
+  true, // setParentNodes:下面的拒绝处理器判定要看调用点的父链
+)
+
+function lineOf(file: ts.SourceFile, node: ts.Node): number {
+  return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1
+}
+
+/** 文件里所有 `function <name>()` 声明的名字(护栏锚点自检用)。 */
+function declaredFunctionNames(file: ts.SourceFile): string[] {
+  const names: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name) names.push(node.name.text)
+    node.forEachChild(visit)
+  }
+  visit(file)
+  return names
+}
+
+/** 所有 `readSettings()` 调用,附上包住它的函数声明名(不在任何函数里则为 undefined)。 */
+function settingsReads(file: ts.SourceFile): Array<{ fn: string | undefined; line: number }> {
+  const reads: Array<{ fn: string | undefined; line: number }> = []
+  const visit = (node: ts.Node, fn: string | undefined): void => {
+    const scope = ts.isFunctionDeclaration(node) && node.name ? node.name.text : fn
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'readSettings'
+    ) {
+      reads.push({ fn: scope, line: lineOf(file, node) })
+    }
+    node.forEachChild(child => visit(child, scope))
+  }
+  visit(file, undefined)
+  return reads
+}
+
+/** 所有 `context.globalState.update(...)` 调用。 */
+function globalStateUpdates(file: ts.SourceFile): ts.CallExpression[] {
+  const updates: ts.CallExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const callee = node.expression
+      if (
+        callee.name.text === 'update' &&
+        ts.isPropertyAccessExpression(callee.expression) &&
+        callee.expression.name.text === 'globalState'
+      ) {
+        updates.push(node)
+      }
+    }
+    node.forEachChild(visit)
+  }
+  visit(file)
+  return updates
+}
+
+/** 拒绝是否被接住:交给 async 调用方(await),或链了 .catch() / .then(...)。 */
+function rejectionObserved(call: ts.CallExpression): boolean {
+  if (ts.isAwaitExpression(call.parent)) return true
+  const chained = call.parent
+  if (!ts.isPropertyAccessExpression(chained) || chained.expression !== call) return false
+  if (chained.name.text !== 'catch' && chained.name.text !== 'then') return false
+  return ts.isCallExpression(chained.parent)
+}
+
+// REVIEW F-8:runCommand → buildEnv → createTerminal 原本各调一次 readSettings(),
+// 一次会话启动读三遍配置,且提示与门禁可能落在两个不同快照上;REQUIREMENT 的非功能
+// 承诺是「零额外 IO——只读一次 VS Code 配置」。收敛成一次读取并向下传参后,这条断言
+// 把承诺钉住:三个接线函数里**有且只有一次**读取。
+test('a session start reads the VS Code configuration exactly once (F-8)', () => {
+  const declared = declaredFunctionNames(extensionFile)
+  assert.deepEqual(
+    SESSION_START_FUNCTIONS.filter(name => declared.includes(name)),
+    SESSION_START_FUNCTIONS,
+    `guard anchors moved or renamed in ${extensionSourcePath}`,
+  )
+  const startReads = settingsReads(extensionFile).filter(
+    read => read.fn !== undefined && SESSION_START_FUNCTIONS.includes(read.fn),
+  )
+  assert.equal(
+    startReads.length,
+    1,
+    `a session start must read the settings once, got ${startReads.length}: ` +
+      startReads.map(read => `${read.fn}():${read.line}`).join(', '),
+  )
+})
+
+// REVIEW F-9:resetImageSetupPrompt 把 globalState.update 的 promise 直接 void 掉、
+// 没有 catch——写失败会产生未处理 rejection,而它恰好落在「已放弃本次提示、准备下次
+// 重试」的关键路径上。规则:被 void 的 globalState.update 必须自带拒绝处理器
+// (await 的那次交给调用方的 .catch,不算)。
+test('every fire-and-forget globalState write carries a rejection handler (F-9)', () => {
+  const updates = globalStateUpdates(extensionFile)
+  assert.ok(
+    updates.length >= 2,
+    `guard found ${updates.length} globalState.update call site(s) in ${extensionSourcePath}`,
+  )
+  const unhandled = updates.filter(update => !rejectionObserved(update))
+  assert.deepEqual(
+    unhandled.map(update => `${extensionSourcePath}:${lineOf(extensionFile, update)}`),
+    [],
+    "a void'ed globalState.update must chain .catch() / .then(undefined, ...)",
   )
 })

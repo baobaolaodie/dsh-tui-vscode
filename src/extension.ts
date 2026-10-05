@@ -146,8 +146,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.workspace.onDidChangeWorkspaceFolders(() => sessionsTree.refresh()),
   )
 
-  function buildEnv(extra: Record<string, string> = {}): Record<string, string> {
-    const cfg = readSettings()
+  // `cfg` is the snapshot the caller read ONCE for this launch (REVIEW F-8):
+  // reading the configuration again in here would let the env gate and the
+  // session-start prompt judge two different snapshots of the same launch.
+  function buildEnv(cfg: Settings, extra: Record<string, string> = {}): Record<string, string> {
     // The env gate takes the CAPABILITY, not the raw setting: a value written
     // after this window started has no renderer behind it, and asking dsh-tui
     // for sixel without one blanks the image slots (US-3).
@@ -212,15 +214,16 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     },
   ): boolean => ideServer.broadcastSelection(selection)
 
-  function createTerminal(env: Record<string, string>): vscode.Terminal {
+  function createTerminal(cfg: Settings, env: Record<string, string>): vscode.Terminal {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? homedir()
-    // Placement is configurable (dsh-tui-vscode.terminalLocation), read per
-    // launch so a settings change applies to the next session immediately:
+    // Placement is configurable (dsh-tui-vscode.terminalLocation), taken from
+    // the snapshot read once per launch (REVIEW F-8) so a settings change still
+    // applies to the next session immediately:
     // 'editor' keeps the historical default — a NEW column beside the
     // active one (ViewColumn.Beside), never taking over the user's current
     // column; 'active' reuses the current column; 'panel' parks the session
     // in the bottom panel next to ordinary terminals.
-    const kind = normalizeTerminalLocation(readSettings().terminalLocation)
+    const kind = normalizeTerminalLocation(cfg.terminalLocation)
     const location: vscode.TerminalOptions['location'] =
       kind === 'panel'
         ? vscode.TerminalLocation.Panel
@@ -271,10 +274,26 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // not race into two notifications.
   let imageSetupPromptShown = false
 
-  /** Leave the prompt unhandled so a later session start tries again (DESIGN R1). */
+  /**
+   * Leave the prompt unhandled so a later session start tries again (DESIGN R1).
+   *
+   * This is the ONE deliberate exception to AC-5's one-shot prompt, tracked as
+   * REVIEW F-4: it opens only after a REJECTED settings write (restricted
+   * setting / untrusted workspace), i.e. while the user asked to enable images
+   * and is still unserved. Every outcome a user can actually choose — the
+   * enable click, "Not Now", dismissing the notification — stays one-shot for
+   * the life of the globalState entry. Dropping the retry instead would strand
+   * the user on the manual path with no way back to the one-click route.
+   */
   function resetImageSetupPrompt(): void {
     imageSetupPromptShown = false
-    void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, undefined)
+    // The rejection must be observed (REVIEW F-9): this very write is what
+    // makes the next session start retry, so failing silently would break the
+    // promise it carries. `.then(undefined, …)` rather than `.catch(…)`: the
+    // API returns VS Code's Thenable<void>, which only exposes `then`.
+    void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, undefined).then(undefined, error => {
+      console.error('[dsh-tui-vscode] could not reset the image setup prompt:', error)
+    })
   }
 
   /**
@@ -403,12 +422,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       // DSH_TUI_RESUME_SESSION at boot — feed it through the terminal env
       // and run WITHOUT --resume (the launcher's --resume handler would
       // overwrite the env from ~/.dsh-tui/resume.txt).
-      const env = buildEnv({
+      const env = buildEnv(cfg, {
         DSH_TUI_RESUME_SESSION: resumeSession,
         DSH_CC_RESUME_SESSION: resumeSession,
         ...ideEnvPairs(),
       })
-      const terminal = createTerminal(env)
+      const terminal = createTerminal(cfg, env)
       terminal.show()
       sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
@@ -416,7 +435,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (resume) {
       // Resume the LAST session: --resume reads ~/.dsh-tui/resume.txt.
       parts.push('--resume')
-      const terminal = createTerminal(buildEnv(ideEnvPairs()))
+      const terminal = createTerminal(cfg, buildEnv(cfg, ideEnvPairs()))
       terminal.show()
       sendTextWhenReady(terminal, parts.join(' ') + targetArg)
       return
@@ -425,7 +444,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // NEW terminal+session; existing sessions keep running in their own
     // terminals. `existing` is intentionally unused here.
     void existing
-    const terminal = createTerminal(buildEnv(ideEnvPairs()))
+    const terminal = createTerminal(cfg, buildEnv(cfg, ideEnvPairs()))
     terminal.show()
     sendTextWhenReady(terminal, parts.join(' ') + targetArg)
   }
