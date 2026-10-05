@@ -88,6 +88,18 @@ export interface ExtensionApi {
   sendInput(text: string): void
   /** True while a dsh-tui terminal exists. */
   hasTerminal(): boolean
+  /**
+   * E2E seam (test-only): write the persistent "image setup prompt already
+   * shown" marker directly.
+   *
+   * Both image hosts launch against a wiped `--user-data-dir`
+   * (`src/test-suite/run-tests.ts`), so the cross-window half of the prompt
+   * dedupe — a globalState entry left behind by an EARLIER window — cannot be
+   * produced from the test host any other way. REVIEW M-2 is a defect in
+   * exactly that state (a profile that was already prompted), so the suite has
+   * to be able to reach it.
+   */
+  seedImageSetupPrompted(shown: boolean): Thenable<void>
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -261,14 +273,18 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     setTimeout(() => listener.dispose(), 15000)
   }
 
-  // ---- One-time terminal-images setup prompt ------------------------------
-  // The extension never edits the user's VS Code settings on its own: this
-  // prompt is the ONLY path that calls update(), and only after an explicit
-  // click (DESIGN D3, AC-5). It fires on the user-initiated session-start
-  // paths only — never from activate(), where the extension may just have been
-  // auto-started without the user wanting a session (DESIGN D5) — and at most
-  // once until the user answers, tracked in globalState so a window reload
-  // keeps the answer (DESIGN D4).
+  // ---- Terminal-images setup prompt ---------------------------------------
+  // The extension never edits the user's VS Code settings on its own: the
+  // enable prompt is the ONLY path that calls update(), and only after an
+  // explicit click (DESIGN D3, AC-5). It fires on the user-initiated
+  // session-start paths only — never from activate(), where the extension may
+  // just have been auto-started without the user wanting a session (DESIGN D5)
+  // — and at most once until the user answers, tracked in globalState so a
+  // window reload keeps the answer (DESIGN D4).
+  //
+  // Its `reloadWindow` sibling is deliberately NOT one-shot: it explains a state
+  // THIS window is in, which a cross-window globalState entry cannot answer for.
+  // See promptForImageSetup (REVIEW M-2).
   const IMAGE_SETUP_PROMPTED_KEY = 'dsh-tui-vscode.imageSetupPrompted'
   // In-memory mirror: globalState.update() is async, and two quick starts must
   // not race into two notifications.
@@ -293,6 +309,27 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // API returns VS Code's Thenable<void>, which only exposes `then`.
     void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, undefined).then(undefined, error => {
       console.error('[dsh-tui-vscode] could not reset the image setup prompt:', error)
+    })
+  }
+
+  /**
+   * Remember that the image-setup prompt was shown — in memory for the rest of
+   * this window (two quick starts must not race into two notifications, since
+   * `globalState.update()` is async) and in globalState for every later window.
+   *
+   * Called BEFORE the notification is awaited, and deliberately not awaited
+   * here: bookkeeping must never cost the user the notification it accompanies.
+   * The reload explanation in particular is the only thing standing between a
+   * user and unexplained block characters (REVIEW M-2), so a failed marker
+   * write must not swallow it. The rejection is observed rather than fatal,
+   * with the same `.then(undefined, …)` shape as `resetImageSetupPrompt` (the
+   * API returns VS Code's Thenable<void>, which only exposes `then`); a lost
+   * marker only means "may be asked once more in a later window".
+   */
+  function markImageSetupPrompted(): void {
+    imageSetupPromptShown = true
+    void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, true).then(undefined, error => {
+      console.error('[dsh-tui-vscode] could not record the image setup prompt:', error)
     })
   }
 
@@ -357,22 +394,31 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   async function promptForImageSetup(offer: TerminalImageSetupOffer | undefined): Promise<void> {
     // No offer means this window's snapshot was already true: nothing to fix.
     if (!offer) return
+    if (offer === 'reloadWindow') {
+      // The setting is already on, but it was written inside this window and
+      // never reloaded into a renderer. There is nothing to write and nothing
+      // to ask permission for — say what is missing instead (the old gate
+      // returned silently here, which is REVIEW F-3's second dead path).
+      //
+      // The one-shot dedupe below must NOT gate this branch (REVIEW M-2). What
+      // it explains is a state THIS WINDOW is in, not a favour to ask for once
+      // per profile: the enable prompt's marker is written on the first prompt
+      // (any answer, including a dismissed notification) and globalState
+      // outlives the window, so gating here would leave every already-prompted
+      // profile — including one whose settings.json the user edited by hand —
+      // staring at block characters with no explanation, forever. Marking still
+      // happens, so the enable prompt stays one-shot for this profile.
+      markImageSetupPrompted()
+      await offerWindowReload()
+      return
+    }
     if (imageSetupPromptShown || context.globalState.get<boolean>(IMAGE_SETUP_PROMPTED_KEY)) {
       return
     }
     // Mark as shown BEFORE awaiting the notification: the user must be asked
     // exactly once, whether they answer it, dismiss it, or start another
     // session while it is still on screen.
-    imageSetupPromptShown = true
-    await context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, true)
-    if (offer === 'reloadWindow') {
-      // The setting is already on, but it was written inside this window and
-      // never reloaded into a renderer. There is nothing to write and nothing
-      // to ask permission for — say what is missing instead (the old gate
-      // returned silently here, which is REVIEW F-3's second dead path).
-      await offerWindowReload()
-      return
-    }
+    markImageSetupPrompted()
     const enableAction = vscode.l10n.t('Enable and Reload Window')
     const answer = await vscode.window.showInformationMessage(
       vscode.l10n.t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.'),
@@ -841,6 +887,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       if (terminal) terminal.sendText(text, false)
     },
     hasTerminal: () => hasTerminal(),
+    // `await`ed rather than fire-and-forget: the caller is the e2e suite, and a
+    // rejected write there must fail the case instead of passing it vacuously
+    // (the same "no unhandled rejection" rule the F-9 guard enforces).
+    async seedImageSetupPrompted(shown: boolean): Promise<void> {
+      await context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, shown ? true : undefined)
+    },
   }
 }
 

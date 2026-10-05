@@ -79,6 +79,8 @@ function t(key: string, ...args: Array<string | number>): string {
 interface Api {
   sendInput(text: string): void
   hasTerminal(): boolean
+  /** E2E seam on the extension side — see `ExtensionApi` in src/extension.ts. */
+  seedImageSetupPrompted(shown: boolean): Thenable<void>
 }
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
@@ -1611,6 +1613,47 @@ const readEnableImages = (): boolean =>
   vscode.workspace.getConfiguration('terminal.integrated').get<boolean>('enableImages', false)
 
 /**
+ * (a0) The reload explanation describes a state THIS window is in, so it must
+ * survive a profile that already answered the one-time prompt in an EARLIER
+ * window: the setting really is on, this window really has no renderer, and
+ * without the explanation the user is left with unexplained block characters
+ * (REVIEW M-2). A wiped `--user-data-dir` cannot carry that history in, so the
+ * persistent marker is seeded first — the exact globalState state a previously
+ * prompted profile is in, which is the one dimension the other legs cannot
+ * reach (they all start from an empty globalState). Runs FIRST: the later legs
+ * then run under a realistically "already prompted" profile.
+ */
+async function checkPromptedProfileStillExplainsReload(
+  api: Api,
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await api.seedImageSetupPrompted(true)
+  await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let written: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { offers.push(String(message)) },
+    async () => { written = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(written, 'none'),
+    `an unreloaded enableImages write must keep the injection on none even on a previously prompted profile (F-3); got: ${written.join(' | ')}`,
+  )
+  assert.equal(
+    offers.length,
+    1,
+    `the reload explanation must not be suppressed by the cross-window prompt marker (M-2); got ${offers.length}: ${offers.join(' | ')}`,
+  )
+  assert.equal(
+    offers[0],
+    t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+    'a previously prompted profile must still be told that the reload is what is missing',
+  )
+  console.log('[e2e] PASS images: a previously prompted profile is still told to reload')
+}
+
+/**
  * (a2) A write the window never reloaded must not upgrade the capability: the
  * injection stays `none` — asking for `sixel` here is precisely REVIEW F-3's
  * permanent-blank state — and the user is offered the reload instead. Must run
@@ -1660,7 +1703,7 @@ async function checkOffInjectsNone(images: vscode.WorkspaceConfiguration): Promi
 }
 
 /**
- * A leg (a1 + a2), host `DSH_E2E_IMAGE_MODE=images-off`: the window started
+ * A leg (a0 + a1 + a2), host `DSH_E2E_IMAGE_MODE=images-off`: the window started
  * with `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
  * launching against a wiped `--user-data-dir` (no settings.json).
  */
@@ -1677,13 +1720,17 @@ async function runImagesOffSubset(): Promise<void> {
     'this host must start with terminal.integrated.enableImages off — run-tests.ts must launch it with a wiped --user-data-dir',
   )
   await configureFakeLauncher()
+  const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
   const images = vscode.workspace.getConfiguration('terminal.integrated')
   try {
+    await checkPromptedProfileStillExplainsReload(api, images)
     await checkInWindowWriteStaysNone(images)
     await checkOffInjectsNone(images)
   } finally {
-    // Leave no setting behind for a rerun against a surviving profile.
+    // Leave no setting — and no prompt marker — behind for a rerun against a
+    // surviving profile.
     await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+    await api.seedImageSetupPrompted(false)
   }
 }
 
