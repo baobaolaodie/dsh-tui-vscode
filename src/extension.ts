@@ -21,6 +21,7 @@ import {
   formatWorkspaceTargetArg,
   normalizeTerminalLocation,
   resolveLaunchCommand,
+  type TerminalImageProtocol,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
 import {
@@ -37,10 +38,24 @@ interface Settings {
   command: string
   extraArgs: string[]
   lang: string
+  imageProtocol: TerminalImageProtocol
+  hostImagesEnabled: boolean
   injectEditor: boolean
   editorCommand: string
   dshHome: string
   terminalLocation: string
+}
+
+/**
+ * Normalize the `dsh-tui-vscode.imageProtocol` setting. The enum is declared
+ * in package.json, but a hand-edited settings.json can still hold anything,
+ * and an unknown string must never reach the launch path — same defensive
+ * shape as normalizeTerminalLocation in session.ts. Anything but the two
+ * explicit values means the `sixel` default, which the host-capability gate
+ * then resolves to 'none' while image rendering is off.
+ */
+function normalizeImageProtocol(value: string | undefined): TerminalImageProtocol {
+  return value === 'auto' || value === 'none' ? value : 'sixel'
 }
 
 function readSettings(): Settings {
@@ -49,6 +64,14 @@ function readSettings(): Settings {
     command: cfg.get<string>('command', 'dsh-tui'),
     extraArgs: cfg.get<string[]>('extraArgs', []),
     lang: cfg.get<string>('lang', ''),
+    imageProtocol: normalizeImageProtocol(cfg.get<string>('imageProtocol')),
+    // Host capability for terminal images: VS Code loads its image addon only
+    // when this is on (and the window was reloaded afterwards). Read from the
+    // other configuration section so the session env gate and the one-time
+    // setup prompt share a single truth.
+    hostImagesEnabled: vscode.workspace
+      .getConfiguration('terminal.integrated')
+      .get<boolean>('enableImages', false),
     injectEditor: cfg.get<boolean>('injectEditor', true),
     editorCommand: cfg.get<string>('editorCommand', 'code -w'),
     dshHome: cfg.get<string>('dshHome', ''),
@@ -112,6 +135,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       ...buildLaunchEnv({
         base: process.env,
         lang: cfg.lang,
+        imageProtocol: cfg.imageProtocol,
+        hostImagesEnabled: cfg.hostImagesEnabled,
         injectEditor: cfg.injectEditor,
         editorCommand: cfg.editorCommand,
         dshHome: cfg.dshHome,
@@ -209,8 +234,97 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     setTimeout(() => listener.dispose(), 15000)
   }
 
+  // ---- One-time terminal-images setup prompt ------------------------------
+  // The extension never edits the user's VS Code settings on its own: this
+  // prompt is the ONLY path that calls update(), and only after an explicit
+  // click (DESIGN D3, AC-5). It fires on the user-initiated session-start
+  // paths only — never from activate(), where the extension may just have been
+  // auto-started without the user wanting a session (DESIGN D5) — and at most
+  // once until the user answers, tracked in globalState so a window reload
+  // keeps the answer (DESIGN D4).
+  const IMAGE_SETUP_PROMPTED_KEY = 'dsh-tui-vscode.imageSetupPrompted'
+  // In-memory mirror: globalState.update() is async, and two quick starts must
+  // not race into two notifications.
+  let imageSetupPromptShown = false
+
+  /** Leave the prompt unhandled so a later session start tries again (DESIGN R1). */
+  function resetImageSetupPrompt(): void {
+    imageSetupPromptShown = false
+    void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, undefined)
+  }
+
+  /**
+   * The one and only settings write in this extension. Resolves false when
+   * VS Code rejects it (restricted setting / untrusted workspace) so the
+   * caller can hand over the manual path instead.
+   */
+  async function enableHostImages(): Promise<boolean> {
+    try {
+      await vscode.workspace
+        .getConfiguration('terminal.integrated')
+        .update('enableImages', true, vscode.ConfigurationTarget.Global)
+      return true
+    } catch (error) {
+      // Nothing was written — the caller must not pretend otherwise.
+      console.error('[dsh-tui-vscode] could not enable terminal image rendering:', error)
+      return false
+    }
+  }
+
+  /**
+   * Act on the user's explicit "enable" click. The only caller is the prompt
+   * branch above, which is what keeps `enableHostImages` the sole write path.
+   */
+  async function applyImageSetupChoice(): Promise<void> {
+    if (!(await enableHostImages())) {
+      // Hand over the copyable manual path and forget the prompt, so the next
+      // session start may try the one-click route again (DESIGN R1).
+      resetImageSetupPrompt()
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Could not enable terminal image rendering automatically. Set terminal.integrated.enableImages to true in Settings and reload the window. Reloading closes all running dsh-tui terminals; without a reload the setting does not take effect.'),
+      )
+      return
+    }
+    // Enabled, but the addon loads with the renderer — a reload is required,
+    // and it closes the running terminals. Say so before offering the action.
+    const reloadAction = vscode.l10n.t('Reload Window')
+    const reload = await vscode.window.showInformationMessage(
+      vscode.l10n.t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+      reloadAction,
+    )
+    if (reload === reloadAction) {
+      void vscode.commands.executeCommand('workbench.action.reloadWindow')
+    }
+  }
+
+  async function promptForImageSetup(hostImagesEnabled: boolean): Promise<void> {
+    if (hostImagesEnabled) return // nothing to fix — the gate already allows sixel
+    if (imageSetupPromptShown || context.globalState.get<boolean>(IMAGE_SETUP_PROMPTED_KEY)) {
+      return
+    }
+    // Mark as shown BEFORE awaiting the notification: the user must be asked
+    // exactly once, whether they answer it, dismiss it, or start another
+    // session while it is still on screen.
+    imageSetupPromptShown = true
+    await context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, true)
+    const enableAction = vscode.l10n.t('Enable and Reload Window')
+    const answer = await vscode.window.showInformationMessage(
+      vscode.l10n.t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.'),
+      enableAction,
+      vscode.l10n.t('Not Now'),
+    )
+    // "Not Now" — or a dismissed notification: stay prompted, never ask again.
+    if (answer !== enableAction) return
+    await applyImageSetupChoice()
+  }
+
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
+    // DESIGN D5: offer the terminal-images setup on session start, and never
+    // let that side quest affect the launch itself.
+    void promptForImageSetup(cfg.hostImagesEnabled).catch(error =>
+      console.error('[dsh-tui-vscode] image setup prompt failed:', error),
+    )
     const isWindows = process.platform === 'win32'
     const shellKind = detectShellKind(vscode.env.shell)
     const command = cfg.command.trim() || 'dsh-tui'
