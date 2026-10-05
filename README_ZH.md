@@ -125,8 +125,10 @@ flowchart LR
 
 吉祥物立绘、聊天里的照片缩略图与图片预览，只有两侧条件都满足时才显示为真实栅格图：
 
-1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。
+1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。设置写入失败是「只提示一次」的唯一刻意例外：那次什么都没写进去，所以下次启动会话会再给一次一键路径。
 2. **dsh-TUI 侧**：扩展会导出 `DSH_TUI_IMAGE_PROTOCOL`，该变量自 **0.10.0** 起被 dsh-TUI 识别（0.10.0–0.13.0 逐版本核对 `lib/types/ink/ink.js`；0.9.0/0.9.1 无此变量）。更老的 dsh-TUI 会直接忽略该变量——无害，但也不会有任何变化。
+
+由于 VS Code 只在加载窗口时建立该渲染器，扩展判能力时不用裸的设置值，而是读**两个观测**：**窗口启动时**看到的 `terminal.integrated.enableImages` 值（`activate()` 只快照一次，本窗口内**刻意不刷新**）**与**实时值——只有两者都为 `true`，会话才会拿到 `sixel`。因此「设置已写入但本窗口尚未重载」——无论来自「启用并重载窗口」动作，还是你自己改的 `settings.json`——在该窗口内启动的会话**仍然导出 `none`**，图像区域继续显示可见的半块字符画，而不会变成永久空白的图像槽位。这种状态不再静默：会弹一次提示（「图像渲染已开启，但该设置需重载窗口后才生效」，带**重载窗口**按钮）说明还缺哪一步；只有重载之后启动的会话才会拿到 `sixel`。
 
 `dsh-tui-vscode.imageProtocol`（默认 `sixel`）决定导出哪个值：
 
