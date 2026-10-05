@@ -24,5 +24,11 @@
   "Resume session": "恢复会话",
   "Untitled project": "未命名项目",
   "dsh-tui — click to open the session panel": "dsh-tui — 点击打开会话面板",
-  "dsh-tui session is running — click to open the panel": "dsh-tui 会话正在运行 — 点击打开面板"
+  "dsh-tui session is running — click to open the panel": "dsh-tui 会话正在运行 — 点击打开面板",
+  "Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.": "终端图片需要启用 VS Code 的图像渲染，但 terminal.integrated.enableImages 当前为关闭状态，dsh-tui 只能显示半块字符画而非真图。该设置需重载窗口后才生效，而重载会关闭正在运行的 dsh-tui 终端。",
+  "Enable and Reload Window": "启用并重载窗口",
+  "Not Now": "以后再说",
+  "Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.": "图像渲染已开启，但该设置需重载窗口后才生效。重载会关闭所有正在运行的 dsh-tui 终端；这些会话仍保留在侧边栏，可随时恢复。",
+  "Reload Window": "重载窗口",
+  "Could not enable terminal image rendering automatically. Set terminal.integrated.enableImages to true in Settings and reload the window. Reloading closes all running dsh-tui terminals; without a reload the setting does not take effect.": "无法自动开启终端图像渲染。请在设置中将 terminal.integrated.enableImages 设为 true，然后重载窗口。重载会关闭所有正在运行的 dsh-tui 终端；不重载则设置不会生效。"
 }
