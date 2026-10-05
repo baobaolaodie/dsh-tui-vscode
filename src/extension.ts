@@ -21,7 +21,9 @@ import {
   formatWorkspaceTargetArg,
   normalizeTerminalLocation,
   resolveLaunchCommand,
+  resolveTerminalImageCapability,
   type TerminalImageProtocol,
+  type TerminalImageSetupOffer,
 } from './session'
 import { buildAtMention, normalizeMentionPath } from './at-mention'
 import {
@@ -39,7 +41,8 @@ interface Settings {
   extraArgs: string[]
   lang: string
   imageProtocol: TerminalImageProtocol
-  hostImagesEnabled: boolean
+  /** The LIVE `terminal.integrated.enableImages` value — an observation, not a capability. */
+  imagesEnabledSetting: boolean
   injectEditor: boolean
   editorCommand: string
   dshHome: string
@@ -65,11 +68,12 @@ function readSettings(): Settings {
     extraArgs: cfg.get<string[]>('extraArgs', []),
     lang: cfg.get<string>('lang', ''),
     imageProtocol: normalizeImageProtocol(cfg.get<string>('imageProtocol')),
-    // Host capability for terminal images: VS Code loads its image addon only
-    // when this is on (and the window was reloaded afterwards). Read from the
-    // other configuration section so the session env gate and the one-time
-    // setup prompt share a single truth.
-    hostImagesEnabled: vscode.workspace
+    // The LIVE value of `terminal.integrated.enableImages` (read from the other
+    // configuration section). An observation, not a capability: whether this
+    // window has a renderer is decided by resolveTerminalImageCapability
+    // against `hostImagesAtWindowStart`, and BOTH the session env gate and the
+    // one-time setup prompt go through that decision.
+    imagesEnabledSetting: vscode.workspace
       .getConfiguration('terminal.integrated')
       .get<boolean>('enableImages', false),
     injectEditor: cfg.get<boolean>('injectEditor', true),
@@ -87,6 +91,19 @@ export interface ExtensionApi {
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
+  // ---- Window-start snapshot of terminal image rendering -------------------
+  // VS Code loads its image addon while the window builds the renderer, so
+  // `terminal.integrated.enableImages` only takes effect after a window reload:
+  // a value written later in this window stays inert. Snapshot the setting once,
+  // here at window start, so every gate in this window — the session env AND the
+  // one-time prompt — is judged on what was actually effective when the window
+  // started, never on a value someone just wrote (REVIEW F-3: trusting the live
+  // value blanks the image slots and suppresses the prompt forever). A reload
+  // restarts this extension host, so activate() then reads the new value.
+  const hostImagesAtWindowStart = vscode.workspace
+    .getConfiguration('terminal.integrated')
+    .get<boolean>('enableImages', false)
+
   const status = new SessionStatusBar()
   context.subscriptions.push(status)
 
@@ -131,12 +148,19 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 
   function buildEnv(extra: Record<string, string> = {}): Record<string, string> {
     const cfg = readSettings()
+    // The env gate takes the CAPABILITY, not the raw setting: a value written
+    // after this window started has no renderer behind it, and asking dsh-tui
+    // for sixel without one blanks the image slots (US-3).
+    const imageCapability = resolveTerminalImageCapability(
+      hostImagesAtWindowStart,
+      cfg.imagesEnabledSetting,
+    )
     return {
       ...buildLaunchEnv({
         base: process.env,
         lang: cfg.lang,
         imageProtocol: cfg.imageProtocol,
-        hostImagesEnabled: cfg.hostImagesEnabled,
+        hostImagesEnabled: imageCapability.hostImagesEnabled,
         injectEditor: cfg.injectEditor,
         editorCommand: cfg.editorCommand,
         dshHome: cfg.dshHome,
@@ -272,8 +296,26 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   }
 
   /**
+   * Ask for the reload that makes an already-written `enableImages` take
+   * effect. Shared by both paths that reach this state: the click that just
+   * wrote the setting (see applyImageSetupChoice) and a value written outside
+   * the extension (settings.json / settings sync) that this window has not
+   * loaded yet.
+   */
+  async function offerWindowReload(): Promise<void> {
+    const reloadAction = vscode.l10n.t('Reload Window')
+    const reload = await vscode.window.showInformationMessage(
+      vscode.l10n.t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+      reloadAction,
+    )
+    if (reload === reloadAction) {
+      void vscode.commands.executeCommand('workbench.action.reloadWindow')
+    }
+  }
+
+  /**
    * Act on the user's explicit "enable" click. The only caller is the prompt
-   * branch above, which is what keeps `enableHostImages` the sole write path.
+   * branch below, which is what keeps `enableHostImages` the sole write path.
    */
   async function applyImageSetupChoice(): Promise<void> {
     if (!(await enableHostImages())) {
@@ -287,18 +329,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }
     // Enabled, but the addon loads with the renderer — a reload is required,
     // and it closes the running terminals. Say so before offering the action.
-    const reloadAction = vscode.l10n.t('Reload Window')
-    const reload = await vscode.window.showInformationMessage(
-      vscode.l10n.t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
-      reloadAction,
-    )
-    if (reload === reloadAction) {
-      void vscode.commands.executeCommand('workbench.action.reloadWindow')
-    }
+    // NOTE: `hostImagesAtWindowStart` is deliberately NOT refreshed here — this
+    // window still has no renderer, so it keeps injecting `none` (F-3) until the
+    // reload that restarts this extension host and re-reads the snapshot.
+    await offerWindowReload()
   }
 
-  async function promptForImageSetup(hostImagesEnabled: boolean): Promise<void> {
-    if (hostImagesEnabled) return // nothing to fix — the gate already allows sixel
+  async function promptForImageSetup(offer: TerminalImageSetupOffer | undefined): Promise<void> {
+    // No offer means this window's snapshot was already true: nothing to fix.
+    if (!offer) return
     if (imageSetupPromptShown || context.globalState.get<boolean>(IMAGE_SETUP_PROMPTED_KEY)) {
       return
     }
@@ -307,6 +346,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // session while it is still on screen.
     imageSetupPromptShown = true
     await context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, true)
+    if (offer === 'reloadWindow') {
+      // The setting is already on, but it was written inside this window and
+      // never reloaded into a renderer. There is nothing to write and nothing
+      // to ask permission for — say what is missing instead (the old gate
+      // returned silently here, which is REVIEW F-3's second dead path).
+      await offerWindowReload()
+      return
+    }
     const enableAction = vscode.l10n.t('Enable and Reload Window')
     const answer = await vscode.window.showInformationMessage(
       vscode.l10n.t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.'),
@@ -321,8 +368,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
-    // let that side quest affect the launch itself.
-    void promptForImageSetup(cfg.hostImagesEnabled).catch(error =>
+    // let that side quest affect the launch itself. The offer comes from the
+    // window-start capability snapshot, so a write this window has not reloaded
+    // into asks for the reload instead of going silent (F-3).
+    const imageCapability = resolveTerminalImageCapability(
+      hostImagesAtWindowStart,
+      cfg.imagesEnabledSetting,
+    )
+    void promptForImageSetup(imageCapability.offer).catch(error =>
       console.error('[dsh-tui-vscode] image setup prompt failed:', error),
     )
     const isWindows = process.platform === 'win32'

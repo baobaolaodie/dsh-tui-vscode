@@ -12,6 +12,7 @@ import {
   formatWorkspaceTargetArg,
   normalizeTerminalLocation,
   resolveTerminalImageProtocol,
+  resolveTerminalImageCapability,
   buildLaunchEnv,
   type TerminalImageProtocol,
 } from '../session.js'
@@ -471,5 +472,50 @@ test('buildLaunchEnv never emits DSH_TUI_IMAGE_PROTOCOL for auto (AC-4)', () => 
     buildLaunchEnv({ imageProtocol: 'auto', extra: { DSH_TUI_IMAGE_PROTOCOL: 'sixel' } })
       .DSH_TUI_IMAGE_PROTOCOL,
     'sixel',
+  )
+})
+
+// F-3(REVIEW.md):门禁的输入必须是「本窗口启动时观察到的能力」,而不是配置布尔的
+// 即时值。写完 terminal.integrated.enableImages 却不重载窗口时,本窗口里没有图像
+// 渲染器,注入 sixel 会让 dsh-tui 擦掉半块字符画兜底 → 槽位永久空白——正是 US-3
+// 要根除的现象。两条日常死路都收敛到 resolveTerminalImageCapability 这一个判定:
+// ① 点「启用并重载窗口」后忽略二次重载提示;② 自己改 settings.json 但不重载。
+test('resolveTerminalImageCapability only trusts a value observed at window start (F-3)', () => {
+  // 启动时为假、此刻为真 =「写了设置但没重载」:不是能力,缺的是重载
+  const pendingReload = resolveTerminalImageCapability(false, true)
+  assert.equal(pendingReload.hostImagesEnabled, false, 'pending reload must not count as a capability')
+  assert.equal(pendingReload.offer, 'reloadWindow', 'pending reload must offer the reload')
+  // 启动时为真且此刻仍为真 = 渲染器已随窗口加载:注入 sixel,不再打扰
+  const effective = resolveTerminalImageCapability(true, true)
+  assert.equal(effective.hostImagesEnabled, true, 'a value present at window start is a capability')
+  assert.equal(effective.offer, undefined, 'nothing left to offer once the renderer is loaded')
+  // 此刻为假:走既有「启用并重载窗口」提示(用户选择 / 写失败后的重试路径)
+  const off = resolveTerminalImageCapability(false, false)
+  assert.equal(off.hostImagesEnabled, false, 'an off setting is never a capability')
+  assert.equal(off.offer, 'enableImages', 'an off setting offers the one-click enable')
+  // 窗口运行期间被关掉:用户已明确不要图片,按「没有能力」处理(绝不空白)
+  const turnedOff = resolveTerminalImageCapability(true, false)
+  assert.equal(turnedOff.hostImagesEnabled, false, 'a setting turned off mid-window is not a capability')
+  assert.equal(turnedOff.offer, 'enableImages', 'turning it off falls back to the enable offer')
+  // 读不到配置一律按「没有渲染器」处理
+  const unreadable = resolveTerminalImageCapability(undefined, undefined)
+  assert.equal(unreadable.hostImagesEnabled, false, 'unreadable configuration is not a capability')
+  assert.equal(unreadable.offer, 'enableImages', 'unreadable configuration keeps the enable offer')
+})
+
+test('an enableImages write that was never reloaded never reaches sixel (F-3)', () => {
+  // 设置此刻为真(用户刚写入),而本窗口启动时为假(此后没有重载过)
+  const capability = resolveTerminalImageCapability(false, true)
+  assert.equal(capability.hostImagesEnabled, false, 'a write without a reload is not a capability')
+  // 门禁拿到的能力为假 → 即使配置为真也注入 none,绝不出现「注入 sixel 却无渲染器」
+  assert.equal(
+    buildLaunchEnv({ imageProtocol: 'sixel', hostImagesEnabled: capability.hostImagesEnabled })
+      .DSH_TUI_IMAGE_PROTOCOL,
+    'none',
+  )
+  // 默认偏好(不传 imageProtocol)走同一条出口
+  assert.equal(
+    buildLaunchEnv({ hostImagesEnabled: capability.hostImagesEnabled }).DSH_TUI_IMAGE_PROTOCOL,
+    'none',
   )
 })

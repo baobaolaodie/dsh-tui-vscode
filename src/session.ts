@@ -329,15 +329,60 @@ export function normalizeTerminalLocation(value: string | undefined): TerminalLo
 export type TerminalImageProtocol = 'auto' | 'sixel' | 'none'
 
 /**
+ * The one-time setup action a session start can still offer about terminal
+ * images — `undefined` (no offer) when there is nothing left to do.
+ * `'enableImages'` asks to turn the setting on; `'reloadWindow'` only asks for
+ * the reload that makes a value already written take effect.
+ */
+export type TerminalImageSetupOffer = 'enableImages' | 'reloadWindow'
+
+/**
+ * Host capability for terminal images, derived from the two values that are
+ * actually observable about `terminal.integrated.enableImages` — never from the
+ * bare setting.
+ *
+ * VS Code loads its image addon while the window builds the renderer, so the
+ * setting takes effect only after a *window reload*: a value written after this
+ * window started stays inert for the whole window. Feeding the gate the live
+ * value instead is what produced permanently blank image slots (REVIEW F-3) —
+ * dsh-tui drops its half-block fallback once it believes in the raster path.
+ *
+ * - `imagesEnabledAtWindowStart`: what the setting was when this window (this
+ *   extension host) started — the only input that can mean "renderer loaded".
+ * - `imagesEnabledNow`: what it is right now; `true` here together with `false`
+ *   at window start is exactly the "written, but not reloaded" state, which
+ *   stays on `none` and offers the reload instead of going silently blank.
+ *
+ * Pure and total: a missing/unreadable value counts as off, and a setting
+ * turned back off mid-window counts as off too — the user no longer wants
+ * images, and the addon's lifetime is not ours to assume — so the never-blank
+ * branch is the only fallback.
+ */
+export function resolveTerminalImageCapability(
+  imagesEnabledAtWindowStart: boolean | undefined,
+  imagesEnabledNow: boolean | undefined,
+): { hostImagesEnabled: boolean; offer?: TerminalImageSetupOffer } {
+  const enabledNow = imagesEnabledNow === true
+  if (imagesEnabledAtWindowStart === true && enabledNow) {
+    return { hostImagesEnabled: true }
+  }
+  // Nothing left to write when the setting is already on: the missing piece is
+  // the reload that would load the renderer.
+  return { hostImagesEnabled: false, offer: enabledNow ? 'reloadWindow' : 'enableImages' }
+}
+
+/**
  * Decide which `DSH_TUI_IMAGE_PROTOCOL` value the session terminal receives —
  * or `undefined` when the key must not be injected at all.
  *
  * The host can only paint terminal images when
  * `terminal.integrated.enableImages` is on AND the window was reloaded
  * afterwards (the image addon loads with the WebGL renderer), so the default
- * `sixel` request is gated on that capability: asking for sixel without a
- * renderer makes dsh-tui drop its half-block fallback and paint nothing — an
- * empty slot is worse than a coarse but visible character image.
+ * `sixel` request is gated on that capability — see
+ * {@link resolveTerminalImageCapability}, the one place that decides whether
+ * this window really has it. Asking for sixel without a renderer makes dsh-tui
+ * drop its half-block fallback and paint nothing — an empty slot is worse than
+ * a coarse but visible character image.
  *
  * `auto` is the escape hatch that hands the decision back to dsh-tui itself;
  * it must inject NOTHING (not the string `'auto'`), which is also the exit
@@ -372,8 +417,10 @@ export interface LaunchEnvInput {
    */
   imageProtocol?: TerminalImageProtocol
   /**
-   * Whether the host can render terminal images
-   * (`terminal.integrated.enableImages`). Gates the default `sixel` choice:
+   * Whether the host can actually render terminal images in THIS window — i.e.
+   * what {@link resolveTerminalImageCapability} returned for it, never the raw
+   * `terminal.integrated.enableImages` setting (a write that no window reload
+   * has loaded yet is not a capability). Gates the default `sixel` choice:
    * false — or unknown, e.g. unreadable configuration — falls back to `none`
    * so the TUI always keeps a visible rendering path.
    */
