@@ -553,6 +553,20 @@ test('the package.json imageProtocol enum stays bound to TerminalImageProtocol (
     declaredEnum.includes(declared?.default ?? ''),
     `the declared default (${String(declared?.default)}) must be one of the enum values`,
   )
+  // T-FIX-08 的 🟢 残留:归一化的兜底档(session.ts 里写死的 'sixel')与 package.json
+  // 声明的 default 是同一决策的两处表达,前面几条只绑了「enum 的取值集合」和
+  // 「default ∈ enum」——都不比较**哪一档是默认**。把 default 改成另一个合法档
+  // (如 none)会全绿,而运行期遇到未知取值仍退到写死的那档。故未知值必须等于声明的
+  // default;取不到 default 时先显式判负,不静默跳过。
+  assert.ok(
+    declared?.default,
+    `package.json must declare a default for dsh-tui-vscode.imageProtocol (got ${String(declared?.default)})`,
+  )
+  assert.equal(
+    normalizeTerminalImageProtocol('unknown-tier'),
+    declared?.default,
+    `an unknown tier must fall back to the declared default (${String(declared?.default)})`,
+  )
 })
 
 // m-3:归一化是取值空间**唯一**的入口——设置可以是手写的 settings.json,也可能来自
