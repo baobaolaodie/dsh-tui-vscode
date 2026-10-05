@@ -115,10 +115,28 @@ flowchart LR
 | `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | 终端位置：`editor`（中间编辑区新列）/ `active`（当前编辑列）/ `panel`（底部面板） |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | 导出给 `DSH_TUI_IMAGE_PROTOCOL` 的取值：`sixel`（真实栅格图——需 `terminal.integrated.enableImages` 为 `true` **且已重载窗口**；该设置为假时退成半块字符画）、`none`（始终半块字符画）、`auto`（不导出任何取值，交回 dsh-TUI 判定）。需 **dsh-TUI ≥ 0.10.0**。详见[终端图片](#终端图片) |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
 | `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码推送给运行中的 dsh-TUI（300ms 防抖；携带坐标与编辑器选区文本、不占输入框；dsh-TUI 提交时原样附加内容并显示指示行）。需 **dsh-TUI ≥ 0.11.0**（IDE 选区通道，[上游 PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562)）；通道不可用时回退为键入 `@相对路径#L起-止` |
+
+## 终端图片
+
+吉祥物立绘、聊天里的照片缩略图与图片预览，只有两侧条件都满足时才显示为真实栅格图：
+
+1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。
+2. **dsh-TUI 侧**：扩展会导出 `DSH_TUI_IMAGE_PROTOCOL`，该变量自 **0.10.0** 起被 dsh-TUI 识别（0.10.0–0.13.0 逐版本核对 `lib/types/ink/ink.js`；0.9.0/0.9.1 无此变量）。更老的 dsh-TUI 会直接忽略该变量——无害，但也不会有任何变化。
+
+`dsh-tui-vscode.imageProtocol`（默认 `sixel`）决定导出哪个值：
+
+| 取值 | 导出值 | 行为 |
+| --- | --- | --- |
+| `sixel` | `sixel` | 终端图像渲染开启时显示真实栅格图；`enableImages` 为 `false` 时默认档退成半块字符画，保证图像区域可见而不是一片空白。 |
+| `none` | `none` | 即使渲染已开启，也始终使用半块字符画。 |
+| `auto` | *（不导出）* | 不导出任何取值，交回 dsh-TUI 自行判定——上游协议判定修好后的退出路径。 |
+
+**已验证组合**：Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0。其他平台、远程环境与其他 VS Code 版本**均未验证**；字符画兜底保证最差情况仍是可见内容而非空白。
 
 ## 界面语言
 

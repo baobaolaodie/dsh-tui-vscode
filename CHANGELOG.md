@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **Terminal images no longer stay blank in the VS Code integrated terminal (pinned to Sixel, with the setup path documented)**: the extension now exports `DSH_TUI_IMAGE_PROTOCOL` for every session it launches — `sixel` by default while `terminal.integrated.enableImages` is on, `none` while it is off (so the image area always falls back to visible half-block character art instead of a blank slot), `none` when `dsh-tui-vscode.imageProtocol` is explicitly set to `none`, and nothing at all for `auto`. VS Code's `@xterm/addon-image` answers the Kitty graphics query with an `OK` that was never verified against an actual draw, while dsh-tui prefers Kitty over Sixel — so the artwork was erased and never redrawn; pinning Sixel avoids that path. Enabling `terminal.integrated.enableImages` **requires reloading the window**, and the injected variable needs **dsh-tui ≥ 0.10.0** (older builds ignore it — harmless). When a session starts with that setting off, the extension prompts once with an "enable and reload" action and never edits your settings without asking.
+
 ## [0.7.4] - 2026-10-03
 
 > via PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36)

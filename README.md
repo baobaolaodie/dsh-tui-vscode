@@ -115,10 +115,28 @@ Key points:
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded**; degrades to half-block character art when it is `false`), `none` (always half-block character art), `auto` (export nothing and let dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
 | `dsh-tui-vscode.autoInsertMention` | `true` | On selection change, push the selected code to the running dsh-TUI over the IDE selection channel (300 ms debounce; coordinates plus the editor's selection text, no input-box takeover; dsh-TUI attaches the content verbatim at submit and shows an indicator line). Requires **dsh-TUI ≥ 0.11.0** (IDE selection channel, [upstream PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562)); falls back to typing `@relative/path#Lstart-end` when the channel is unavailable. |
+
+## Terminal images
+
+The mascot artwork, chat photo thumbnails and image previews render as real raster images only when both sides are ready:
+
+1. **VS Code side**: `terminal.integrated.enableImages` must be `true` (VS Code defaults to `false`), and you must **reload the window** after changing it — VS Code loads the `@xterm/addon-image` renderer only while it builds the WebGL renderer, so the setting does nothing until the window is reloaded. When a session starts with that setting off, the extension shows a one-time prompt with an "enable and reload" action and never writes your VS Code settings without asking.
+2. **dsh-TUI side**: the extension exports `DSH_TUI_IMAGE_PROTOCOL`, which dsh-TUI has understood since **0.10.0** (checked release by release against `lib/types/ink/ink.js` for 0.10.0–0.13.0; absent in 0.9.0/0.9.1). An older dsh-TUI simply ignores the variable — harmless, but nothing changes either.
+
+`dsh-tui-vscode.imageProtocol` (default `sixel`) decides what gets exported:
+
+| Value | Exported | Behavior |
+| --- | --- | --- |
+| `sixel` | `sixel` | Real raster images while terminal image rendering is on; with `enableImages` set to `false`, the default degrades to half-block character art, so the image area stays visible instead of going blank. |
+| `none` | `none` | Always half-block character art, even when rendering is on. |
+| `auto` | *(nothing)* | Export nothing and let dsh-TUI decide on its own — the opt-out path for when upstream protocol detection is fixed. |
+
+**Verified combination**: Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0. Other platforms, remote setups and other VS Code versions are **unverified**; the character-art fallback keeps the worst case visible rather than blank.
 
 ## UI language
 

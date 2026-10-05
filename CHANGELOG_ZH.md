@@ -16,6 +16,8 @@
 
 ### Fixed
 
+- **VS Code 集成终端里的终端图片不再空白（现固定 Sixel，并写明配置路径）**：扩展现在为它启动的每个会话导出 `DSH_TUI_IMAGE_PROTOCOL`——默认在 `terminal.integrated.enableImages` 开启时导出 `sixel`，关闭时导出 `none`（图像区域因此总是回退为可见的半块字符画，而不是一片空白），把 `dsh-tui-vscode.imageProtocol` 显式设为 `none` 时恒为 `none`，设为 `auto` 时不导出该变量。VS Code 的 `@xterm/addon-image` 会对 Kitty 图形协议查询回一个从未经真实绘制验证的 `OK`，而 dsh-tui 让 Kitty 优先于 Sixel——于是图片被擦掉后再没人重绘；固定 Sixel 可绕开这条路径。启用 `terminal.integrated.enableImages` **必须重载窗口**，注入的变量需 **dsh-tui ≥ 0.10.0**（更老版本会忽略它——无害）。会话启动时若该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的设置。
+
 ## [0.7.4] - 2026-10-03
 
 > 经 PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36) 合并
