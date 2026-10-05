@@ -12,6 +12,7 @@ import {
   createSendOnceGate,
   formatWorkspaceTargetArg,
   normalizeTerminalLocation,
+  normalizeTerminalImageProtocol,
   resolveTerminalImageProtocol,
   resolveTerminalImageCapability,
   buildLaunchEnv,
@@ -554,6 +555,20 @@ test('the package.json imageProtocol enum stays bound to TerminalImageProtocol (
   )
 })
 
+// m-3:归一化是取值空间**唯一**的入口——设置可以是手写的 settings.json,也可能来自
+// 未来加了档而运行期还没跟上的版本,所以未知值必须落安全档 sixel(再由能力门禁决定
+// 注入与否,见 resolveTerminalImageProtocol),绝不把未知字符串原样送进启动路径。
+test('normalizeTerminalImageProtocol keeps every known tier and defaults anything else to sixel (m-3)', () => {
+  for (const known of ['auto', 'sixel', 'none'] as const) {
+    assert.equal(normalizeTerminalImageProtocol(known), known, `the known tier ${known} must survive unchanged`)
+  }
+  // 空值 / 上游有而本扩展没有的档(kitty) / 大小写不同(设置是枚举选择器,只有精确值
+  // 才算已知)一律落 sixel——这与 resolveTerminalImageProtocol 的未知值出口同档。
+  for (const unknown of [undefined, '', 'kitty', 'AUTO']) {
+    assert.equal(normalizeTerminalImageProtocol(unknown), 'sixel', `${String(unknown)} must fall back to sixel`)
+  }
+})
+
 // ---- F-8 / F-9:extension.ts 接线的结构护栏 -------------------------------
 // extension.ts 在模块顶层 import 'vscode',`npm test` 无法 require 它(REVIEW F-2/T5
 // 记录的覆盖缺口),其接线因此没有行为级单测。下面两条断言把源码**当数据**读入
@@ -669,5 +684,91 @@ test('every fire-and-forget globalState write carries a rejection handler (F-9)'
     unhandled.map(update => `${extensionSourcePath}:${lineOf(extensionFile, update)}`),
     [],
     "a void'ed globalState.update must chain .catch() / .then(undefined, ...)",
+  )
+})
+
+// ---- m-3:取值空间第三处同形的收口护栏 -------------------------------------
+// REVIEW m-3:F-5 把「类型 × package.json enum」绑在了一起,但 extension.ts 还自带过
+// 一份 normalizeImageProtocol 白名单——取值空间的**第三处同形**,且当时没有任何断言
+// 绑定。将来加第四档(例如上游修好 kitty)时最省事的错法仍是「只改 package.json +
+// 类型」:设置界面冒出新选项,运行期被静默归一化回 sixel,F-5 那两条断言全绿。
+// 本任务把白名单下沉为 session.ts 的 normalizeTerminalImageProtocol(与真源同文件),
+// 下面两条结构断言把「下沉」钉成不变量:
+//   ① session.ts 里该函数拼出的字符串字面量集合 == TERMINAL_IMAGE_PROTOCOLS 键集
+//      ——加档而不改归一化 ⇒ 红;
+//   ② extension.ts 不再出现任何协议取值字面量、且确实从 './session' 引入归一化
+//      ——白名单以任何名字回流 ⇒ 红。
+const sessionSourcePath = join(__dirname, '..', '..', 'src', 'session.ts')
+const sessionFile = ts.createSourceFile(
+  sessionSourcePath,
+  readFileSync(sessionSourcePath, 'utf8'),
+  ts.ScriptTarget.Latest,
+  true,
+)
+
+/** 文件里第一个名为 name 的函数声明(护栏锚点找不到时返回 undefined,由断言显式判负)。 */
+function findFunction(file: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
+  let hit: ts.FunctionDeclaration | undefined
+  const visit = (node: ts.Node): void => {
+    if (hit === undefined && ts.isFunctionDeclaration(node) && node.name?.text === name) hit = node
+    node.forEachChild(visit)
+  }
+  visit(file)
+  return hit
+}
+
+/** node 子树里出现的字符串字面量文本值(去重、排序)。 */
+function stringLiteralsIn(node: ts.Node): string[] {
+  const found = new Set<string>()
+  const visit = (current: ts.Node): void => {
+    if (ts.isStringLiteral(current)) found.add(current.text)
+    current.forEachChild(visit)
+  }
+  visit(node)
+  return [...found].sort()
+}
+
+/** `import { a, b as c } from '<specifier>'` 里实际引入的名字(b 记的是本地名 c)。 */
+function importedNames(file: ts.SourceFile, specifier: string): string[] {
+  const names: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      if (node.moduleSpecifier.text === specifier) {
+        const bindings = node.importClause?.namedBindings
+        if (bindings !== undefined && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) names.push(element.name.text)
+        }
+      }
+    }
+    node.forEachChild(visit)
+  }
+  visit(file)
+  return names
+}
+
+test('session.ts binds the imageProtocol normalizer to the TerminalImageProtocol values (m-3)', () => {
+  const normalizer = findFunction(sessionFile, 'normalizeTerminalImageProtocol')
+  if (normalizer === undefined) {
+    assert.fail(`${sessionSourcePath} must declare normalizeTerminalImageProtocol (REVIEW m-3)`)
+  }
+  assert.deepEqual(
+    stringLiteralsIn(normalizer),
+    Object.keys(TERMINAL_IMAGE_PROTOCOLS).sort(),
+    'the normalizer must spell out exactly the TerminalImageProtocol values, or a new tier is silently unreachable',
+  )
+})
+
+test('extension.ts carries no second imageProtocol value space (m-3)', () => {
+  const protocolValues = Object.keys(TERMINAL_IMAGE_PROTOCOLS)
+  // ① 白名单无论叫什么都得逐个拼出取值:只要出现协议取值字面量,就是第四处同形的苗头
+  assert.deepEqual(
+    stringLiteralsIn(extensionFile).filter(literal => protocolValues.includes(literal)),
+    [],
+    `${extensionSourcePath} must not spell out imageProtocol values; call the session.ts normalizer instead`,
+  )
+  // ② 删掉白名单不等于接上了真源:读设置的那一处必须真的引到它
+  assert.ok(
+    importedNames(extensionFile, './session').includes('normalizeTerminalImageProtocol'),
+    `${extensionSourcePath} must import normalizeTerminalImageProtocol from './session'`,
   )
 })

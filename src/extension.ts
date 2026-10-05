@@ -19,6 +19,7 @@ import {
   detectShellKind,
   formatLaunchPath,
   formatWorkspaceTargetArg,
+  normalizeTerminalImageProtocol,
   normalizeTerminalLocation,
   resolveLaunchCommand,
   resolveTerminalImageCapability,
@@ -49,25 +50,13 @@ interface Settings {
   terminalLocation: string
 }
 
-/**
- * Normalize the `dsh-tui-vscode.imageProtocol` setting. The enum is declared
- * in package.json, but a hand-edited settings.json can still hold anything,
- * and an unknown string must never reach the launch path — same defensive
- * shape as normalizeTerminalLocation in session.ts. Anything but the two
- * explicit values means the `sixel` default, which the host-capability gate
- * then resolves to 'none' while image rendering is off.
- */
-function normalizeImageProtocol(value: string | undefined): TerminalImageProtocol {
-  return value === 'auto' || value === 'none' ? value : 'sixel'
-}
-
 function readSettings(): Settings {
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
   return {
     command: cfg.get<string>('command', 'dsh-tui'),
     extraArgs: cfg.get<string[]>('extraArgs', []),
     lang: cfg.get<string>('lang', ''),
-    imageProtocol: normalizeImageProtocol(cfg.get<string>('imageProtocol')),
+    imageProtocol: normalizeTerminalImageProtocol(cfg.get<string>('imageProtocol')),
     // The LIVE value of `terminal.integrated.enableImages` (read from the other
     // configuration section). An observation, not a capability: whether this
     // window has a renderer is decided by resolveTerminalImageCapability

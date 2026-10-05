@@ -329,6 +329,24 @@ export function normalizeTerminalLocation(value: string | undefined): TerminalLo
 export type TerminalImageProtocol = 'auto' | 'sixel' | 'none'
 
 /**
+ * Normalize the `dsh-tui-vscode.imageProtocol` setting into the value space
+ * above — the one place that knows which strings are known tiers.
+ *
+ * The setting is an enum in package.json, but a hand-edited settings.json can
+ * still hold anything, and an unknown string must never reach the launch path —
+ * same defensive shape as {@link normalizeTerminalLocation}. Anything but the
+ * two explicit values means the `sixel` default, which the host-capability gate
+ * then resolves to `none` while image rendering is off.
+ *
+ * Adding a tier means adding it here too; `src/test/session.test.ts` binds this
+ * whitelist to the type's value space and fails when the two drift apart
+ * (REVIEW m-3).
+ */
+export function normalizeTerminalImageProtocol(value: string | undefined): TerminalImageProtocol {
+  return value === 'auto' || value === 'none' ? value : 'sixel'
+}
+
+/**
  * The one-time setup action a session start can still offer about terminal
  * images — `undefined` (no offer) when there is nothing left to do.
  * `'enableImages'` asks to turn the setting on; `'reloadWindow'` only asks for
