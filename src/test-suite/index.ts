@@ -278,36 +278,118 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
   // session data exists (the user's machine); skipped elsewhere.
   const { homedir } = await import('node:os')
   const { join } = await import('node:path')
-  const { existsSync, readdirSync, statSync } = await import('node:fs')
+  const { existsSync, readdirSync } = await import('node:fs')
   const sessionsRoot = join(homedir(), '.dsh', 'sessions')
-  let realId: string | undefined
-  try {
-    for (const group of readdirSync(sessionsRoot)) {
-      for (const entry of readdirSync(join(sessionsRoot, group))) {
-        const dir = join(sessionsRoot, group, entry)
-        if (statSync(dir).isDirectory() && existsSync(join(dir, 'session.jsonl.zstd'))) {
-          realId = entry
-          break
-        }
-      }
-      if (realId) break
-    }
-  } catch {
-    realId = undefined
-  }
-  if (!realId) {
+  // A MISSING root is the one and only licence to skip: this machine has no
+  // dsh session data at all (CI). A root that EXISTS but cannot be enumerated
+  // must never be read as "no sessions here" — that is how this guard used to
+  // disable itself silently (Sourcery ①), so every readdir below is unguarded
+  // on purpose: an enumeration error fails the case.
+  if (!existsSync(sessionsRoot)) {
     console.log('[e2e] SKIP real-resume: no DSH sessions found')
     return
   }
-  const countSessions = (): number => {
-    let n = 0
-    for (const group of readdirSync(sessionsRoot)) {
-      const g = join(sessionsRoot, group)
-      if (!statSync(g).isDirectory()) continue
-      for (const e of readdirSync(g)) if (statSync(join(g, e)).isDirectory()) n++
+  // Pick a real session AND remember the group dir holding it: that group is
+  // the observation anchor this case can never lose. Entries that are not
+  // directories are skipped, never handed to readdirSync (Sourcery ⑤).
+  let found: { id: string; group: string } | undefined
+  for (const group of readdirSync(sessionsRoot, { withFileTypes: true })) {
+    if (!group.isDirectory()) continue
+    for (const entry of readdirSync(join(sessionsRoot, group.name), { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const dir = join(sessionsRoot, group.name, entry.name)
+      if (existsSync(join(dir, 'session.jsonl.zstd'))) {
+        found = { id: entry.name, group: group.name }
+        break
+      }
     }
-    return n
+    if (found) break
   }
+  if (!found) {
+    console.log('[e2e] SKIP real-resume: no DSH sessions found')
+    return
+  }
+  const real = found
+  // ---- Session-id sets, SCOPED to the groups this launch can write --------
+  // (KNOWN-ISSUES C-1.) This guard answers exactly one question: did the
+  // resume THIS case triggered create a new session? The previous shape counted
+  // every project group under `~/.dsh/sessions`, i.e. it answered "did any dsh
+  // session anywhere on this machine appear during these 35 s?" — so a
+  // concurrent TUI in an unrelated project turned the case red and aborted the
+  // whole suite (2026-10-06: +3 dirs, all under the `flow-comet` project group,
+  // none of them this case's doing). The scope is now the UNION of the two
+  // groups this launch can possibly write a fresh session into:
+  //   (a) the resumed session's OWN group — derived from the session dir path
+  //       the scan above walked, no folding involved. It always exists (it
+  //       holds the session being resumed), so the observed scope is
+  //       structurally never empty;
+  //   (b) the group whose name folds to the launch cwd's key — the extension
+  //       creates the session terminal with the WORKSPACE ROOT as its cwd and
+  //       appends that same root as the launcher's workspace target, which the
+  //       TUI resolves into the `meta.cwd` a fresh session is created with
+  //       (`config.workspace ?? DSH_TUI_WORKSPACE_TARGET`). This workspace may
+  //       have no session history at all, so (b) frequently does not exist —
+  //       absent is "0 groups", which is NOT an enumeration failure.
+  // Why that keeps the semantics: a successful resume writes no session
+  // directory at all; a resume that falls through to a fresh session
+  // (randomUUID) can only land in (a) or (b).
+  const launchCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  // A project group dir IS the cwd encoding (`--D-a-b--`): separators collapse
+  // into `-` (lossy) and the name carries whatever case the cwd was spelled
+  // with (VS Code's fsPath may lower-case the drive; a realpath on the way in
+  // may restore it). Match on the folded form — case and separators removed —
+  // so the group is recognised under any spelling, and so a group the failure
+  // itself creates is matched by the `after` listing as well.
+  const foldPath = (value: string): string => value.replace(/[:\\/.-]/g, '').toLowerCase()
+  /** Group dirs of (b): the launch cwd's own group, when it exists. */
+  const launchCwdGroups = (): string[] => {
+    const key = foldPath(launchCwd ?? '')
+    if (key === '') return []
+    const matched = readdirSync(sessionsRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && foldPath(entry.name) === key)
+      .map(entry => entry.name)
+    if (matched.length > 1) {
+      // The encoding is lossy in both directions: different cwds collapse onto
+      // one key (`D:\a\flow-comet` and `D:\a\flow\comet`), and a trailing
+      // separator only adds hyphens. Picking one candidate would be a guess —
+      // guess the wrong one and the guard misses the group the failure writes
+      // to (vacuous green); watch them all and another project's concurrent
+      // session gets attributed to this case (false red). Neither is
+      // acceptable, so fail loudly and name the candidates for a human.
+      throw new Error(
+        `cannot scope the real-resume guard: ${matched.length} session groups fold to the ` +
+          `launch cwd key "${key}" (${matched.join(', ')}); the cwd encoding is lossy, so ` +
+          'the guard cannot tell which group this launch would write to',
+      )
+    }
+    return matched
+  }
+  /** Groups this guard watches: (a) + (b), recomputed per snapshot so a group
+   *  the failed launch itself creates is caught by the `after` snapshot too. */
+  const watchedGroups = (): string[] => {
+    const matched = launchCwdGroups()
+    return matched.includes(real.group) ? matched : [real.group, ...matched]
+  }
+  /**
+   * `<group> -> session ids` (the session dir names) for the watched groups.
+   * Deliberately NOT wrapped in try/catch: an enumeration failure must fail
+   * the case. Swallowing it into an empty set is precisely what made the old
+   * count-based assertion vacuously true (Sourcery ①).
+   */
+  const snapshotSessionIds = (): Map<string, Set<string>> => {
+    const snapshot = new Map<string, Set<string>>()
+    for (const group of watchedGroups()) {
+      // Inside a group, only directories are sessions — a stray file is
+      // skipped rather than stat'ed or descended into (Sourcery ⑤).
+      const ids = readdirSync(join(sessionsRoot, group), { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+      snapshot.set(group, new Set(ids))
+    }
+    return snapshot
+  }
+  const totalIds = (snapshot: Map<string, Set<string>>): number =>
+    [...snapshot.values()].reduce((sum, ids) => sum + ids.size, 0)
 
   await configureFakeLauncher()
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
@@ -317,17 +399,50 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
 
   // Observable (verified against the real launcher): a SUCCESSFUL resume
   // does NOT create a new session; a failed resume falls through to a fresh
-  // session (randomUUID) → a new session dir appears.
-  const before = countSessions()
-  await vscode.commands.executeCommand('dsh-tui-vscode.resumeSession', realId)
+  // session (randomUUID) → a new session dir appears in one of the watched
+  // groups, which are the only groups this launch can write to.
+  const before = snapshotSessionIds()
+  console.log(
+    `[e2e] real-resume guard scope: groups=${JSON.stringify([...before.keys()])} ` +
+      `baseline=${JSON.stringify(
+        Object.fromEntries([...before].map(([group, ids]) => [group, ids.size])),
+      )} (total ${totalIds(before)})`,
+  )
+  // Anti-vacuity: the resumed session's own directory lies inside (a), which
+  // is always watched, so the baseline can never legitimately be 0 — the set
+  // comparison below would then be true for free. A 0 here means the scope or
+  // the enumeration broke (Sourcery ①).
+  assert.ok(
+    totalIds(before) >= 1,
+    `real-resume guard observed nothing although ${real.id} lives in ${real.group} ` +
+      `(watched: ${JSON.stringify([...before.keys()])}) — every comparison would pass for free`,
+  )
+  await vscode.commands.executeCommand('dsh-tui-vscode.resumeSession', real.id)
   await sleep(35000)
-  const after = countSessions()
+  const after = snapshotSessionIds()
   // Stop the real session in the terminal (best effort).
   await vscode.commands.executeCommand('dsh-tui-vscode.kill')
-  assert.equal(
-    after,
-    before,
-    `resume of ${realId} failed: a fresh session was created (${before} -> ${after})`,
+  // Compare ID SETS, not counts: a concurrent session appearing while another
+  // disappears inside a watched group cancels out in a count, and the new one
+  // would go unnoticed. The case's semantics is "no NEW session dir", so only
+  // additions fail — removals are surfaced for diagnosis. Residual coupling:
+  // a concurrent dsh session whose group is one of the watched ones can still
+  // add an id (nothing outside those groups can).
+  const added: string[] = []
+  const removed: string[] = []
+  for (const [group, ids] of after) {
+    const base = before.get(group)
+    for (const id of ids) if (base?.has(id) !== true) added.push(`${group}/${id}`)
+  }
+  for (const [group, ids] of before) {
+    const now = after.get(group)
+    for (const id of ids) if (now?.has(id) !== true) removed.push(`${group}/${id}`)
+  }
+  assert.deepEqual(
+    added,
+    [],
+    `resume of ${real.id} failed: a fresh session appeared in a watched project group ` +
+      `(added: ${added.join(', ') || 'none'}; removed: ${removed.join(', ') || 'none'})`,
   )
 })
 
