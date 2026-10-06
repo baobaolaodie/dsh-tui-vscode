@@ -16,6 +16,7 @@ import {
   resolveTerminalImageProtocol,
   shouldOfferImageSetup,
   shouldShowImageSetupPrompt,
+  isEnableImagesWriteDefeated,
   resolveTerminalImageCapability,
   buildLaunchEnv,
   type TerminalImageProtocol,
@@ -936,6 +937,80 @@ test('the in-window retry outranks a stale persisted prompt marker (Sourcery ⑥
   assert.equal(shouldShowImageSetupPrompt('retry', true), true, 'a stale persisted marker must not eat the retry')
   assert.equal(shouldShowImageSetupPrompt('retry', false), true)
   assert.equal(shouldShowImageSetupPrompt('retry', undefined), true)
+})
+
+// v0.7.5 回归:写完之后「回读有效值」不能当判定——VS Code 的 update() 会在新值抵达扩展
+// 宿主配置模型之前就 resolve,干净 profile 上这次回读仍可能是旧的 false,于是每次成功
+// 点击都被误报成失败、不再给重载引导(用户实测)。判定因此改成写入**之前**看各作用域
+// 显式设了什么(Configuration.inspect),完全不依赖写入何时可见。
+test('the enable write is ruled out beforehand by an explicit false in a higher scope', () => {
+  // 没有任何作用域显式覆盖:写全局就是有效值 → 不算被压
+  assert.equal(isEnableImagesWriteDefeated({}), false, 'a scope that sets nothing is not an override')
+  assert.equal(isEnableImagesWriteDefeated({ workspaceValue: undefined }), false)
+  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: undefined }), false)
+  // 显式 true 只说明「本来就开着」,不构成压过——此时照样写全局并报成功
+  assert.equal(isEnableImagesWriteDefeated({ workspaceValue: true }), false)
+  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: true }), false)
+  // 显式 false 才是压过:工作区级、文件夹级各一条
+  assert.equal(
+    isEnableImagesWriteDefeated({ workspaceValue: false }),
+    true,
+    'a workspace-level false outranks the Global value the click writes',
+  )
+  assert.equal(
+    isEnableImagesWriteDefeated({ workspaceFolderValue: false }),
+    true,
+    'a folder-level false is the highest-precedence override there is',
+  )
+  // 两个作用域都有值:文件夹级优先于工作区级。文件夹 false ⇒ 必然被压;
+  // 反过来(文件夹 true / 工作区 false)在模型里会解析成 true,但两个作用域互相矛盾
+  // 不足以证明这次全局写入有效——按「保守判为被覆盖」处理:宁可走失败路径,也不给出
+  // 一次不可能生效的重载引导(这正是本门要根除的现象)。
+  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: false, workspaceValue: true }), true)
+  assert.equal(
+    isEnableImagesWriteDefeated({ workspaceFolderValue: true, workspaceValue: false }),
+    true,
+    'disagreeing scopes are not proof of an effective write — fail closed',
+  )
+  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: undefined, workspaceValue: false }), true)
+  // 读不到 inspect(该 VS Code 未注册这个设置 / schema 改名)同样判为被压:失败路径
+  // 只是给出手动指引与重试,而错报成功会弹一次根本不起作用的重载引导。
+  assert.equal(
+    isEnableImagesWriteDefeated(undefined),
+    true,
+    'an unreadable inspection cannot prove the write will take effect — fail closed',
+  )
+})
+
+// 上面那条纯函数只有在写路径真的用它、且判定确实发生在写入**之前**时才成立;
+// extension.ts 在模块顶层 import 'vscode',`npm test` 无法 require 它,所以沿用 AST
+// 结构护栏钉住接线:不得把判定换回「写完再 get()」那种依赖写入可见时序的形态。
+test('extension.ts rules on the enable write before writing, never by reading it back', () => {
+  assert.ok(
+    importedNames(extensionFile, './session').includes('isEnableImagesWriteDefeated'),
+    `${extensionSourcePath} must import isEnableImagesWriteDefeated from './session'`,
+  )
+  const enable = findFunction(extensionFile, 'enableHostImages')
+  if (enable === undefined) {
+    assert.fail(`${extensionSourcePath} must declare enableHostImages`)
+  }
+  const source = enable.getText(extensionFile)
+  assert.match(
+    source,
+    /isEnableImagesWriteDefeated\(\s*images\.inspect<boolean>\('enableImages'\)\s*\)/,
+    'the verdict must come from inspecting the scopes before the write',
+  )
+  assert.ok(
+    !source.includes(".get<boolean>('enableImages'"),
+    'the verdict must not be taken by reading the setting after the write: update() resolves before this extension host sees the new value, which turned every successful click into a failure (the v0.7.5 regression)',
+  )
+  // 判定必须早于写入:被压过时一个字都不写(否则用户设置里会留下一次无效写入)。
+  const verdictAt = source.indexOf('isEnableImagesWriteDefeated(')
+  const writeAt = source.indexOf(".update('enableImages', true")
+  assert.ok(
+    verdictAt !== -1 && writeAt !== -1 && verdictAt < writeAt,
+    'the scope verdict must be reached BEFORE the update() call, or a defeated profile is still written to',
+  )
 })
 
 // 上面那条纯函数只有在接线真的用它、且失败路径真的把窗口内状态置为 retry 时才起作用;

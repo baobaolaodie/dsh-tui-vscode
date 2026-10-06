@@ -420,6 +420,56 @@ export function shouldShowImageSetupPrompt(
 }
 
 /**
+ * The scope-level values `Configuration.inspect()` reports for a setting: what a
+ * user EXPLICITLY wrote into each writable scope, as opposed to the value the
+ * scopes resolve to together. Only the two scopes that can outrank a Global
+ * write are modelled — a `window`-scoped setting that supports no language
+ * overrides (`terminal.integrated.enableImages` is exactly that) can never have
+ * a language-scoped value — and `undefined` means "this scope sets nothing",
+ * which is not an override.
+ */
+export interface ConfigurationScopeValues<T> {
+  /** The workspace-folder (`.vscode/settings.json` of one folder) value. */
+  workspaceFolderValue?: T
+  /** The workspace value. */
+  workspaceValue?: T
+}
+
+/**
+ * Whether a higher-precedence EXPLICIT value defeats the Global write the
+ * "Enable and Reload Window" click performs — the verdict that must be reached
+ * BEFORE writing, never by reading the setting back afterwards.
+ *
+ * `terminal.integrated.enableImages` has window scope, so a workspace or folder
+ * override outranks the Global value the extension writes; a write that succeeds
+ * but cannot take effect must take the manual failure path instead of offering a
+ * reload that would change nothing (Sourcery ③). The v0.7.5 attempt at that
+ * verdict re-read the effective value right after `update()` resolved — but
+ * VS Code resolves that promise before the new value reaches this extension
+ * host's configuration model, so the read could still see the old `false` and
+ * sent every successful click down the failure path (the opposite bug). Reading
+ * the scopes beforehand depends on no write-visibility timing at all: no write
+ * happens when the verdict is "defeated", and a clean profile is judged from
+ * what the scopes held before it, which is exactly the state the write will
+ * modify.
+ *
+ * Only an explicit `false` defeats the write: a scope that sets nothing does not
+ * override anything, and `true` at any scope leaves the setting on. Pure and
+ * total, and deliberately conservative — an unreadable inspection (the setting
+ * is not registered in this VS Code build, or its schema moved) cannot prove the
+ * write will take effect, and neither can scopes that disagree with each other
+ * (`workspaceFolderValue: true` next to `workspaceValue: false` resolves to
+ * `true` in the model, but a disagreement is not proof, and claiming success is
+ * the failure this gate exists to prevent): both fail closed.
+ */
+export function isEnableImagesWriteDefeated(
+  scopes: ConfigurationScopeValues<boolean> | undefined,
+): boolean {
+  if (scopes === undefined) return true
+  return scopes.workspaceFolderValue === false || scopes.workspaceValue === false
+}
+
+/**
  * Host capability for terminal images, derived from the renderer facts that are
  * actually observable in this window — never from the bare
  * `terminal.integrated.enableImages` setting.

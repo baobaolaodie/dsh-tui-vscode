@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **"Enable and Reload Window" no longer reports a failure after it has written the setting**: the v0.7.5 verdict read the effective `terminal.integrated.enableImages` value back immediately after the write, but VS Code resolves `update()` **before** the new value reaches this extension host's configuration model — so on a profile with no override that read still saw the old `false`, and every successful click took the failure path instead: the manual instructions appeared, the prompt marker was reset, and no reload was offered even though the setting had been written. The verdict now comes from `Configuration.inspect()` **before** the write: an explicit `false` in the workspace or folder scope is the override that defeats the Global write (nothing is written in that case, and the failure path is unchanged), and a clean profile writes and reports success without depending on when the write becomes visible. A write that a higher-precedence override really defeats still reports failure, shows the manual instructions and resets the prompt marker, so the original v0.7.5 fix stays intact.
+
 ## [0.7.5] - 2026-10-06
 
 > via PR [#39](https://github.com/baobaolaodie/dsh-tui-vscode/pull/39)

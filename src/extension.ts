@@ -19,6 +19,7 @@ import {
   detectShellKind,
   formatLaunchPath,
   formatWorkspaceTargetArg,
+  isEnableImagesWriteDefeated,
   normalizeTerminalImageProtocol,
   normalizeTerminalLocation,
   resolveLaunchCommand,
@@ -91,6 +92,13 @@ export interface ExtensionApi {
    * produced from the test host any other way. REVIEW M-2 is a defect in
    * exactly that state (a profile that was already prompted), so the suite has
    * to be able to reach it.
+   *
+   * Clearing (`false`) also resets this window's own memory to `idle`: a leg
+   * that consumed the one-time offer has to hand the slot back so the legs after
+   * it still get theirs. Seeding `true` is deliberately NOT symmetric — it plants
+   * the cross-window marker while leaving the window's memory alone, which is
+   * what lets the retry leg observe a stale persisted entry failing to eat the
+   * retry this window promised (Sourcery ⑥).
    */
   seedImageSetupPrompted(shown: boolean): Thenable<void>
 }
@@ -371,18 +379,28 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * folder override outranks the Global value this write sets and the write can
    * succeed while the EFFECTIVE setting stays `false`. Reporting success there
    * would offer a reload that cannot help, mark the one-time prompt as answered
-   * and leave images disabled with no further offer — so the effective value is
-   * read back, and anything but `true` takes the same failure path as a rejected
-   * write.
+   * and leave images disabled with no further offer.
+   *
+   * The verdict is therefore taken BEFORE the write, from the scope values
+   * `inspect()` reports (isEnableImagesWriteDefeated), and a defeated write is
+   * not performed at all. Reading the value back after the write — the v0.7.5
+   * attempt — cannot serve as that verdict: VS Code resolves `update()` before
+   * the new value reaches this extension host's configuration model, so the read
+   * could still see the old `false` and send a perfectly successful click down
+   * the failure path (no reload offer, manual instructions, prompt marker
+   * reset). A clean profile is now judged from the scopes as they were before
+   * the write, which no write-visibility timing can change.
    */
   async function enableHostImages(): Promise<boolean> {
     const images = vscode.workspace.getConfiguration('terminal.integrated')
     try {
+      // Fail closed on an unreadable inspection (see the pure function): a
+      // verdict the scopes cannot prove is not a success.
+      if (isEnableImagesWriteDefeated(images.inspect<boolean>('enableImages'))) return false
+      // Nothing overrides the Global value this sets, so the write's own
+      // resolution is the whole remaining verdict — rejected writes throw.
       await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
-      // Read the effective value: a higher-priority override keeps it false, and
-      // this call is deliberately on the same (uncached) configuration object
-      // the update resolved on, so it observes the write that just landed.
-      return images.get<boolean>('enableImages', false) === true
+      return true
     } catch (error) {
       // Nothing was written — the caller must not pretend otherwise.
       console.error('[dsh-tui-vscode] could not enable terminal image rendering:', error)
@@ -969,6 +987,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // rejected write there must fail the case instead of passing it vacuously
     // (the same "no unhandled rejection" rule the F-9 guard enforces).
     async seedImageSetupPrompted(shown: boolean): Promise<void> {
+      if (!shown) imageSetupPromptMemory = 'idle'
       await context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, shown ? true : undefined)
     },
   }

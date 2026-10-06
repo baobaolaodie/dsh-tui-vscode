@@ -1651,10 +1651,12 @@ const readEnableImages = (): boolean =>
  * a prompt the user never wanted would silently take the promised retry away
  * (Sourcery ⑤).
  *
- * The non-consumption half is asserted by the NEXT leg: this window's only free
- * offer slot is still available, so `checkDefeatedWriteReportsFailure` sees the
- * one-click enable offer instead of nothing. Runs in the state that would
- * normally offer it (setting off, no reload pending).
+ * The non-consumption half is asserted by a later leg: a `none` that DID consume
+ * the one-time marker would leave the window on `asked`, and
+ * `checkDefeatedWriteReportsFailure` would then see nothing instead of the
+ * one-click enable offer (the clean-click leg above hands the slot it consumed
+ * back again, so this window still has one to give). Runs in the state that
+ * would normally offer it (setting off, no reload pending).
  */
 async function checkNonePreferenceSuppressesOffer(
   images: vscode.WorkspaceConfiguration,
@@ -1685,6 +1687,98 @@ async function checkNonePreferenceSuppressesOffer(
 }
 
 /**
+ * (c2) The same click on a profile with NOTHING overriding the setting must
+ * report SUCCESS — and success here is the whole user-visible path, not "the
+ * `update()` promise resolved": `terminal.integrated.enableImages` really turns
+ * on, the manual failure copy does NOT appear, and the reload offer (the only
+ * thing that can load the renderer) DOES appear — with its `Reload Window`
+ * action, which is what the user needs to finish the job.
+ *
+ * This is the leg the suite was missing when v0.7.5 shipped: (c0) below pins the
+ * DEFEATED write, and (b) pins "nothing is written before the click", but no leg
+ * asserted the ordinary outcome. The product's verdict was a read of the
+ * effective value taken immediately after `update()` resolved — and the
+ * configuration model reaches this extension host asynchronously, so on a clean
+ * profile that read can still see the old `false` and send every successful
+ * click down the failure path. The stale read is a race, so this leg asserts the
+ * OUTCOME the user sees (no failure copy, reload offer shown) rather than any
+ * timing that produced it.
+ *
+ * Runs FIRST of the offer legs on the wiped profile: nothing has written a
+ * workspace/folder override yet, so this is the cleanest state the click can
+ * see — and it consumes the window's one free offer slot. The `finally` hands
+ * that slot back (the e2e seam clears the window's own memory, the extension API
+ * the persisted entry) so the legs below still get their offer.
+ */
+async function checkCleanEnableClickSucceeds(
+  api: Api,
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const enableAction = t('Enable and Reload Window')
+  const offer = t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.')
+  const messages: string[] = []
+  const actions: string[][] = []
+  try {
+    // The scenario is "a profile with nothing overriding the setting". A run
+    // killed inside the defeated-write leg below can leave ITS fixture — a
+    // workspace-level `false` — in the workspace's settings.json, so clear that
+    // scope instead of inheriting a crashed run's state: a stale fixture would
+    // otherwise turn this leg into a confusing, unrelated red.
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Workspace)
+    await poll(
+      () => (images.inspect<boolean>('enableImages')?.workspaceValue === undefined ? true : undefined),
+      10000,
+    )
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string, ...items: string[]) => {
+        messages.push(String(message))
+        actions.push(items.map(String))
+        // Accept the enable offer; leave the reload offer unanswered — pressing
+        // its "Reload Window" action would reload the host mid-suite.
+        return String(message) === offer ? enableAction : undefined
+      },
+      async () => { await startAndReadEnv() },
+    )
+    assert.equal(messages[0], offer, 'the leg must start from the one-click enable offer')
+    // The verdict is the SECOND message: either the reload offer (the write took
+    // effect) or the manual copy (it could not).
+    await poll(() => (messages.length >= 2 ? messages : undefined), 15000)
+    assert.equal(messages.length, 2, `exactly two messages expected, got ${messages.length}: ${messages.join(' | ')}`)
+    assert.ok(
+      !messages.includes(
+        t('Could not enable terminal image rendering automatically. Set terminal.integrated.enableImages to true in Settings and reload the window. Reloading closes all running dsh-tui terminals; without a reload the setting does not take effect.'),
+      ),
+      `nothing overrides the write on this profile, so the manual failure copy must not appear; got: ${messages.join(' | ')}`,
+    )
+    assert.equal(
+      messages[1],
+      t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+      'a successful enable must ask for the reload that makes the write take effect',
+    )
+    assert.ok(
+      actions[1].includes(t('Reload Window')),
+      `the reload offer must carry the Reload Window action; got: ${JSON.stringify(actions[1])}`,
+    )
+    // The user-visible fact: the setting really is on now. Polled, because the
+    // configuration model is pushed to this extension host asynchronously —
+    // which is exactly the race the product's verdict must not depend on, and
+    // the reason this assertion is about the OUTCOME, not about one read.
+    await poll(() => (readEnableImages() === true ? true : undefined), 10000)
+    assert.equal(
+      images.inspect<boolean>('enableImages')?.globalValue,
+      true,
+      'the click must have written the setting to the Global scope',
+    )
+  } finally {
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+    // Give the window its offer slot back before the legs below run.
+    await api.seedImageSetupPrompted(false)
+  }
+  console.log('[e2e] PASS images: a clean click enables the setting and offers the reload')
+}
+
+/**
  * (c0) A settings write that `Global` accepts but a higher-precedence override
  * still defeats must be reported as FAILURE (Sourcery ③).
  *
@@ -1692,14 +1786,16 @@ async function checkNonePreferenceSuppressesOffer(
  * override wins over the Global write `enableHostImages` performs. Treating the
  * resolved `update()` as success would offer the reload, mark the one-time
  * prompt as answered and leave image rendering disabled with no further offer;
- * reading the EFFECTIVE value back instead sends this leg down the existing
- * failure path: the manual instructions are shown, the prompt marker is reset so
- * a later start may retry, and no reload is offered for something that would not
- * take effect.
+ * an explicit `false` in a higher scope is instead what the verdict looks for
+ * BEFORE writing (so this profile is not written to at all) and it takes the
+ * existing failure path: the manual instructions are shown, the prompt marker is
+ * reset so a later start may retry, and no reload is offered for something that
+ * would not take effect.
  *
- * Must run FIRST of the offer legs in this window: it is the window's only free
- * offer slot, and the retry leg below depends on the marker state this failure
- * leaves behind.
+ * Must run before the reload-explanation legs, and after the clean-click leg
+ * above has handed the window's offer slot back: it needs the one-click enable
+ * offer (not the reload explanation) to reach the click path, and the retry leg
+ * below depends on the marker state this failure leaves behind.
  */
 async function checkDefeatedWriteReportsFailure(
   api: Api,
@@ -1712,6 +1808,21 @@ async function checkDefeatedWriteReportsFailure(
     // The override stays in place for the whole body: the effective value must
     // remain false while the retry leg observes the state this failure leaves.
     await images.update('enableImages', false, vscode.ConfigurationTarget.Workspace)
+    // The scenario's PRECONDITION, not a timeout around the product's verdict:
+    // the extension judges the override by inspecting the scopes, and the
+    // configuration model reaches the extension host asynchronously — so wait
+    // until the override this leg just wrote is really there before clicking.
+    await poll(
+      () => (images.inspect<boolean>('enableImages')?.workspaceValue === false ? true : undefined),
+      10000,
+    )
+    // Same kind of precondition for the "nothing was written" assertion below:
+    // the Global value the clean-click leg wrote must be gone again, so an empty
+    // Global scope after this click can only mean this click wrote nothing.
+    await poll(
+      () => (images.inspect<boolean>('enableImages')?.globalValue === undefined ? true : undefined),
+      10000,
+    )
     await withDialogStub(
       'showInformationMessage',
       async (message: string) => {
@@ -1723,8 +1834,9 @@ async function checkDefeatedWriteReportsFailure(
       async () => { await startAndReadEnv() },
     )
     assert.equal(messages[0], offer, 'the leg must start from the one-click enable offer')
-    // The extension writes Global inside the click and then rules on the
-    // EFFECTIVE value, so the verdict arrives one turn later.
+    // The click rules on the override by inspecting the scopes BEFORE writing,
+    // and the failure copy is shown without awaiting — so the verdict arrives
+    // one turn later.
     await poll(() => (messages.length >= 2 ? messages : undefined), 15000)
     assert.equal(messages.length, 2, `exactly two messages expected, got ${messages.length}: ${messages.join(' | ')}`)
     assert.equal(
@@ -1735,7 +1847,12 @@ async function checkDefeatedWriteReportsFailure(
     assert.equal(
       readEnableImages(),
       false,
-      'the override must still pin the effective value to false — that is the state the failed write has to detect',
+      'the override must still pin the effective value to false — that is the state the verdict has to detect',
+    )
+    assert.equal(
+      images.inspect<boolean>('enableImages')?.globalValue,
+      undefined,
+      'a defeated write must not be performed at all: the verdict comes before the update(), not after a read of what it did',
     )
     // (Sourcery ⑥) The failure promised a retry, and the persisted marker that
     // retry has to survive may still be there: clearing it is fire-and-forget,
@@ -1919,9 +2036,12 @@ async function runImagesOffSubset(): Promise<void> {
   const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
   const images = vscode.workspace.getConfiguration('terminal.integrated')
   try {
-    // First, and before the profile is marked as prompted: the offer is the
-    // window's one free slot (⑤), and it must still be free afterwards for the
-    // failure leg (③) to reach the click path.
+    // First, on the profile nothing has written to yet — and before it is marked
+    // as prompted: this leg needs a clean click AND the window's one free offer
+    // slot, and it hands that slot back in its finally so the `none` leg's
+    // non-consumption is still witnessed by the failure leg (③) reaching the
+    // click path.
+    await checkCleanEnableClickSucceeds(api, images)
     await checkNonePreferenceSuppressesOffer(images)
     await checkDefeatedWriteReportsFailure(api, images)
     await checkPromptedProfileStillExplainsReload(api, images)
