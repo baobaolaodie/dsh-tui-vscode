@@ -943,11 +943,24 @@ test('the in-window retry outranks a stale persisted prompt marker (Sourcery ⑥
 // 宿主配置模型之前就 resolve,干净 profile 上这次回读仍可能是旧的 false,于是每次成功
 // 点击都被误报成失败、不再给重载引导(用户实测)。判定因此改成写入**之前**看各作用域
 // 显式设了什么(Configuration.inspect),完全不依赖写入何时可见。
-test('the enable write is ruled out beforehand by an explicit false in a higher scope', () => {
+//
+// 语义修正(Sourcery:「Higher-precedence folder setting is ignored」):判定取
+// **最高优先级的「已定义」作用域**,而不是「任一作用域为
+// false 就算被压」。VS Code 的解析顺序是 workspaceFolder > workspace > global,所以
+// 文件夹级 true 配工作区级 false 时有效值本来就是 true,旧断言(docs/README/CHANGELOG
+// 当时也这么写)把这次点击误判成失败、吞掉了用户本可以拿到的重载引导——那是本条要修的
+// 方向性错误,不是保守。`undefined` 表示该作用域**什么都没设**,不算覆盖,继续往低优先级
+// 看;整份 inspect 读不到才是 fail closed。
+test('the enable write is ruled out beforehand by the highest-precedence defined scope', () => {
   // 没有任何作用域显式覆盖:写全局就是有效值 → 不算被压
   assert.equal(isEnableImagesWriteDefeated({}), false, 'a scope that sets nothing is not an override')
   assert.equal(isEnableImagesWriteDefeated({ workspaceValue: undefined }), false)
   assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: undefined }), false)
+  assert.equal(
+    isEnableImagesWriteDefeated({ workspaceFolderValue: undefined, workspaceValue: undefined }),
+    false,
+    'an undefined scope is not a defined scope: it sets nothing at all',
+  )
   // 显式 true 只说明「本来就开着」,不构成压过——此时照样写全局并报成功
   assert.equal(isEnableImagesWriteDefeated({ workspaceValue: true }), false)
   assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: true }), false)
@@ -962,17 +975,23 @@ test('the enable write is ruled out beforehand by an explicit false in a higher 
     true,
     'a folder-level false is the highest-precedence override there is',
   )
-  // 两个作用域都有值:文件夹级优先于工作区级。文件夹 false ⇒ 必然被压;
-  // 反过来(文件夹 true / 工作区 false)在模型里会解析成 true,但两个作用域互相矛盾
-  // 不足以证明这次全局写入有效——按「保守判为被覆盖」处理:宁可走失败路径,也不给出
-  // 一次不可能生效的重载引导(这正是本门要根除的现象)。
-  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: false, workspaceValue: true }), true)
+  // 两个作用域都有值:文件夹级优先于工作区级,不看谁 false——只看最高优先级的那个「已定义」
+  // 作用域。文件夹 false ⇒ 被压(无论工作区是什么)。
+  assert.equal(
+    isEnableImagesWriteDefeated({ workspaceFolderValue: false, workspaceValue: true }),
+    true,
+    'a defined folder-level false outranks the workspace-level true',
+  )
+  // 反过来(文件夹 true / 工作区 false):文件夹级说了算,有效值本来就是 true ⇒ **不被压**。
+  // 旧实现在这里判「被压」,于是跳过写入并走手动失败路径,用户拿不到重载引导——本次修正点。
   assert.equal(
     isEnableImagesWriteDefeated({ workspaceFolderValue: true, workspaceValue: false }),
-    true,
-    'disagreeing scopes are not proof of an effective write — fail closed',
+    false,
+    'the highest-precedence defined scope wins: folder true is already the effective value, so the write is not defeated',
   )
+  // undefined 不算定义:跳过它继续看往下的作用域,由下一个「已定义」的作用域决定
   assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: undefined, workspaceValue: false }), true)
+  assert.equal(isEnableImagesWriteDefeated({ workspaceFolderValue: undefined, workspaceValue: true }), false)
   // 读不到 inspect(该 VS Code 未注册这个设置 / schema 改名)同样判为被压:失败路径
   // 只是给出手动指引与重试,而错报成功会弹一次根本不起作用的重载引导。
   assert.equal(

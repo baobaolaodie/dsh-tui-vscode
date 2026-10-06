@@ -426,7 +426,9 @@ export function shouldShowImageSetupPrompt(
  * write are modelled — a `window`-scoped setting that supports no language
  * overrides (`terminal.integrated.enableImages` is exactly that) can never have
  * a language-scoped value — and `undefined` means "this scope sets nothing",
- * which is not an override.
+ * which is not an override. The fields are ordered by precedence — the folder
+ * value outranks the workspace value — and the verdict reads them down that
+ * chain, exactly as VS Code resolves the setting itself.
  */
 export interface ConfigurationScopeValues<T> {
   /** The workspace-folder (`.vscode/settings.json` of one folder) value. */
@@ -453,20 +455,36 @@ export interface ConfigurationScopeValues<T> {
  * what the scopes held before it, which is exactly the state the write will
  * modify.
  *
- * Only an explicit `false` defeats the write: a scope that sets nothing does not
- * override anything, and `true` at any scope leaves the setting on. Pure and
- * total, and deliberately conservative — an unreadable inspection (the setting
- * is not registered in this VS Code build, or its schema moved) cannot prove the
- * write will take effect, and neither can scopes that disagree with each other
- * (`workspaceFolderValue: true` next to `workspaceValue: false` resolves to
- * `true` in the model, but a disagreement is not proof, and claiming success is
- * the failure this gate exists to prevent): both fail closed.
+ * The verdict belongs to the HIGHEST-PRECEDENCE scope that is DEFINED, because
+ * that is the scope VS Code resolves the setting from (Sourcery:
+ * "Higher-precedence folder setting is ignored"): it reads
+ * `workspaceFolderValue` first, then `workspaceValue`, then the Global value
+ * this write sets. `undefined` means that scope sets nothing — it is not an
+ * override, so it decides nothing and the search moves down one scope; a
+ * DEFINED `false` at the deciding scope is what defeats the write, and a
+ * DEFINED `true` there is the effective value already being on, which the write
+ * leaves alone and the reload offer can legitimately serve. Judging every scope
+ * instead — "any `false` wins" — got the folder-true/workspace-false pair
+ * backwards: the effective setting was already `true`, yet the click skipped
+ * the write and took the manual path, so the user never got the reload that
+ * would load the renderer. Reading the scopes as a precedence chain is not
+ * optimism: it is the same resolution order VS Code's own configuration model
+ * applies.
+ *
+ * Pure and total, and conservative where it cannot know: an unreadable
+ * inspection (the setting is not registered in this VS Code build, or its
+ * schema moved) cannot prove the write will take effect, so it fails closed.
  */
 export function isEnableImagesWriteDefeated(
   scopes: ConfigurationScopeValues<boolean> | undefined,
 ): boolean {
   if (scopes === undefined) return true
-  return scopes.workspaceFolderValue === false || scopes.workspaceValue === false
+  // Folder first: it outranks the workspace scope.
+  if (scopes.workspaceFolderValue !== undefined) return scopes.workspaceFolderValue === false
+  // No folder value: the workspace scope decides.
+  if (scopes.workspaceValue !== undefined) return scopes.workspaceValue === false
+  // Nothing sets this setting: the Global write is the effective value.
+  return false
 }
 
 /**
