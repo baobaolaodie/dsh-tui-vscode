@@ -484,30 +484,76 @@ test('buildLaunchEnv never emits DSH_TUI_IMAGE_PROTOCOL for auto (AC-4)', () => 
 // ① 点「启用并重载窗口」后忽略二次重载提示;② 自己改 settings.json 但不重载。
 test('resolveTerminalImageCapability only trusts a value observed at window start (F-3)', () => {
   // 启动时为假、此刻为真 =「写了设置但没重载」:不是能力,缺的是重载
-  const pendingReload = resolveTerminalImageCapability(false, true)
+  // (第三个观测是 gpuAcceleration:这里一律给 'auto',把本条聚焦在 enableImages 上)
+  const pendingReload = resolveTerminalImageCapability(false, true, 'auto')
   assert.equal(pendingReload.hostImagesEnabled, false, 'pending reload must not count as a capability')
   assert.equal(pendingReload.offer, 'reloadWindow', 'pending reload must offer the reload')
   // 启动时为真且此刻仍为真 = 渲染器已随窗口加载:注入 sixel,不再打扰
-  const effective = resolveTerminalImageCapability(true, true)
+  const effective = resolveTerminalImageCapability(true, true, 'auto')
   assert.equal(effective.hostImagesEnabled, true, 'a value present at window start is a capability')
   assert.equal(effective.offer, undefined, 'nothing left to offer once the renderer is loaded')
   // 此刻为假:走既有「启用并重载窗口」提示(用户选择 / 写失败后的重试路径)
-  const off = resolveTerminalImageCapability(false, false)
+  const off = resolveTerminalImageCapability(false, false, 'auto')
   assert.equal(off.hostImagesEnabled, false, 'an off setting is never a capability')
   assert.equal(off.offer, 'enableImages', 'an off setting offers the one-click enable')
   // 窗口运行期间被关掉:用户已明确不要图片,按「没有能力」处理(绝不空白)
-  const turnedOff = resolveTerminalImageCapability(true, false)
+  const turnedOff = resolveTerminalImageCapability(true, false, 'auto')
   assert.equal(turnedOff.hostImagesEnabled, false, 'a setting turned off mid-window is not a capability')
   assert.equal(turnedOff.offer, 'enableImages', 'turning it off falls back to the enable offer')
   // 读不到配置一律按「没有渲染器」处理
-  const unreadable = resolveTerminalImageCapability(undefined, undefined)
+  const unreadable = resolveTerminalImageCapability(undefined, undefined, 'auto')
   assert.equal(unreadable.hostImagesEnabled, false, 'unreadable configuration is not a capability')
   assert.equal(unreadable.offer, 'enableImages', 'unreadable configuration keeps the enable offer')
 })
 
+// Sourcery ①:门禁此前只问「设置开了没」,而 VS Code 自己的定义写明 enableImages
+// 「this will only work when terminal.integrated.gpuAcceleration is enabled」——
+// gpuAcceleration 为 off(或旧版的 canvas 渲染器)时窗口建的是非 WebGL 渲染器,
+// @xterm/addon-image 根本没有被加载,此时注入 sixel 必然又是空白槽位。故新增第三个
+// 观测:只有 auto/on 才「可能」有 WebGL 渲染器,其余(含未知值/读不到)一律按
+// 「没有渲染器」保守回退——字符画至少可见。
+test('gpuAcceleration off/canvas removes the renderer the image addon needs (Sourcery ①)', () => {
+  for (const gpuAcceleration of ['off', 'canvas'] as const) {
+    const blocked = resolveTerminalImageCapability(true, true, gpuAcceleration)
+    assert.equal(
+      blocked.hostImagesEnabled,
+      false,
+      `gpuAcceleration=${gpuAcceleration} cannot load the image addon, so it is never a capability`,
+    )
+    // 没有任何一步能补上:写 enableImages 或重载窗口都不会让 addon 出现,所以不给引导
+    assert.equal(
+      blocked.offer,
+      undefined,
+      `gpuAcceleration=${gpuAcceleration} must not promise an enable/reload that cannot help`,
+    )
+    // 注入侧同一条出口:即使偏好是默认 sixel,也必须落 none(绝不空白)
+    assert.equal(
+      buildLaunchEnv({ imageProtocol: 'sixel', hostImagesEnabled: blocked.hostImagesEnabled })
+        .DSH_TUI_IMAGE_PROTOCOL,
+      'none',
+      `gpuAcceleration=${gpuAcceleration} must fall back to the visible character art`,
+    )
+  }
+  // auto(默认)/on:渲染器可能是 WebGL,保持既有行为不变
+  for (const gpuAcceleration of ['auto', 'on'] as const) {
+    const allowed = resolveTerminalImageCapability(true, true, gpuAcceleration)
+    assert.equal(allowed.hostImagesEnabled, true, `gpuAcceleration=${gpuAcceleration} keeps the old behavior`)
+    assert.equal(allowed.offer, undefined, `gpuAcceleration=${gpuAcceleration} has nothing to offer`)
+  }
+  // 读不到 / 未知取值同样按「没有渲染器」处理:宁可字符画,绝不空白
+  for (const unreadable of [undefined, '', 'AUTO', 'webgl']) {
+    const capability = resolveTerminalImageCapability(true, true, unreadable)
+    assert.equal(
+      capability.hostImagesEnabled,
+      false,
+      `an unreadable or unknown gpuAcceleration (${String(unreadable)}) is not a capability`,
+    )
+  }
+})
+
 test('an enableImages write that was never reloaded never reaches sixel (F-3)', () => {
   // 设置此刻为真(用户刚写入),而本窗口启动时为假(此后没有重载过)
-  const capability = resolveTerminalImageCapability(false, true)
+  const capability = resolveTerminalImageCapability(false, true, 'auto')
   assert.equal(capability.hostImagesEnabled, false, 'a write without a reload is not a capability')
   // 门禁拿到的能力为假 → 即使配置为真也注入 none,绝不出现「注入 sixel 却无渲染器」
   assert.equal(

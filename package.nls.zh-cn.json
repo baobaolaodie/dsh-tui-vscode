@@ -29,6 +29,6 @@
   "config.dsh-tui-vscode.lang.enum.zh": "强制使用中文界面。",
   "config.dsh-tui-vscode.lang.enum.en": "强制使用英文界面。",
   "config.dsh-tui-vscode.imageProtocol.enum.auto": "不注入 DSH_TUI_IMAGE_PROTOCOL，由 dsh-tui 自行判定。作为上游协议判定修好后的退出路径保留。",
-  "config.dsh-tui-vscode.imageProtocol.enum.sixel": "固定 Sixel 协议：terminal.integrated.enableImages 为 true 时显示真实栅格图（开启后需重载窗口），否则退成半块字符画。默认值。",
+  "config.dsh-tui-vscode.imageProtocol.enum.sixel": "固定 Sixel 协议：terminal.integrated.enableImages 为 true（开启后需重载窗口）且 terminal.integrated.gpuAcceleration 为 auto 或 on 时显示真实栅格图，否则退成半块字符画。默认值。",
   "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它。"
 }

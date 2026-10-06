@@ -355,9 +355,9 @@ export function normalizeTerminalImageProtocol(value: string | undefined): Termi
 export type TerminalImageSetupOffer = 'enableImages' | 'reloadWindow'
 
 /**
- * Host capability for terminal images, derived from the two values that are
- * actually observable about `terminal.integrated.enableImages` — never from the
- * bare setting.
+ * Host capability for terminal images, derived from the renderer facts that are
+ * actually observable in this window — never from the bare
+ * `terminal.integrated.enableImages` setting.
  *
  * VS Code loads its image addon while the window builds the renderer, so the
  * setting takes effect only after a *window reload*: a value written after this
@@ -370,16 +370,45 @@ export type TerminalImageSetupOffer = 'enableImages' | 'reloadWindow'
  * - `imagesEnabledNow`: what it is right now; `true` here together with `false`
  *   at window start is exactly the "written, but not reloaded" state, which
  *   stays on `none` and offers the reload instead of going silently blank.
+ * - `gpuAcceleration`: which renderer this window built, from
+ *   `terminal.integrated.gpuAcceleration` (snapshotted at window start for the
+ *   same reason the other two inputs are observations, not live reads). VS Code
+ *   gates images on it in its own setting definition — 1.90,
+ *   `src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts`: "Enables
+ *   image support in the terminal, this will only work when
+ *   `terminal.integrated.gpuAcceleration` is enabled" — and the addon is only
+ *   attached to the WebGL renderer. `off` — and the legacy `canvas` renderer
+ *   value — therefore mean "no addon at all": a `sixel` request there is another
+ *   guaranteed-blank slot (Sourcery ①).
  *
- * Pure and total: a missing/unreadable value counts as off, and a setting
- * turned back off mid-window counts as off too — the user no longer wants
- * images, and the addon's lifetime is not ours to assume — so the never-blank
- * branch is the only fallback.
+ * Pure and total: only `auto`/`on` leave the WebGL renderer possible, so
+ * anything else — `off`, `canvas`, an unknown future value, or an unreadable
+ * configuration — is treated as "no renderer"; a missing/unreadable
+ * `enableImages` counts as off, and a setting turned back off mid-window counts
+ * as off too (the user no longer wants images, and the addon's lifetime is not
+ * ours to assume). The never-blank branch is the only fallback.
+ *
+ * Residual risk, documented rather than papered over: VS Code exposes NO API
+ * that reports which renderer really exists. `auto` may still resolve to the
+ * canvas renderer on a machine without a usable GPU — this gate allows `sixel`
+ * there and only the character art dsh-tui keeps *below* the raster path
+ * survives — a `gpuAcceleration` change made mid-window is not re-read until the
+ * window reloads, and a write landing between renderer initialization and this
+ * extension host's activation is indistinguishable from a window-start value.
  */
 export function resolveTerminalImageCapability(
   imagesEnabledAtWindowStart: boolean | undefined,
   imagesEnabledNow: boolean | undefined,
+  gpuAcceleration: string | undefined,
 ): { hostImagesEnabled: boolean; offer?: TerminalImageSetupOffer } {
+  // Renderer gate first, and it is not a promptable state: with no WebGL
+  // renderer the image addon was never loaded, so neither writing
+  // `enableImages` nor reloading the window can bring it back. Offering either
+  // would promise the user something that cannot happen (Sourcery ①), so this
+  // branch is deliberately silent — the README names the setting to change.
+  if (gpuAcceleration !== 'auto' && gpuAcceleration !== 'on') {
+    return { hostImagesEnabled: false }
+  }
   const enabledNow = imagesEnabledNow === true
   if (imagesEnabledAtWindowStart === true && enabledNow) {
     return { hostImagesEnabled: true }

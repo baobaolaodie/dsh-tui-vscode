@@ -104,6 +104,19 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const hostImagesAtWindowStart = vscode.workspace
     .getConfiguration('terminal.integrated')
     .get<boolean>('enableImages', false)
+  // The other half of the same window-lifetime fact: WHICH renderer this window
+  // built. VS Code's own definition of `terminal.integrated.enableImages` gates
+  // images on `terminal.integrated.gpuAcceleration`, and the image addon is only
+  // attached to the WebGL renderer — `off`/`canvas` therefore mean "no addon at
+  // all", where injecting `sixel` would blank the image slots just like an
+  // unreloaded write does (Sourcery ①). Snapshotted next to the snapshot above,
+  // never re-read: the renderer is built with the window, and only a reload
+  // (which restarts this extension host) can change it. `auto`/`on` are the
+  // "possibly WebGL" values; see resolveTerminalImageCapability for the residual
+  // risk this proxy cannot cover.
+  const gpuAccelerationAtWindowStart = vscode.workspace
+    .getConfiguration('terminal.integrated')
+    .get<string>('gpuAcceleration')
 
   const status = new SessionStatusBar()
   context.subscriptions.push(status)
@@ -157,6 +170,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const imageCapability = resolveTerminalImageCapability(
       hostImagesAtWindowStart,
       cfg.imagesEnabledSetting,
+      gpuAccelerationAtWindowStart,
     )
     return {
       ...buildLaunchEnv({
@@ -428,6 +442,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     const imageCapability = resolveTerminalImageCapability(
       hostImagesAtWindowStart,
       cfg.imagesEnabledSetting,
+      gpuAccelerationAtWindowStart,
     )
     void promptForImageSetup(imageCapability.offer).catch(error =>
       console.error('[dsh-tui-vscode] image setup prompt failed:', error),

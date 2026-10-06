@@ -20,6 +20,8 @@
 
 - **终端图片的能力判定改用「窗口启动快照」：设置已写入但未重载时保持字符画，而不是变成空白**：门禁读**两个观测**——窗口启动时快照一次的 `terminal.integrated.enableImages` 值（`activate()` 读取，本窗口内刻意不刷新）**与**实时值——只有两者都为真才注入 `sixel`。因此在未重载的情况下写入该设置（无论是扩展自己的「启用并重载窗口」点击，还是你改的 `settings.json`），本窗口余下的会话仍导出 `none`；这一状态现在会明确弹一次「需重载窗口后才生效」的提示并提供**重载窗口**动作，与点击路径共用同一句文案（此前这条路径静默通过，图像槽位正是这样变成永久空白的）。只有重载之后启动的会话才会拿到 `sixel`；设置写入失败是「只提示一次」的唯一刻意例外——那次什么都没写进去，所以下次启动会话会再问一次。
 
+- **图像门禁现在还要求渲染器本身能加载图像 addon**：此前把 `terminal.integrated.enableImages` 为 `true` 当作「能画图」的证明，但 VS Code 对该设置的定义原文即「will only work when `terminal.integrated.gpuAcceleration` is enabled」，而 `@xterm/addon-image` 只挂在 WebGL 渲染器上。`gpuAcceleration` 为 `off`（或旧版的 `canvas` 渲染器取值）时 addon 从未被加载，那些窗口里的会话却拿到了 `sixel`，dsh-tui 因此丢掉半块字符画兜底——又多一处永久空白的图像槽位。窗口启动快照现在把 `gpuAcceleration` 一并纳入：只有 `auto`/`on` 才允许走栅格路径，其余取值（含读不到）一律导出 `none` 并且**完全不弹**启用引导——因为「启用 `enableImages`」与「重载窗口」都不可能把 addon 找回来。残余风险如实记录、不声称已解决：VS Code 没有「当前实际使用哪个渲染器」的 API，没有可用 GPU 的机器上 `auto` 落到 canvas 渲染器时无法察觉；窗口运行期间改动 `gpuAcceleration` 也要等重载（重启扩展宿主）后才会被重新读取。
+
 ## [0.7.4] - 2026-10-03
 
 > 经 PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36) 合并

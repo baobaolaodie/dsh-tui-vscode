@@ -115,7 +115,7 @@ Key points:
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
-| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded**; degrades to half-block character art when it is `false`), `none` (always half-block character art), `auto` (export nothing and let dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded** and `terminal.integrated.gpuAcceleration` left at `auto`/`on`; degrades to half-block character art otherwise), `none` (always half-block character art), `auto` (export nothing and let dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
@@ -123,12 +123,15 @@ Key points:
 
 ## Terminal images
 
-The mascot artwork, chat photo thumbnails and image previews render as real raster images only when both sides are ready:
+The mascot artwork, chat photo thumbnails and image previews render as real raster images only when every condition below is met:
 
 1. **VS Code side**: `terminal.integrated.enableImages` must be `true` (VS Code defaults to `false`), and you must **reload the window** after changing it — VS Code loads the `@xterm/addon-image` renderer only while it builds the WebGL renderer, so the setting does nothing until the window is reloaded. When a session starts with that setting off, the extension shows a one-time prompt with an "enable and reload" action and never writes your VS Code settings without asking. A failed settings write is the one deliberate exception to that "once": nothing was written, so the next session start offers the one-click path again.
-2. **dsh-TUI side**: the extension exports `DSH_TUI_IMAGE_PROTOCOL`, which dsh-TUI has understood since **0.10.0** (checked release by release against `lib/types/ink/ink.js` for 0.10.0–0.13.0; absent in 0.9.0/0.9.1). An older dsh-TUI simply ignores the variable — harmless, but nothing changes either.
+2. **Renderer side**: `terminal.integrated.gpuAcceleration` must leave the WebGL renderer possible. VS Code's own definition of `enableImages` says it "will only work when `terminal.integrated.gpuAcceleration` is enabled", and the image addon is attached to the WebGL renderer alone — so leave `gpuAcceleration` at `auto` (the default) or set it to `on`. With `off` (or the legacy `canvas` renderer value) the addon is never loaded, and the extension therefore exports `none` for every session in that window and stays silent: neither enabling `enableImages` nor reloading the window can bring the addon back.
+3. **dsh-TUI side**: the extension exports `DSH_TUI_IMAGE_PROTOCOL`, which dsh-TUI has understood since **0.10.0** (checked release by release against `lib/types/ink/ink.js` for 0.10.0–0.13.0; absent in 0.9.0/0.9.1). An older dsh-TUI simply ignores the variable — harmless, but nothing changes either.
 
 Because VS Code only builds that renderer while it loads a window, the extension judges this capability from two observations rather than the bare setting: the `terminal.integrated.enableImages` value it saw **when the window started** (snapshotted once at activation and deliberately not refreshed inside that window) **and** the live value — a session is given `sixel` only while both are `true`. A value written but not yet reloaded into this window — whether it came from the "Enable and Reload Window" action or from your own `settings.json` edit — therefore still exports `none` for every session started in that window, keeping the half-block character art visible instead of leaving a permanently blank image slot. That state is no longer silent: a one-time prompt ("Image rendering is enabled, but the setting takes effect only after a window reload", with a **Reload Window** button) says which step is still missing; only sessions started after the reload get `sixel`.
+
+**Residual risk, not claimed as solved**: VS Code exposes no API that reports which renderer is actually in use. `auto` can still resolve to the canvas renderer on a machine without a usable GPU (the gate allows `sixel` there), and a `gpuAcceleration` change made mid-window is only re-read after the reload that restarts the extension host. In those cases the visible half-block character art — not this gate — is what keeps the image area from going blank.
 
 `dsh-tui-vscode.imageProtocol` (default `sixel`) decides what gets exported:
 
