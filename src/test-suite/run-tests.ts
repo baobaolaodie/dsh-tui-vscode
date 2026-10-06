@@ -41,6 +41,9 @@ async function main(): Promise<void> {
       '  `VISUAL=${process.env.VISUAL ?? ""}`,',
       '  `DSH_TUI_LANG=${process.env.DSH_TUI_LANG ?? ""}`,',
       '  `DSH_HOME=${process.env.DSH_HOME ?? ""}`,',
+      // The image-protocol gate's observable output (T-FIX-02): the e2e cases
+      // assert what the session terminal actually received, never the setting.
+      '  `DSH_TUI_IMAGE_PROTOCOL=${process.env.DSH_TUI_IMAGE_PROTOCOL ?? ""}`,',
       '  `RESUME_SESSION=${process.env.DSH_TUI_RESUME_SESSION ?? ""}`,',
       '  `ARGS=${process.argv.slice(2).join(" ")}`,',
       '  `CWD=${process.cwd()}`,',
@@ -126,6 +129,59 @@ async function main(): Promise<void> {
   await zhLaunch('warmup') // launch A: language-pack registration only
   await zhLaunch('zh-cn') // launch B: env.language + localized UI assertions
   console.log('[e2e] zh-cn language-pack flow completed')
+
+  // ── Terminal-image protocol hosts (T-FIX-02) ──────────────────────────────
+  // REVIEW F-2: AC-5's orchestration and the F-3 capability gate had no in-repo
+  // coverage. `src/session.ts` resolves the capability from what
+  // `terminal.integrated.enableImages` was when THIS window started AND its
+  // live value, and the one-time setup offer is per window (`src/extension.ts`
+  // marks it in globalState before awaiting the notification) — so each
+  // window-start state needs its own host, with its own COLD user-data dir:
+  //   * `images-off`: no settings.json, so the setting is off when the window
+  //     starts. The A leg writes it on INSIDE that window and asserts the
+  //     injection stays `none` while the reload offer appears (F-3), and that a
+  //     start with the setting off injects `none`.
+  //   * `images-on`: settings.json pre-set to true, so this window really
+  //     loaded the image addon — the only state that may inject `sixel` (the B
+  //     leg). Its first start has nothing to offer, which leaves the window's
+  //     single offer slot free for the AC-5 assertions (b/c).
+  // Both are cold launches for the same reason the zh-cn pack needs one
+  // (LESSONS L-003): the state under test is "what the window started with".
+  const imagesOffProfile = join(ws, 'images-off-user')
+  const imagesOnProfile = join(ws, 'images-on-user')
+  rmSync(imagesOffProfile, { recursive: true, force: true })
+  rmSync(imagesOnProfile, { recursive: true, force: true })
+  mkdirSync(join(imagesOnProfile, 'User'), { recursive: true })
+  writeFileSync(
+    join(imagesOnProfile, 'User', 'settings.json'),
+    JSON.stringify({ 'terminal.integrated.enableImages': true }, null, 2) + '\n',
+  )
+  /**
+   * Launch one terminal-image host (`DSH_E2E_IMAGE_MODE` routes index.ts to the
+   * matching subset) against its own cold profile, so the state under test is
+   * "what this window started with" (LESSONS L-003).
+   *
+   * `DSH_TUI_IMAGE_PROTOCOL` is planted in the launched VS Code process env (and
+   * therefore in the environment its terminals inherit) as a foreign value the
+   * extension must not let leak into a session: it is the fixture for the
+   * `imageProtocol: auto` leg, which can only be observed end to end — the
+   * extension host's own process.env cannot stand in for the terminal's
+   * inherited environment, since `createTerminal` overlays rather than replaces
+   * it (Sourcery ②).
+   */
+  const imageLaunch = async (mode: 'images-off' | 'images-on', profile: string): Promise<void> => {
+    const startedAt = Date.now()
+    await runTests({
+      extensionDevelopmentPath: root,
+      extensionTestsPath: join(__dirname, 'index.js'),
+      launchArgs: [ws, '--disable-workspace-trust', `--user-data-dir=${profile}`],
+      extensionTestsEnv: { DSH_E2E_IMAGE_MODE: mode, DSH_TUI_IMAGE_PROTOCOL: 'kitty' },
+    })
+    console.log(`[e2e] ${mode} launch completed in ${Date.now() - startedAt}ms`)
+  }
+  await imageLaunch('images-off', imagesOffProfile)
+  await imageLaunch('images-on', imagesOnProfile)
+  console.log('[e2e] terminal-image protocol flow completed')
 }
 
 main().catch(error => {

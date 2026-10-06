@@ -79,6 +79,8 @@ function t(key: string, ...args: Array<string | number>): string {
 interface Api {
   sendInput(text: string): void
   hasTerminal(): boolean
+  /** E2E seam on the extension side — see `ExtensionApi` in src/extension.ts. */
+  seedImageSetupPrompted(shown: boolean): Thenable<void>
 }
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
@@ -113,6 +115,22 @@ async function configureFakeLauncher(): Promise<void> {
   await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)
   await cfg.update('lang', 'zh', vscode.ConfigurationTarget.Global)
   await cfg.update('dshHome', 'C:\\e2e-home', vscode.ConfigurationTarget.Global)
+}
+
+/**
+ * Put the fake launcher's directory FIRST on the HOST's PATH while `run`
+ * executes. The extension resolves the configured command against that PATH
+ * (session.ts `resolveLaunchCommand` — the terminal shell rebuilds PATH, so it
+ * is not trusted), which is what makes the bare `fake-dsh-tui` resolve.
+ */
+async function withFakeLauncherOnPath<T>(run: () => Promise<T>): Promise<T> {
+  const originalPath = process.env.PATH ?? ''
+  process.env.PATH = WS + (process.platform === 'win32' ? ';' : ':') + originalPath
+  try {
+    return await run()
+  } finally {
+    process.env.PATH = originalPath
+  }
 }
 
 const tests: Array<[string, () => Promise<void>]> = []
@@ -516,6 +534,20 @@ test('SessionsTreeProvider shows only current-workspace, non-empty, non-subagent
 test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group dir', async () => {
   const { SessionsTreeProvider } = await import('../sessions-view.js') as typeof import('../sessions-view.js')
   const home = mkdtempSync(join(tmpdir(), 'dsh-e2e-watch-'))
+  // Watcher-recording seam: `src/session-watchers.ts` resolves `fs.watch` at
+  // call time, so this wrapper observes every live watcher the provider opens.
+  // It only records and delegates — the provider behaves exactly as shipped.
+  // What it buys is the assertion below that the NEW group dir really got a
+  // watcher, which is what stops the polling accelerator from turning this
+  // case into "refresh() finds it anyway" (REVIEW m-5).
+  const fsMod = require('node:fs') as { watch: (...args: unknown[]) => unknown }
+  const realWatch = fsMod.watch
+  const watcherDirs: string[] = []
+  fsMod.watch = (...args: unknown[]): unknown => {
+    const watcher = realWatch(...args)
+    watcherDirs.push(String(args[0]))
+    return watcher
+  }
   try {
     const ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath
     await makeE2eSession(home, '--g1--', 'a', [headerEvent('a', ws, 300), userEvent('先有会话')])
@@ -534,16 +566,34 @@ test('SessionsTreeProvider auto-refreshes when a session appears in a NEW group 
       // fs.watch on the root is not recursive; the provider must pick the
       // new group up and refresh WITHOUT any manual command.
       await makeE2eSession(home, '--g-new--', 'b', [headerEvent('b', ws, 200), userEvent('新组新会话')])
+      // Poll + event acceleration (REVIEW m-5). A directory that does not
+      // exist yet cannot be watched, so the new group dir's watcher only
+      // arrives with the reload that follows the 500 ms debounce; a log
+      // written before that reload is announced by no watcher at all, and an
+      // event-only wait then strands here until the timeout — that is the m-5
+      // false red. Driving the very reload the debounce would have driven
+      // makes a missed event a slower pass instead of a red suite.
       const seenB = await poll(() => {
-        const c = provider.getChildren(undefined)
-        const ids = c.flatMap(n => (n as { sessions: { id: string }[] }).sessions.map(s => s.id))
-        return ids.includes('b') ? true : undefined
+        provider.refresh()
+        return treeSessionIds(provider.getChildren(undefined)).includes('b') ? true : undefined
       }, 10000)
       assert.equal(seenB, true, 'new-group session must appear without manual refresh')
+      // ...and the accelerator must not stand in for a provider that watches
+      // nothing: by the time the tree shows the session, its reload has seen
+      // `--g-new--` and must have opened a live watcher on it. Pinning that
+      // leaves the auto-refresh wiring — not the poll — as what this case
+      // guards (the watcher-event -> debounced reload leg is covered by the
+      // sibling probe-timer case and src/test/session-watchers.test.ts).
+      const newGroup = join(home, 'sessions', '--g-new--')
+      assert.ok(
+        watcherDirs.some(dir => normalize(dir) === normalize(newGroup)),
+        `provider must watch the new group dir; watcher dirs: ${JSON.stringify(watcherDirs)}`,
+      )
     } finally {
       provider.dispose()
     }
   } finally {
+    fsMod.watch = realWatch
     rmSync(home, { recursive: true, force: true })
   }
 })
@@ -1549,6 +1599,442 @@ async function checkZhDeleteDialog(): Promise<void> {
   )
 }
 
+// ---- Terminal-image protocol subsets (T-FIX-02) -----------------------------
+// REVIEW F-2: the image-capability orchestration had NO in-repo coverage. F-3
+// made the host capability a function of TWO observations — the value of
+// `terminal.integrated.enableImages` when THIS window started (the snapshot
+// extension.ts takes once in activate()) and its live value (session.ts
+// `resolveTerminalImageCapability`) — so neither half can be exercised in the
+// main suite host, which always starts with the setting off:
+//   * a window that started off can never reach `sixel`, however the setting
+//     is written inside it (that IS F-3's fix), and
+//   * a window that started on cannot produce the "written, not reloaded"
+//     offer at all (the capability is already satisfied).
+// run-tests.ts therefore launches one dedicated host per window-start state,
+// each with its own wiped `--user-data-dir`, and routes here through
+// DSH_E2E_IMAGE_MODE.
+//
+// The one-time offer is per window as well (extension.ts marks it in
+// globalState BEFORE awaiting the notification), which is why the AC-5 offer
+// assertions live in the ON host: its first start has nothing to offer — a
+// window that really loaded the renderer is never nagged — so the window's one
+// offer slot is still free for them.
+
+/** The env lines the fake launcher wrote for the `start` we just issued. */
+async function launchedEnvLines(): Promise<string[]> {
+  const text = await poll(() => {
+    const content = readFile(ENV_OUT)
+    return content?.includes('FAKE_LAUNCHER_RAN') ? content : undefined
+  }, 20000)
+  return text.trim().split(/\r?\n/).map(line => line.trim())
+}
+
+/** Issue `start` and return the env the fake launcher reports for it. */
+async function startAndReadEnv(): Promise<string[]> {
+  rmSync(ENV_OUT, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  return launchedEnvLines()
+}
+
+/** True when the child received `DSH_TUI_IMAGE_PROTOCOL=<value>`. */
+const injectedImageProtocol = (lines: string[], value: string): boolean =>
+  lines.includes(`DSH_TUI_IMAGE_PROTOCOL=${value}`)
+
+/** The LIVE `terminal.integrated.enableImages` value (fresh read each call). */
+const readEnableImages = (): boolean =>
+  vscode.workspace.getConfiguration('terminal.integrated').get<boolean>('enableImages', false)
+
+/**
+ * (c1) `imageProtocol: none` means "character art is what I want": the setup
+ * offer must not appear, and it must not consume the window's one-time prompt
+ * marker either — the marker is written BEFORE the notification is awaited, so
+ * a prompt the user never wanted would silently take the promised retry away
+ * (Sourcery ⑤).
+ *
+ * The non-consumption half is asserted by the NEXT leg: this window's only free
+ * offer slot is still available, so `checkDefeatedWriteReportsFailure` sees the
+ * one-click enable offer instead of nothing. Runs in the state that would
+ * normally offer it (setting off, no reload pending).
+ */
+async function checkNonePreferenceSuppressesOffer(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const silent: string[] = []
+  let launched: string[] = []
+  try {
+    await cfg.update('imageProtocol', 'none', vscode.ConfigurationTarget.Global)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => { silent.push(String(message)) },
+      async () => { launched = await startAndReadEnv() },
+    )
+    assert.equal(
+      silent.length,
+      0,
+      `an explicit none must not be asked to enable images: ${silent.join(' | ')}`,
+    )
+    assert.ok(
+      injectedImageProtocol(launched, 'none'),
+      `an explicit none must still reach the session as a protocol value; got: ${launched.join(' | ')}`,
+    )
+  } finally {
+    await cfg.update('imageProtocol', undefined, vscode.ConfigurationTarget.Global)
+  }
+  console.log('[e2e] PASS images: an explicit none preference suppresses the setup offer')
+}
+
+/**
+ * (c0) A settings write that `Global` accepts but a higher-precedence override
+ * still defeats must be reported as FAILURE (Sourcery ③).
+ *
+ * `terminal.integrated.enableImages` has window scope, so a workspace or folder
+ * override wins over the Global write `enableHostImages` performs. Treating the
+ * resolved `update()` as success would offer the reload, mark the one-time
+ * prompt as answered and leave image rendering disabled with no further offer;
+ * reading the EFFECTIVE value back instead sends this leg down the existing
+ * failure path: the manual instructions are shown, the prompt marker is reset so
+ * a later start may retry, and no reload is offered for something that would not
+ * take effect.
+ *
+ * Must run FIRST of the offer legs in this window: it is the window's only free
+ * offer slot, and the retry leg below depends on the marker state this failure
+ * leaves behind.
+ */
+async function checkDefeatedWriteReportsFailure(
+  api: Api,
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const enableAction = t('Enable and Reload Window')
+  const offer = t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.')
+  const messages: string[] = []
+  try {
+    // The override stays in place for the whole body: the effective value must
+    // remain false while the retry leg observes the state this failure leaves.
+    await images.update('enableImages', false, vscode.ConfigurationTarget.Workspace)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => {
+        messages.push(String(message))
+        // Accept the enable offer; let the failure message pass through
+        // unanswered (`applyImageSetupChoice` shows it without awaiting).
+        return String(message) === offer ? enableAction : undefined
+      },
+      async () => { await startAndReadEnv() },
+    )
+    assert.equal(messages[0], offer, 'the leg must start from the one-click enable offer')
+    // The extension writes Global inside the click and then rules on the
+    // EFFECTIVE value, so the verdict arrives one turn later.
+    await poll(() => (messages.length >= 2 ? messages : undefined), 15000)
+    assert.equal(messages.length, 2, `exactly two messages expected, got ${messages.length}: ${messages.join(' | ')}`)
+    assert.equal(
+      messages[1],
+      t('Could not enable terminal image rendering automatically. Set terminal.integrated.enableImages to true in Settings and reload the window. Reloading closes all running dsh-tui terminals; without a reload the setting does not take effect.'),
+      'a write that a higher-priority override defeats must take the manual path, not offer a reload that cannot help',
+    )
+    assert.equal(
+      readEnableImages(),
+      false,
+      'the override must still pin the effective value to false — that is the state the failed write has to detect',
+    )
+    // (Sourcery ⑥) The failure promised a retry, and the persisted marker that
+    // retry has to survive may still be there: clearing it is fire-and-forget,
+    // so a delayed or rejected `globalState.update` leaves exactly this state.
+    // Plant the stale marker and assert the retry still goes out — the window's
+    // own memory must be authoritative for a promise it just made.
+    await sleep(300) // let the fire-and-forget clear settle; a later clear can only remove the staleness
+    await api.seedImageSetupPrompted(true)
+    const retry: string[] = []
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => {
+        retry.push(String(message))
+        return t('Not Now')
+      },
+      async () => { await startAndReadEnv() },
+    )
+    assert.deepEqual(
+      retry,
+      [offer],
+      `a stale persistent prompt marker must not silence the promised retry; got: ${retry.join(' | ')}`,
+    )
+  } finally {
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Workspace)
+  }
+  console.log('[e2e] PASS images: a write defeated by a higher-priority override reports failure')
+}
+
+/**
+ * (a0) The reload explanation describes a state THIS window is in, so it must
+ * survive a profile that already answered the one-time prompt in an EARLIER
+ * window: the setting really is on, this window really has no renderer, and
+ * without the explanation the user is left with unexplained block characters
+ * (REVIEW M-2). A wiped `--user-data-dir` cannot carry that history in, so the
+ * persistent marker is seeded first — the exact globalState state a previously
+ * prompted profile is in, which is the one dimension the other legs cannot
+ * reach (they all start from an empty globalState). Runs FIRST: the later legs
+ * then run under a realistically "already prompted" profile.
+ */
+async function checkPromptedProfileStillExplainsReload(
+  api: Api,
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await api.seedImageSetupPrompted(true)
+  await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let written: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { offers.push(String(message)) },
+    async () => { written = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(written, 'none'),
+    `an unreloaded enableImages write must keep the injection on none even on a previously prompted profile (F-3); got: ${written.join(' | ')}`,
+  )
+  assert.equal(
+    offers.length,
+    1,
+    `the reload explanation must not be suppressed by the cross-window prompt marker (M-2); got ${offers.length}: ${offers.join(' | ')}`,
+  )
+  assert.equal(
+    offers[0],
+    t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+    'a previously prompted profile must still be told that the reload is what is missing',
+  )
+  console.log('[e2e] PASS images: a previously prompted profile is still told to reload')
+}
+
+/**
+ * (a2) A write the window never reloaded must not upgrade the capability: the
+ * injection stays `none` — asking for `sixel` here is precisely REVIEW F-3's
+ * permanent-blank state — and the user is offered the reload instead. Must run
+ * FIRST in this window: the offer is one per window, and this is the start that
+ * reaches the `reloadWindow` branch.
+ */
+async function checkInWindowWriteStaysNone(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let written: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { offers.push(String(message)) },
+    async () => { written = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(written, 'none'),
+    `an enableImages write this window never reloaded must keep the injection on none (F-3); got: ${written.join(' | ')}`,
+  )
+  assert.equal(offers.length, 1, `exactly one offer expected, got ${offers.length}: ${offers.join(' | ')}`)
+  assert.equal(
+    offers[0],
+    t('Image rendering is enabled, but the setting takes effect only after a window reload. Reloading closes all running dsh-tui terminals; their sessions stay in the sidebar and can be resumed.'),
+    'the offer must ask for the window reload',
+  )
+  console.log('[e2e] PASS images: an in-window enableImages write stays on none and offers the reload')
+}
+
+/** (a1) With the setting off, the injection is `none`. */
+async function checkOffInjectsNone(images: vscode.WorkspaceConfiguration): Promise<void> {
+  await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+  const silent: string[] = []
+  let off: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { silent.push(String(message)) },
+    async () => { off = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(off, 'none'),
+    `enableImages off must inject none; got: ${off.join(' | ')}`,
+  )
+  assert.equal(silent.length, 0, `the one-time offer must not come back: ${silent.join(' | ')}`)
+  console.log('[e2e] PASS images: enableImages off injects none')
+}
+
+/**
+ * (d) `imageProtocol: auto` must DELETE an inherited `DSH_TUI_IMAGE_PROTOCOL`
+ * instead of merely not writing it: `createTerminal` overlays the env onto the
+ * one the terminal would inherit, so an omitted key leaves whatever the VS Code
+ * process (or a profile) exported visible to dsh-tui — which would silently
+ * pin a protocol the user asked to auto-detect (Sourcery ②).
+ *
+ * The inherited fixture is planted by run-tests.ts (`DSH_TUI_IMAGE_PROTOCOL=kitty`
+ * in the launched process env), and the fake launcher reports whatever the child
+ * actually received — so `DSH_TUI_IMAGE_PROTOCOL=` (empty) is the delete and a
+ * surviving `kitty` is the leak.
+ */
+async function checkAutoRemovesInheritedProtocol(): Promise<void> {
+  assert.equal(
+    process.env.DSH_TUI_IMAGE_PROTOCOL,
+    'kitty',
+    'this host must inherit the foreign DSH_TUI_IMAGE_PROTOCOL fixture — run-tests.ts sets it for image hosts',
+  )
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const silent: string[] = []
+  let auto: string[] = []
+  try {
+    await cfg.update('imageProtocol', 'auto', vscode.ConfigurationTarget.Global)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => { silent.push(String(message)) },
+      async () => { auto = await startAndReadEnv() },
+    )
+    assert.ok(
+      auto.includes('DSH_TUI_IMAGE_PROTOCOL='),
+      `the launcher must still report the key; got: ${auto.join(' | ')}`,
+    )
+    assert.ok(
+      !auto.includes('DSH_TUI_IMAGE_PROTOCOL=kitty'),
+      `auto must remove the value inherited from the VS Code process, not leave it in place; got: ${auto.join(' | ')}`,
+    )
+  } finally {
+    await cfg.update('imageProtocol', undefined, vscode.ConfigurationTarget.Global)
+  }
+  assert.equal(silent.length, 0, `auto has nothing to offer: ${silent.join(' | ')}`)
+  console.log('[e2e] PASS images: auto removes the inherited DSH_TUI_IMAGE_PROTOCOL value')
+}
+
+/**
+ * A leg (c0 + a0 + a1 + a2) plus the auto-delete leg (d), host
+ * `DSH_E2E_IMAGE_MODE=images-off`: the window started with
+ * `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
+ * launching against a wiped `--user-data-dir` (no settings.json).
+ */
+async function runImagesOffSubset(): Promise<void> {
+  // Activate FIRST: the window-start snapshot is taken in activate(), and this
+  // subset writes the setting in-window — a late activation would read that
+  // write and never exercise the "started off" state at all.
+  const ext = vscode.extensions.getExtension(EXT_ID)
+  assert.ok(ext, `extension ${EXT_ID} not found`)
+  await ext!.activate()
+  assert.notEqual(
+    readEnableImages(),
+    true,
+    'this host must start with terminal.integrated.enableImages off — run-tests.ts must launch it with a wiped --user-data-dir',
+  )
+  await configureFakeLauncher()
+  const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
+  const images = vscode.workspace.getConfiguration('terminal.integrated')
+  try {
+    // First, and before the profile is marked as prompted: the offer is the
+    // window's one free slot (⑤), and it must still be free afterwards for the
+    // failure leg (③) to reach the click path.
+    await checkNonePreferenceSuppressesOffer(images)
+    await checkDefeatedWriteReportsFailure(api, images)
+    await checkPromptedProfileStillExplainsReload(api, images)
+    await checkInWindowWriteStaysNone(images)
+    await checkOffInjectsNone(images)
+    // Last: it changes `dsh-tui-vscode.imageProtocol`, not the enableImages
+    // state the legs above depend on.
+    await checkAutoRemovesInheritedProtocol()
+  } finally {
+    // Leave no setting — and no prompt marker — behind for a rerun against a
+    // surviving profile.
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+    await api.seedImageSetupPrompted(false)
+  }
+}
+
+/** (B) The end-to-end positive leg: only this window state may inject `sixel`. */
+async function checkEnabledWindowInjectsSixel(): Promise<void> {
+  const nagged: string[] = []
+  let on: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { nagged.push(String(message)) },
+    async () => { on = await startAndReadEnv() },
+  )
+  assert.ok(
+    injectedImageProtocol(on, 'sixel'),
+    `a window that started with images enabled must inject sixel; got: ${on.join(' | ')}`,
+  )
+  assert.equal(nagged.length, 0, `nothing to offer in this window: ${nagged.join(' | ')}`)
+  console.log('[e2e] PASS images: a window that started with images enabled injects sixel')
+}
+
+/**
+ * (b) The one-time offer appears exactly once and writes nothing before the
+ * click. Turning the setting off in-window is what produces the offer here —
+ * the same `enableImages` branch a window that started off would take.
+ */
+async function checkOfferOnceWithoutWrite(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  await images.update('enableImages', false, vscode.ConfigurationTarget.Global)
+  const offers: string[] = []
+  let enabledAtOffer: boolean | undefined
+  let off: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => {
+      offers.push(String(message))
+      enabledAtOffer = readEnableImages()
+      // "Not Now": the user declines, so nothing may be written.
+      return t('Not Now')
+    },
+    async () => { off = await startAndReadEnv() },
+  )
+  assert.equal(offers.length, 1, `the offer must appear exactly once, got ${offers.length}: ${offers.join(' | ')}`)
+  assert.equal(
+    offers[0],
+    t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.'),
+    'the offer must name the setting it wants to turn on',
+  )
+  assert.equal(enabledAtOffer, false, 'the setting must still be untouched while the offer is on screen')
+  assert.equal(readEnableImages(), false, 'answering Not Now must not write the setting')
+  assert.ok(
+    injectedImageProtocol(off, 'none'),
+    `a setting that is off must inject none; got: ${off.join(' | ')}`,
+  )
+  console.log('[e2e] PASS images: the offer appears once and writes nothing before the click')
+}
+
+/** (c) "Not Now" is remembered: the next start does not offer again. */
+async function checkNotNowRemembered(): Promise<void> {
+  const again: string[] = []
+  await withDialogStub(
+    'showInformationMessage',
+    async (message: string) => { again.push(String(message)) },
+    async () => { await startAndReadEnv() },
+  )
+  assert.equal(again.length, 0, `the offer must not come back after Not Now: ${again.join(' | ')}`)
+  console.log('[e2e] PASS images: answering Not Now stops the offer')
+}
+
+/**
+ * A leg (b + c) and the B leg, host `DSH_E2E_IMAGE_MODE=images-on`: the window
+ * started with `terminal.integrated.enableImages` already true, which
+ * run-tests.ts guarantees by pre-writing the profile's settings.json.
+ *
+ * The AC-5 offer assertions live in THIS host because the offer is one per
+ * window and this window's first start has nothing to offer (a window that
+ * really loaded the renderer is never nagged) — so its offer slot is still free.
+ */
+async function runImagesOnSubset(): Promise<void> {
+  // Activate FIRST: activate() is where the window-start snapshot is taken, and
+  // the preset must be what it sees (run-tests.ts writes it before launching).
+  const ext = vscode.extensions.getExtension(EXT_ID)
+  assert.ok(ext, `extension ${EXT_ID} not found`)
+  await ext!.activate()
+  assert.equal(
+    readEnableImages(),
+    true,
+    'this host must start with terminal.integrated.enableImages preset to true — run-tests.ts writes its settings.json',
+  )
+  await configureFakeLauncher()
+  const images = vscode.workspace.getConfiguration('terminal.integrated')
+  try {
+    await checkEnabledWindowInjectsSixel()
+    await checkOfferOnceWithoutWrite(images)
+    await checkNotNowRemembered()
+  } finally {
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Global)
+  }
+}
+
 export async function run(): Promise<void> {
   const l10nMode = process.env.DSH_E2E_L10N_MODE
   if (l10nMode === 'warmup') {
@@ -1562,20 +2048,36 @@ export async function run(): Promise<void> {
     console.log('[e2e] zh-cn subset passed')
     return
   }
+  // Terminal-image hosts (T-FIX-02): one dedicated host per window-start state
+  // of `terminal.integrated.enableImages` — see the subsets above.
+  const imageMode = process.env.DSH_E2E_IMAGE_MODE
+  if (imageMode !== undefined && imageMode !== '') {
+    if (imageMode !== 'images-off' && imageMode !== 'images-on') {
+      // Falling through on a typo would run the MAIN suite in an image host and
+      // still look green — coverage that silently does not exist, which is the
+      // exact failure this task exists to remove (REVIEW F-2). Fail loudly.
+      throw new Error(`unknown DSH_E2E_IMAGE_MODE: ${imageMode}`)
+    }
+    await withFakeLauncherOnPath(async () => {
+      if (imageMode === 'images-off') await runImagesOffSubset()
+      else await runImagesOnSubset()
+    })
+    console.log(`[e2e] ${imageMode} subset passed`)
+    return
+  }
 
   console.log(`[e2e] running ${tests.length} tests`)
-  // Inject the fake launcher dir into PATH so the bare command
-  // 'fake-dsh-tui' resolves to the shim in the terminal's shell.
-  const originalPath = process.env.PATH ?? ''
-  process.env.PATH = WS + (process.platform === 'win32' ? ';' : ':') + originalPath
   try {
-    for (const [name, fn] of tests) {
-      await fn()
-      console.log(`[e2e] PASS ${name}`)
-    }
-    console.log(`[e2e] all ${tests.length} tests passed`)
+    // Inject the fake launcher dir into PATH so the bare command
+    // 'fake-dsh-tui' resolves when the extension looks it up.
+    await withFakeLauncherOnPath(async () => {
+      for (const [name, fn] of tests) {
+        await fn()
+        console.log(`[e2e] PASS ${name}`)
+      }
+      console.log(`[e2e] all ${tests.length} tests passed`)
+    })
   } finally {
-    process.env.PATH = originalPath
     const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
     await cfg.update('command', 'dsh-tui', vscode.ConfigurationTarget.Global)
     await cfg.update('extraArgs', [], vscode.ConfigurationTarget.Global)

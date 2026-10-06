@@ -209,6 +209,21 @@
           "default": "",
           "description": "%config.dsh-tui-vscode.lang.description%"
         },
+        "dsh-tui-vscode.imageProtocol": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "sixel",
+            "none"
+          ],
+          "enumDescriptions": [
+            "%config.dsh-tui-vscode.imageProtocol.enum.auto%",
+            "%config.dsh-tui-vscode.imageProtocol.enum.sixel%",
+            "%config.dsh-tui-vscode.imageProtocol.enum.none%"
+          ],
+          "default": "sixel",
+          "description": "%config.dsh-tui-vscode.imageProtocol.description%"
+        },
         "dsh-tui-vscode.injectEditor": {
           "type": "boolean",
           "default": true,

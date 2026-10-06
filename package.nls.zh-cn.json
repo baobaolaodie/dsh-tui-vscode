@@ -17,6 +17,7 @@
   "config.dsh-tui-vscode.extraArgs.description": "每次启动 dsh-tui 时追加的额外 CLI 参数，例如 [\"--lang\", \"en\"]。",
   "config.dsh-tui-vscode.terminalLocation.description": "新的 dsh-tui 会话终端打开的位置。",
   "config.dsh-tui-vscode.lang.description": "为 dsh-tui 进程设置 DSH_TUI_LANG。",
+  "config.dsh-tui-vscode.imageProtocol.description": "dsh-tui 会话的终端图像协议（导出为环境变量 DSH_TUI_IMAGE_PROTOCOL）。sixel（默认）：只要 VS Code 终端图像渲染处于开启状态（terminal.integrated.enableImages 为 true 且已重载窗口）就显示真实栅格图（立绘、照片、图片预览）；该设置为假时，默认档会退成半块字符画，保证图像区域可见而不是一片空白。none：始终使用半块字符画。auto：不导出任何取值，交回 dsh-tui 自行判定（上游协议判定修好后的退出路径）。",
   "config.dsh-tui-vscode.injectEditor.description": "当 $VISUAL/$EDITOR 未设置时，导出 VISUAL=<editorCommand>，使 TUI 的 Ctrl+X 外部编辑器在 VS Code 中打开。",
   "config.dsh-tui-vscode.editorCommand.description": "当 dsh-tui-vscode.injectEditor 开启且不存在 VISUAL/EDITOR 时，导出为 $VISUAL 的值。使用带 -w 的 VS Code CLI 以等待文件关闭。",
   "config.dsh-tui-vscode.dshHome.description": "可选的 $DSH_HOME 覆盖，用于 dsh-tui 会话（'' 表示沿用从 VS Code 进程继承的值）。",
@@ -26,5 +27,8 @@
   "config.dsh-tui-vscode.terminalLocation.enum.panel": "在底部面板中、普通终端旁边打开会话终端。",
   "config.dsh-tui-vscode.lang.enum.": "不设置 DSH_TUI_LANG；dsh-tui 使用其自身默认值（中文）。",
   "config.dsh-tui-vscode.lang.enum.zh": "强制使用中文界面。",
-  "config.dsh-tui-vscode.lang.enum.en": "强制使用英文界面。"
+  "config.dsh-tui-vscode.lang.enum.en": "强制使用英文界面。",
+  "config.dsh-tui-vscode.imageProtocol.enum.auto": "把 DSH_TUI_IMAGE_PROTOCOL 从会话环境中移除（从 VS Code 进程或 shell profile 继承来的同名值因此不会漏进去），由 dsh-tui 自行判定。作为上游协议判定修好后的退出路径保留。",
+  "config.dsh-tui-vscode.imageProtocol.enum.sixel": "固定 Sixel 协议：terminal.integrated.enableImages 为 true（开启后需重载窗口）且 terminal.integrated.gpuAcceleration 为 auto 或 on 时显示真实栅格图，否则退成半块字符画。默认值。",
+  "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它；该档位下扩展也不再弹终端图片的启用引导。"
 }

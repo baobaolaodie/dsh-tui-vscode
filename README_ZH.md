@@ -115,10 +115,33 @@ flowchart LR
 | `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | 终端位置：`editor`（中间编辑区新列）/ `active`（当前编辑列）/ `panel`（底部面板） |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | 导出给 `DSH_TUI_IMAGE_PROTOCOL` 的取值：`sixel`（真实栅格图——需 `terminal.integrated.enableImages` 为 `true` **且已重载窗口**，并保持 `terminal.integrated.gpuAcceleration` 为 `auto`/`on`；否则退成半块字符画）、`none`（始终半块字符画）、`auto`（把该变量从会话环境中**移除**，交回 dsh-TUI 判定）。需 **dsh-TUI ≥ 0.10.0**。详见[终端图片](#终端图片) |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
 | `dsh-tui-vscode.autoInsertMention` | `true` | 选区变化时经 IDE 选区通道把选中代码推送给运行中的 dsh-TUI（300ms 防抖；携带坐标与编辑器选区文本、不占输入框；dsh-TUI 提交时原样附加内容并显示指示行）。需 **dsh-TUI ≥ 0.11.0**（IDE 选区通道，[上游 PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562)）；通道不可用时回退为键入 `@相对路径#L起-止` |
+
+## 终端图片
+
+吉祥物立绘、聊天里的照片缩略图与图片预览，只有下列条件全部满足时才显示为真实栅格图：
+
+1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。设置写入失败是「只提示一次」的唯一刻意例外：那次什么都没写进去，所以下次启动会话会再给一次一键路径。**写进去了却不生效**也算同一类失败——`terminal.integrated.enableImages` 是窗口作用域，工作区/文件夹级的覆盖会压过扩展写入的全局值，所以扩展写完会**回读有效值**，而不是相信那次写入本身；此时给出手动指引而不是重载引导，提示也不记为「已问过」。这次重试由**本窗口自己的状态**保证，而不是靠持久标记：清除持久标记是「发出去就不管」的异步写，被延迟或被拒绝都不能把刚做出的承诺压掉。
+2. **渲染器侧**：`terminal.integrated.gpuAcceleration` 不能使 WebGL 渲染器不可用。VS Code 对 `enableImages` 的定义原文即「will only work when `terminal.integrated.gpuAcceleration` is enabled」，而图像 addon 只挂在 WebGL 渲染器上——请把 `gpuAcceleration` 留在 `auto`（默认）或设为 `on`。为 `off`（或旧版的 `canvas` 渲染器取值）时 addon 从未被加载，扩展因此对该窗口的每个会话都导出 `none` 并保持静默：此时「启用 `enableImages`」与「重载窗口」都无法把 addon 找回来。
+3. **dsh-TUI 侧**：扩展会导出 `DSH_TUI_IMAGE_PROTOCOL`，该变量自 **0.10.0** 起被 dsh-TUI 识别（0.10.0–0.13.0 逐版本核对 `lib/types/ink/ink.js`；0.9.0/0.9.1 无此变量）。更老的 dsh-TUI 会直接忽略该变量——无害，但也不会有任何变化。
+
+由于 VS Code 只在加载窗口时建立该渲染器，扩展判能力时不用裸的设置值，而是读**两个观测**：**窗口启动时**看到的 `terminal.integrated.enableImages` 值（`activate()` 只快照一次，本窗口内**刻意不刷新**）**与**实时值——只有两者都为 `true`，会话才会拿到 `sixel`。因此「设置已写入但本窗口尚未重载」——无论来自「启用并重载窗口」动作，还是你自己改的 `settings.json`——在该窗口内启动的会话**仍然导出 `none`**，图像区域继续显示可见的半块字符画，而不会变成永久空白的图像槽位。这种状态不再静默：会弹一次提示（「图像渲染已开启，但该设置需重载窗口后才生效」，带**重载窗口**按钮）说明还缺哪一步；只有重载之后启动的会话才会拿到 `sixel`。
+
+**残余风险（不声称已解决）**：VS Code 没有「当前实际使用哪个渲染器」的 API。在没有可用 GPU 的机器上，`auto` 仍可能落到 canvas 渲染器（此时门禁会放行 `sixel`）；窗口运行期间改动 `gpuAcceleration` 也要等重载（重启扩展宿主）后才会被重新读取。这些情况下真正让图像区域免于空白的，是可见的半块字符画兜底，而不是这道门禁。
+
+`dsh-tui-vscode.imageProtocol`（默认 `sixel`）决定导出哪个值：
+
+| 取值 | 导出值 | 行为 |
+| --- | --- | --- |
+| `sixel` | `sixel` | 终端图像渲染开启时显示真实栅格图；`enableImages` 为 `false` 时默认档退成半块字符画，保证图像区域可见而不是一片空白。 |
+| `none` | `none` | 即使渲染已开启，也始终使用半块字符画。该档位下扩展同样不再弹启用引导：明确要字符画的用户不会被追问，一次性的提示标记也不会被一个他并不想要的引导消耗掉。 |
+| `auto` | *（移除）* | 把 `DSH_TUI_IMAGE_PROTOCOL` 从会话环境中**移除**，交回 dsh-TUI 自行判定——上游协议判定修好后的退出路径。仅仅「不写这个键」并不够：VS Code 把这份 env 叠加在终端原本要继承的环境之上，所以你自己 shell profile 里导出的值（或从 VS Code 进程继承来的值）仍会抵达 dsh-tui，把它悄悄钉在某个协议上。 |
+
+**已验证组合**：Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0。其他平台、远程环境与其他 VS Code 版本**均未验证**；字符画兜底保证最差情况仍是可见内容而非空白。
 
 ## 界面语言
 

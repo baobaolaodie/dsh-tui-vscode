@@ -115,10 +115,33 @@ Key points:
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded** and `terminal.integrated.gpuAcceleration` left at `auto`/`on`; degrades to half-block character art otherwise), `none` (always half-block character art), `auto` (removes the variable from the session environment and lets dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
 | `dsh-tui-vscode.autoInsertMention` | `true` | On selection change, push the selected code to the running dsh-TUI over the IDE selection channel (300 ms debounce; coordinates plus the editor's selection text, no input-box takeover; dsh-TUI attaches the content verbatim at submit and shows an indicator line). Requires **dsh-TUI ≥ 0.11.0** (IDE selection channel, [upstream PR #562](https://github.com/ccch1mneyyy/dsh-TUI/pull/562)); falls back to typing `@relative/path#Lstart-end` when the channel is unavailable. |
+
+## Terminal images
+
+The mascot artwork, chat photo thumbnails and image previews render as real raster images only when every condition below is met:
+
+1. **VS Code side**: `terminal.integrated.enableImages` must be `true` (VS Code defaults to `false`), and you must **reload the window** after changing it — VS Code loads the `@xterm/addon-image` renderer only while it builds the WebGL renderer, so the setting does nothing until the window is reloaded. When a session starts with that setting off, the extension shows a one-time prompt with an "enable and reload" action and never writes your VS Code settings without asking. A failed settings write is the one deliberate exception to that "once": nothing was written, so the next session start offers the one-click path again. A write that *is* accepted but has no effect counts as that same failure — `terminal.integrated.enableImages` has window scope, so a workspace or folder override outranks the Global value the extension writes, and the extension re-reads the **effective** value after writing rather than trusting the write itself. The manual instructions appear instead of a reload offer, and the prompt is not marked as answered. That retry is guaranteed by the window's own state rather than by the persisted marker: clearing the marker is fire-and-forget, so a delayed or rejected clear cannot silence the promise the failure just made.
+2. **Renderer side**: `terminal.integrated.gpuAcceleration` must leave the WebGL renderer possible. VS Code's own definition of `enableImages` says it "will only work when `terminal.integrated.gpuAcceleration` is enabled", and the image addon is attached to the WebGL renderer alone — so leave `gpuAcceleration` at `auto` (the default) or set it to `on`. With `off` (or the legacy `canvas` renderer value) the addon is never loaded, and the extension therefore exports `none` for every session in that window and stays silent: neither enabling `enableImages` nor reloading the window can bring the addon back.
+3. **dsh-TUI side**: the extension exports `DSH_TUI_IMAGE_PROTOCOL`, which dsh-TUI has understood since **0.10.0** (checked release by release against `lib/types/ink/ink.js` for 0.10.0–0.13.0; absent in 0.9.0/0.9.1). An older dsh-TUI simply ignores the variable — harmless, but nothing changes either.
+
+Because VS Code only builds that renderer while it loads a window, the extension judges this capability from two observations rather than the bare setting: the `terminal.integrated.enableImages` value it saw **when the window started** (snapshotted once at activation and deliberately not refreshed inside that window) **and** the live value — a session is given `sixel` only while both are `true`. A value written but not yet reloaded into this window — whether it came from the "Enable and Reload Window" action or from your own `settings.json` edit — therefore still exports `none` for every session started in that window, keeping the half-block character art visible instead of leaving a permanently blank image slot. That state is no longer silent: a one-time prompt ("Image rendering is enabled, but the setting takes effect only after a window reload", with a **Reload Window** button) says which step is still missing; only sessions started after the reload get `sixel`.
+
+**Residual risk, not claimed as solved**: VS Code exposes no API that reports which renderer is actually in use. `auto` can still resolve to the canvas renderer on a machine without a usable GPU (the gate allows `sixel` there), and a `gpuAcceleration` change made mid-window is only re-read after the reload that restarts the extension host. In those cases the visible half-block character art — not this gate — is what keeps the image area from going blank.
+
+`dsh-tui-vscode.imageProtocol` (default `sixel`) decides what gets exported:
+
+| Value | Exported | Behavior |
+| --- | --- | --- |
+| `sixel` | `sixel` | Real raster images while terminal image rendering is on; with `enableImages` set to `false`, the default degrades to half-block character art, so the image area stays visible instead of going blank. |
+| `none` | `none` | Always half-block character art, even when rendering is on. The extension also skips the setup prompt for this choice: a user who asked for character art is never nagged to enable images, and the one-time prompt is not consumed by an offer they did not want. |
+| `auto` | *(removed)* | **Remove** `DSH_TUI_IMAGE_PROTOCOL` from the session environment and let dsh-TUI decide on its own — the opt-out path for when upstream protocol detection is fixed. Merely not writing the key would not be enough: VS Code overlays this env onto the environment the terminal would inherit, so a value exported by your own shell profile (or inherited from the VS Code process) would still reach dsh-tui and silently pin that protocol. |
+
+**Verified combination**: Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0. Other platforms, remote setups and other VS Code versions are **unverified**; the character-art fallback keeps the worst case visible rather than blank.
 
 ## UI language
 

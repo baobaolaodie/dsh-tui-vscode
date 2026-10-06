@@ -321,11 +321,241 @@ export function normalizeTerminalLocation(value: string | undefined): TerminalLo
   return 'editor'
 }
 
+/**
+ * Terminal image protocol preference, mirroring the
+ * `dsh-tui-vscode.imageProtocol` setting (and dsh-tui's own
+ * `DSH_TUI_IMAGE_PROTOCOL` value space, minus `kitty`).
+ */
+export type TerminalImageProtocol = 'auto' | 'sixel' | 'none'
+
+/**
+ * Normalize the `dsh-tui-vscode.imageProtocol` setting into the value space
+ * above — the one place that knows which strings are known tiers.
+ *
+ * The setting is an enum in package.json, but a hand-edited settings.json can
+ * still hold anything, and an unknown string must never reach the launch path —
+ * same defensive shape as {@link normalizeTerminalLocation}. Anything but the
+ * two explicit values means the `sixel` default, which the host-capability gate
+ * then resolves to `none` while image rendering is off.
+ *
+ * Adding a tier means adding it here too; `src/test/session.test.ts` binds this
+ * whitelist to the type's value space and fails when the two drift apart
+ * (REVIEW m-3).
+ */
+export function normalizeTerminalImageProtocol(value: string | undefined): TerminalImageProtocol {
+  return value === 'auto' || value === 'none' ? value : 'sixel'
+}
+
+/**
+ * The one-time setup action a session start can still offer about terminal
+ * images — `undefined` (no offer) when there is nothing left to do.
+ * `'enableImages'` asks to turn the setting on; `'reloadWindow'` only asks for
+ * the reload that makes a value already written take effect.
+ */
+export type TerminalImageSetupOffer = 'enableImages' | 'reloadWindow'
+
+/**
+ * Whether a session start may still OFFER that setup, given what the user asked
+ * for through `dsh-tui-vscode.imageProtocol`.
+ *
+ * An explicit `none` is the user saying "character art is what I want": asking
+ * them to turn image rendering on contradicts that choice, and — because
+ * `promptForImageSetup` marks the prompt as shown BEFORE it awaits the
+ * notification — it would also burn the window's one-time prompt marker, so the
+ * user gets nothing and loses the retry they were promised (Sourcery ⑤). The
+ * capability gate keeps deciding WHICH offer applies (if any); this one only
+ * decides whether that offer is still wanted.
+ *
+ * Pure and total, and deliberately narrow: every other preference — the
+ * `sixel` default, an unreadable/unknown value, and `auto` (which hands the
+ * protocol decision to dsh-tui but says nothing about the host capability) —
+ * keeps the existing offer, and `undefined` in means `undefined` out.
+ */
+export function shouldOfferImageSetup(
+  preference: TerminalImageProtocol | undefined,
+  offer: TerminalImageSetupOffer | undefined,
+): TerminalImageSetupOffer | undefined {
+  if (preference === 'none') return undefined
+  return offer
+}
+
+/**
+ * What THIS window remembers about the one-time image-setup prompt.
+ *
+ * Three states rather than a boolean because "not shown" has two very different
+ * meanings (Sourcery ⑥): nothing has been asked yet (`idle`, where the
+ * cross-window marker in globalState must still be honoured), versus a settings
+ * write just failed after asking (`retry`, where the user was explicitly
+ * promised another offer).
+ */
+export type ImageSetupPromptMemory =
+  /** Nothing asked yet in this window — the persisted marker decides. */
+  | 'idle'
+  /** Asked (and marked) in this window — never ask again in it. */
+  | 'asked'
+  /** A write failed after asking — the promised retry is armed. */
+  | 'retry'
+
+/**
+ * Whether the one-time image-setup offer may go out now, from the window's own
+ * memory plus the persisted cross-window marker.
+ *
+ * The failure path clears the persisted marker fire-and-forget, so that clear
+ * can be delayed or rejected; if the marker alone decided, a failed settings
+ * write would leave the user both unserved AND permanently unprompted — the
+ * exact opposite of the retry the failure path promises. `retry` therefore
+ * outranks the persisted marker, and only `idle` consults it, which keeps the
+ * existing semantics intact: one ask per profile across windows, one ask per
+ * window while it is unanswered.
+ *
+ * Pure and total: a missing/unreadable marker counts as "not asked".
+ */
+export function shouldShowImageSetupPrompt(
+  memory: ImageSetupPromptMemory,
+  persistedShown: boolean | undefined,
+): boolean {
+  if (memory === 'retry') return true
+  if (memory === 'asked') return false
+  return persistedShown !== true
+}
+
+/**
+ * Host capability for terminal images, derived from the renderer facts that are
+ * actually observable in this window — never from the bare
+ * `terminal.integrated.enableImages` setting.
+ *
+ * VS Code loads its image addon while the window builds the renderer, so the
+ * setting takes effect only after a *window reload*: a value written after this
+ * window started stays inert for the whole window. Feeding the gate the live
+ * value instead is what produced permanently blank image slots (REVIEW F-3) —
+ * dsh-tui drops its half-block fallback once it believes in the raster path.
+ *
+ * - `imagesEnabledAtWindowStart`: what the setting was when this window (this
+ *   extension host) started — the only input that can mean "renderer loaded".
+ * - `imagesEnabledNow`: what it is right now; `true` here together with `false`
+ *   at window start is exactly the "written, but not reloaded" state, which
+ *   stays on `none` and offers the reload instead of going silently blank.
+ * - `gpuAcceleration`: which renderer this window built, from
+ *   `terminal.integrated.gpuAcceleration` (snapshotted at window start for the
+ *   same reason the other two inputs are observations, not live reads). VS Code
+ *   gates images on it in its own setting definition — 1.90,
+ *   `src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts`: "Enables
+ *   image support in the terminal, this will only work when
+ *   `terminal.integrated.gpuAcceleration` is enabled" — and the addon is only
+ *   attached to the WebGL renderer. `off` — and the legacy `canvas` renderer
+ *   value — therefore mean "no addon at all": a `sixel` request there is another
+ *   guaranteed-blank slot (Sourcery ①).
+ *
+ * Pure and total: only `auto`/`on` leave the WebGL renderer possible, so
+ * anything else — `off`, `canvas`, an unknown future value, or an unreadable
+ * configuration — is treated as "no renderer"; a missing/unreadable
+ * `enableImages` counts as off, and a setting turned back off mid-window counts
+ * as off too (the user no longer wants images, and the addon's lifetime is not
+ * ours to assume). The never-blank branch is the only fallback.
+ *
+ * Residual risk, documented rather than papered over: VS Code exposes NO API
+ * that reports which renderer really exists. `auto` may still resolve to the
+ * canvas renderer on a machine without a usable GPU — this gate allows `sixel`
+ * there and only the character art dsh-tui keeps *below* the raster path
+ * survives — a `gpuAcceleration` change made mid-window is not re-read until the
+ * window reloads, and a write landing between renderer initialization and this
+ * extension host's activation is indistinguishable from a window-start value.
+ */
+export function resolveTerminalImageCapability(
+  imagesEnabledAtWindowStart: boolean | undefined,
+  imagesEnabledNow: boolean | undefined,
+  gpuAcceleration: string | undefined,
+): { hostImagesEnabled: boolean; offer?: TerminalImageSetupOffer } {
+  // Renderer gate first, and it is not a promptable state: with no WebGL
+  // renderer the image addon was never loaded, so neither writing
+  // `enableImages` nor reloading the window can bring it back. Offering either
+  // would promise the user something that cannot happen (Sourcery ①), so this
+  // branch is deliberately silent — the README names the setting to change.
+  if (gpuAcceleration !== 'auto' && gpuAcceleration !== 'on') {
+    return { hostImagesEnabled: false }
+  }
+  const enabledNow = imagesEnabledNow === true
+  if (imagesEnabledAtWindowStart === true && enabledNow) {
+    return { hostImagesEnabled: true }
+  }
+  // Nothing left to write when the setting is already on: the missing piece is
+  // the reload that would load the renderer.
+  return { hostImagesEnabled: false, offer: enabledNow ? 'reloadWindow' : 'enableImages' }
+}
+
+/**
+ * Decide which `DSH_TUI_IMAGE_PROTOCOL` value the session terminal receives —
+ * or `undefined` when the key must not be injected at all.
+ *
+ * The host can only paint terminal images when
+ * `terminal.integrated.enableImages` is on AND the window was reloaded
+ * afterwards (the image addon loads with the WebGL renderer), so the default
+ * `sixel` request is gated on that capability — see
+ * {@link resolveTerminalImageCapability}, the one place that decides whether
+ * this window really has it. Asking for sixel without a renderer makes dsh-tui
+ * drop its half-block fallback and paint nothing — an empty slot is worse than
+ * a coarse but visible character image.
+ *
+ * `auto` is the escape hatch that hands the decision back to dsh-tui itself; it
+ * must REMOVE the variable rather than leave it alone — see
+ * {@link TerminalEnv} — which is also the exit path once upstream renders kitty
+ * correctly.
+ *
+ * Pure and total: a missing preference means the `sixel` default, and an
+ * unknown one — or an unreadable host capability — lands on the same
+ * never-blank branch.
+ */
+export function resolveTerminalImageProtocol(
+  preference: TerminalImageProtocol | undefined,
+  hostImagesEnabled: boolean | undefined,
+): 'sixel' | 'none' | null {
+  // User intent first: an explicit `none` wins over the host capability.
+  if (preference === 'none') return 'none'
+  // `auto` = "let dsh-tui decide": the key must be DELETED, not skipped —
+  // `createTerminal` overlays this env onto the inherited one, so omitting the
+  // key would leak whatever the extension host or the profile exported
+  // (Sourcery ②).
+  if (preference === 'auto') return null
+  // `'sixel'` (the default) and anything unrecognized: only a host that can
+  // actually paint may be asked for the raster path.
+  return hostImagesEnabled === true ? 'sixel' : 'none'
+}
+
+/**
+ * The env overlay handed to `vscode.window.createTerminal({ env })`: a `string`
+ * sets a variable, and **`null` removes it from the session environment**.
+ *
+ * The distinction is the whole point (Sourcery ②): VS Code overlays this object
+ * onto the environment the terminal would otherwise inherit — it does NOT
+ * replace it — so "the key is absent here" means "whatever the parent had stays
+ * visible to dsh-tui", while `null` is the documented delete marker. Only a
+ * value that must really disappear (the `auto` image-protocol tier) uses it;
+ * every other key stays a plain string, so this type cannot silently change the
+ * behavior of the existing injections.
+ */
+export type TerminalEnv = Record<string, string | null>
+
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
   base?: Record<string, string | undefined>
   /** '' | 'zh' | 'en' — exported as DSH_TUI_LANG when non-empty. */
   lang?: string
+  /**
+   * The `dsh-tui-vscode.imageProtocol` preference, resolved through
+   * {@link resolveTerminalImageProtocol} into DSH_TUI_IMAGE_PROTOCOL; `auto`
+   * deliberately REMOVES the key (a `null` in the returned overlay) so an
+   * inherited value cannot reach dsh-tui.
+   */
+  imageProtocol?: TerminalImageProtocol
+  /**
+   * Whether the host can actually render terminal images in THIS window — i.e.
+   * what {@link resolveTerminalImageCapability} returned for it, never the raw
+   * `terminal.integrated.enableImages` setting (a write that no window reload
+   * has loaded yet is not a capability). Gates the default `sixel` choice:
+   * false — or unknown, e.g. unreadable configuration — falls back to `none`
+   * so the TUI always keeps a visible rendering path.
+   */
+  hostImagesEnabled?: boolean
   /** Inject $VISUAL when both $VISUAL and $EDITOR are unset. Default true. */
   injectEditor?: boolean
   /** Value exported as $VISUAL, default 'code -w'. */
@@ -341,13 +571,29 @@ export interface LaunchEnvInput {
   extra?: Record<string, string>
 }
 
-export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
+/**
+ * Compose the env overlay for one session launch: the TUI language, the
+ * host-capability-gated image protocol (with the `auto` tier expressed as a
+ * deletion — see {@link TerminalEnv}), an optional `$DSH_HOME`, and the
+ * `$VISUAL` fallback that only fires while neither `$VISUAL` nor `$EDITOR`
+ * exists in `base`.
+ *
+ * Pure and total: it never reads configuration or the environment directly, so
+ * the same snapshot always yields the same overlay, and `extra` stays the last
+ * writer (the extension's IDE channel pair and resume ids win over anything
+ * computed here).
+ */
+export function buildLaunchEnv(input: LaunchEnvInput): TerminalEnv {
   const base = input.base ?? {}
-  const env: Record<string, string> = {}
+  const env: TerminalEnv = {}
   const lang = input.lang?.trim() ?? ''
   if (lang) {
     env.DSH_TUI_LANG = lang
   }
+  const imageProtocol = resolveTerminalImageProtocol(input.imageProtocol, input.hostImagesEnabled)
+  // Always present: a value, or `null` for the `auto` tier — which is a DELETE
+  // instruction, not an omission (Sourcery ②).
+  env.DSH_TUI_IMAGE_PROTOCOL = imageProtocol
   const dshHome = input.dshHome?.trim() ?? ''
   if (dshHome) {
     env.DSH_HOME = dshHome

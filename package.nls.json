@@ -17,6 +17,7 @@
   "config.dsh-tui-vscode.extraArgs.description": "Extra CLI arguments appended to every dsh-tui launch, e.g. [\"--lang\", \"en\"].",
   "config.dsh-tui-vscode.terminalLocation.description": "Where a new dsh-tui session terminal opens.",
   "config.dsh-tui-vscode.lang.description": "Sets DSH_TUI_LANG for the dsh-tui process.",
+  "config.dsh-tui-vscode.imageProtocol.description": "Terminal image protocol for dsh-tui sessions (exported as DSH_TUI_IMAGE_PROTOCOL). sixel (default): real raster images (artwork, photos, image previews) while VS Code terminal image rendering is on, i.e. terminal.integrated.enableImages is true and the window has been reloaded; if that setting is false, the default degrades to half-block character art so the image area stays visible instead of going blank. none: always use half-block character art. auto: export nothing and let dsh-tui decide on its own (escape hatch for when upstream protocol detection is fixed).",
   "config.dsh-tui-vscode.injectEditor.description": "When $VISUAL/$EDITOR are unset, export VISUAL=<editorCommand> so the TUI's Ctrl+X external editor opens in VS Code.",
   "config.dsh-tui-vscode.editorCommand.description": "Value exported as $VISUAL when dsh-tui-vscode.injectEditor is on and no VISUAL/EDITOR exists. Use the VS Code CLI with -w to wait for the file to close.",
   "config.dsh-tui-vscode.dshHome.description": "Optional $DSH_HOME override for the dsh-tui session ('' keeps the value inherited from the VS Code process).",
@@ -26,5 +27,8 @@
   "config.dsh-tui-vscode.terminalLocation.enum.panel": "Open the session terminal in the bottom panel, next to ordinary terminals.",
   "config.dsh-tui-vscode.lang.enum.": "Do not set DSH_TUI_LANG; dsh-tui uses its own default (Chinese).",
   "config.dsh-tui-vscode.lang.enum.zh": "Force the Chinese UI.",
-  "config.dsh-tui-vscode.lang.enum.en": "Force the English UI."
+  "config.dsh-tui-vscode.lang.enum.en": "Force the English UI.",
+  "config.dsh-tui-vscode.imageProtocol.enum.auto": "Remove DSH_TUI_IMAGE_PROTOCOL from the session environment (so a value inherited from the VS Code process or a shell profile cannot leak in); dsh-tui decides on its own. Kept as the opt-out path for when upstream protocol detection is fixed.",
+  "config.dsh-tui-vscode.imageProtocol.enum.sixel": "Pin the Sixel protocol: real raster images when terminal.integrated.enableImages is true (reload the window after enabling it) and terminal.integrated.gpuAcceleration is auto or on, half-block character art otherwise. Default.",
+  "config.dsh-tui-vscode.imageProtocol.enum.none": "Never use raster images; always render half-block character art. Pick this for text-only output; the extension also skips the terminal-image setup prompt for this choice."
 }
