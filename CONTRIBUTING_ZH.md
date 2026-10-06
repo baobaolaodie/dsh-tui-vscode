@@ -12,6 +12,7 @@
 
 - Node.js 24（开发默认；CI 测试矩阵为 Node 22/24）；包管理用 **npm**（`npm ci` 安装）。
 - e2e 的"真实 dsh-tui 恢复测试"需要本机全局安装 `dsh` CLI 与 `dsh-tui`（无则自动跳过该用例）。
+- 需要真实安装的 VS Code + 隔离 profile 的 UAT：用 `scripts/uat-devhost.ps1`（Windows PowerShell）——它启动前剥离 agent shell 的 `NO_COLOR`/`TERM`（否则从 agent shell 起来的宿主会把 TUI 渲染成灰阶，LESSONS L-013），并打印证据必须钉住的提交锚点（L-015）——它会先重编译 `out/`（可加 `-SkipBuild` 跳过，此时输出会标注该锚点未经构建保证），并用与机器无关的方式定位检出目录与 `Code.exe`（可用 `-Repo` / `-CodeExe` / `DSH_UAT_CODE_EXE` 覆盖）。
 - 开发时建议安装本地钩子：`node scripts/install-commit-hook.mjs`（拦截提交消息格式等快速可逆问题）。
 
 ## 运行测试
@@ -65,6 +66,8 @@ npm run package          # 编译 + 生成 .vsix
 1. **新版本号强制**：Marketplace 的版本**不可覆盖、删除后不可复用**——每次发布必须用**递增的新版本号**（同版本号网页上传会被拒绝）。
 2. **CHANGELOG**：把 `Unreleased` 内容转为新版本段 `## [x.y.z] - 日期`，段内**链接本批已合并的 PR**（release-consistency CI 强制每版本段含 PR 链接或 direct-push 标记）。
 3. **五处一致**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英），CI 验证。
-4. `npm run package` → 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
-5. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与商店版本保持一致。
-6. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。
+4. `npm run package` 生成 vsix。
+5. **上传前把产物大小与上一次发布比对**：`gh release view <prev-tag> --json assets`。数量级跳变说明 `.vscodeignore` 让某个本地工具目录进了包——上传前先修好（见 LESSONS L-004 / L-018）。
+6. 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
+7. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与商店版本保持一致。
+8. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。
