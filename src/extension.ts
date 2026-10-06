@@ -352,16 +352,27 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   }
 
   /**
-   * The one and only settings write in this extension. Resolves false when
-   * VS Code rejects it (restricted setting / untrusted workspace) so the
-   * caller can hand over the manual path instead.
+   * The one and only settings write in this extension. Resolves false when VS
+   * Code rejects it (restricted setting / untrusted workspace) so the caller can
+   * hand over the manual path instead.
+   *
+   * The resolved `update()` promise is NOT the verdict (Sourcery ③):
+   * `terminal.integrated.enableImages` has window scope, so a workspace or
+   * folder override outranks the Global value this write sets and the write can
+   * succeed while the EFFECTIVE setting stays `false`. Reporting success there
+   * would offer a reload that cannot help, mark the one-time prompt as answered
+   * and leave images disabled with no further offer — so the effective value is
+   * read back, and anything but `true` takes the same failure path as a rejected
+   * write.
    */
   async function enableHostImages(): Promise<boolean> {
+    const images = vscode.workspace.getConfiguration('terminal.integrated')
     try {
-      await vscode.workspace
-        .getConfiguration('terminal.integrated')
-        .update('enableImages', true, vscode.ConfigurationTarget.Global)
-      return true
+      await images.update('enableImages', true, vscode.ConfigurationTarget.Global)
+      // Read the effective value: a higher-priority override keeps it false, and
+      // this call is deliberately on the same (uncached) configuration object
+      // the update resolved on, so it observes the write that just landed.
+      return images.get<boolean>('enableImages', false) === true
     } catch (error) {
       // Nothing was written — the caller must not pretend otherwise.
       console.error('[dsh-tui-vscode] could not enable terminal image rendering:', error)
@@ -390,6 +401,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   /**
    * Act on the user's explicit "enable" click. The only caller is the prompt
    * branch below, which is what keeps `enableHostImages` the sole write path.
+   *
+   * A false verdict — a rejected write, or a write a higher-priority override
+   * defeats (Sourcery ③) — shows the copyable manual instructions and forgets
+   * the prompt so the next session start may retry; only a write that really
+   * took effect goes on to ask for the reload it needs.
    */
   async function applyImageSetupChoice(): Promise<void> {
     if (!(await enableHostImages())) {

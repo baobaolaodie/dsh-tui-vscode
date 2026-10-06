@@ -24,6 +24,8 @@
 
 - **`imageProtocol: auto` 现在会移除继承来的 `DSH_TUI_IMAGE_PROTOCOL`，而不是「不写这个键」**：`createTerminal` 把这份 env 叠加在终端原本要继承的环境之上、而不是替换它，所以「不注入」意味着扩展宿主、shell profile 或父进程导出的同名值仍会抵达 dsh-tui——它因此根本不会自动判定，而是被钉在那个外来取值上。env 构建器现在用 VS Code 的 `null` 标记表达删除（启动 env 叠加类型仅为这一个键允许 `null`），README 也写明 `auto` 是**移除该变量**而非「不设置它」。
 
+- **被更高优先级覆盖压掉的设置写入现在报失败，而不是当作成功**：`terminal.integrated.enableImages` 是窗口作用域，工作区/文件夹级覆盖会压过「启用并重载窗口」点击写入的全局值——于是 update 成功返回、扩展照样弹重载引导并把「只提示一次」的标记记为已问过，而图像渲染始终没开、也不会再给引导。现在写完之后会**回读有效值**，只要不是 `true` 就走既有的失败路径：显示手动指引，并重置提示标记，让后续启动会话仍可重试。
+
 ## [0.7.4] - 2026-10-03
 
 > 经 PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36) 合并

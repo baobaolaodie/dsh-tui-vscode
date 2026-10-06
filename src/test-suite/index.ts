@@ -1645,6 +1645,63 @@ const readEnableImages = (): boolean =>
   vscode.workspace.getConfiguration('terminal.integrated').get<boolean>('enableImages', false)
 
 /**
+ * (c0) A settings write that `Global` accepts but a higher-precedence override
+ * still defeats must be reported as FAILURE (Sourcery ③).
+ *
+ * `terminal.integrated.enableImages` has window scope, so a workspace or folder
+ * override wins over the Global write `enableHostImages` performs. Treating the
+ * resolved `update()` as success would offer the reload, mark the one-time
+ * prompt as answered and leave image rendering disabled with no further offer;
+ * reading the EFFECTIVE value back instead sends this leg down the existing
+ * failure path: the manual instructions are shown, the prompt marker is reset so
+ * a later start may retry, and no reload is offered for something that would not
+ * take effect.
+ *
+ * Must run FIRST in this window: it is the window's only free offer slot, and
+ * the retry leg below depends on the marker state this failure leaves behind.
+ */
+async function checkDefeatedWriteReportsFailure(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const enableAction = t('Enable and Reload Window')
+  const offer = t('Terminal images need VS Code image rendering, but terminal.integrated.enableImages is off, so dsh-tui shows block characters instead of real images. The setting takes effect only after a window reload, and reloading closes running dsh-tui terminals.')
+  const messages: string[] = []
+  try {
+    // The override stays in place for the whole body: the effective value must
+    // remain false while the retry leg observes the state this failure leaves.
+    await images.update('enableImages', false, vscode.ConfigurationTarget.Workspace)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => {
+        messages.push(String(message))
+        // Accept the enable offer; let the failure message pass through
+        // unanswered (`applyImageSetupChoice` shows it without awaiting).
+        return String(message) === offer ? enableAction : undefined
+      },
+      async () => { await startAndReadEnv() },
+    )
+    assert.equal(messages[0], offer, 'the leg must start from the one-click enable offer')
+    // The extension writes Global inside the click and then rules on the
+    // EFFECTIVE value, so the verdict arrives one turn later.
+    await poll(() => (messages.length >= 2 ? messages : undefined), 15000)
+    assert.equal(messages.length, 2, `exactly two messages expected, got ${messages.length}: ${messages.join(' | ')}`)
+    assert.equal(
+      messages[1],
+      t('Could not enable terminal image rendering automatically. Set terminal.integrated.enableImages to true in Settings and reload the window. Reloading closes all running dsh-tui terminals; without a reload the setting does not take effect.'),
+      'a write that a higher-priority override defeats must take the manual path, not offer a reload that cannot help',
+    )
+    assert.equal(
+      readEnableImages(),
+      false,
+      'the override must still pin the effective value to false — that is the state the failed write has to detect',
+    )
+  } finally {
+    await images.update('enableImages', undefined, vscode.ConfigurationTarget.Workspace)
+  }
+  console.log('[e2e] PASS images: a write defeated by a higher-priority override reports failure')
+}
+
+/**
  * (a0) The reload explanation describes a state THIS window is in, so it must
  * survive a profile that already answered the one-time prompt in an EARLIER
  * window: the setting really is on, this window really has no renderer, and
@@ -1778,7 +1835,7 @@ async function checkAutoRemovesInheritedProtocol(): Promise<void> {
 }
 
 /**
- * A leg (a0 + a1 + a2) plus the auto-delete leg (d), host
+ * A leg (c0 + a0 + a1 + a2) plus the auto-delete leg (d), host
  * `DSH_E2E_IMAGE_MODE=images-off`: the window started with
  * `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
  * launching against a wiped `--user-data-dir` (no settings.json).
@@ -1799,6 +1856,9 @@ async function runImagesOffSubset(): Promise<void> {
   const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
   const images = vscode.workspace.getConfiguration('terminal.integrated')
   try {
+    // First, and before the profile is marked as prompted: the offer is the
+    // window's one free slot (③).
+    await checkDefeatedWriteReportsFailure(images)
     await checkPromptedProfileStillExplainsReload(api, images)
     await checkInWindowWriteStaysNone(images)
     await checkOffInjectsNone(images)
