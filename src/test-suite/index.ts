@@ -299,11 +299,47 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
     console.log('[e2e] SKIP real-resume: no DSH sessions found')
     return
   }
-  const countSessions = (): number => {
+  // ---- Session counting, SCOPED to this workspace (KNOWN-ISSUES C-1) -----
+  // This guard answers exactly one question: did the resume THIS case
+  // triggered create a new session? The previous shape counted every project
+  // group under `~/.dsh/sessions`, i.e. it answered "did any dsh session
+  // anywhere on this machine appear during these 35 s?" — so a concurrent TUI
+  // in an unrelated project turned the case red and aborted the whole suite
+  // (2026-10-06: +3 dirs, all under the `flow-comet` project group, none of
+  // them this case's doing).
+  //
+  // Why narrowing to the workspace's own group keeps the semantics: the
+  // extension creates the session terminal with the WORKSPACE ROOT as its cwd
+  // and appends that same root as the launcher's workspace target, which the
+  // TUI resolves into the `meta.cwd` a fresh session is created with
+  // (`config.workspace ?? DSH_TUI_WORKSPACE_TARGET`). So a resume that falls
+  // through to a fresh session (randomUUID) can only write its directory under
+  // THIS workspace's project group, while a successful resume writes no
+  // directory at all. Every other group under the root holds other projects'
+  // sessions, which this launch cannot reach — counting them measured the
+  // machine, not the resume.
+  const launchCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  // A project group dir IS the cwd encoding (`--D-a-b--`): separators collapse
+  // into `-` (lossy) and the name carries whatever case the cwd was spelled
+  // with (VS Code's fsPath may lower-case the drive; a realpath on the way in
+  // may restore it). Match on the folded form — case and separators removed —
+  // so the group is recognised under any spelling, and so a group the failure
+  // itself creates is matched by the `after` listing as well.
+  const foldPath = (value: string): string => value.replace(/[:\\/.-]/g, '').toLowerCase()
+  const workspaceGroupNames = (): string[] => {
+    const key = foldPath(launchCwd ?? '')
+    if (key === '') return []
+    try {
+      return readdirSync(sessionsRoot).filter(name => foldPath(name) === key)
+    } catch {
+      return []
+    }
+  }
+  /** Session dirs under this workspace's group — never the whole machine. */
+  const countWorkspaceSessions = (): number => {
     let n = 0
-    for (const group of readdirSync(sessionsRoot)) {
+    for (const group of workspaceGroupNames()) {
       const g = join(sessionsRoot, group)
-      if (!statSync(g).isDirectory()) continue
       for (const e of readdirSync(g)) if (statSync(join(g, e)).isDirectory()) n++
     }
     return n
@@ -317,17 +353,21 @@ test('resumeSession resumes a REAL session (guarded)', async () => {
 
   // Observable (verified against the real launcher): a SUCCESSFUL resume
   // does NOT create a new session; a failed resume falls through to a fresh
-  // session (randomUUID) → a new session dir appears.
-  const before = countSessions()
+  // session (randomUUID) → a new session dir appears — in this workspace's
+  // project group, which is the only group this launch can write to.
+  const before = countWorkspaceSessions()
+  console.log(
+    `[e2e] real-resume guard scope: ${JSON.stringify(workspaceGroupNames())} (${before} session dirs)`,
+  )
   await vscode.commands.executeCommand('dsh-tui-vscode.resumeSession', realId)
   await sleep(35000)
-  const after = countSessions()
+  const after = countWorkspaceSessions()
   // Stop the real session in the terminal (best effort).
   await vscode.commands.executeCommand('dsh-tui-vscode.kill')
   assert.equal(
     after,
     before,
-    `resume of ${realId} failed: a fresh session was created (${before} -> ${after})`,
+    `resume of ${realId} failed: a fresh session was created in this workspace's project group (${before} -> ${after})`,
   )
 })
 
