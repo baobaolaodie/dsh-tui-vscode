@@ -16,6 +16,18 @@
 
 ### Fixed
 
+## [0.7.5] - 2026-10-06
+
+> 经 PR [#39](https://github.com/baobaolaodie/dsh-tui-vscode/pull/39) 合并
+
+### Added
+
+- **新增设置 `dsh-tui-vscode.imageProtocol`（`sixel` 默认 / `auto` / `none`）**：决定扩展导出什么 `DSH_TUI_IMAGE_PROTOCOL`。`sixel`（默认）保留下方所述的能力门禁行为；`auto` 不导出任何变量、把决定权交回 dsh-tui；`none` 恒为字符画兜底。
+
+### Changed
+
+### Fixed
+
 - **适配 dsh-tui 0.13.0 的立绘系统后，VS Code 集成终端里的终端图片不再空白（现固定 Sixel，并写明配置路径）**：立绘空白正是在 **dsh-tui 0.13.0** 上首次出现，本次即针对该版本的立绘处理做适配。扩展现在为它启动的每个会话导出 `DSH_TUI_IMAGE_PROTOCOL`——默认在**本窗口启动时** `terminal.integrated.enableImages` 已开启的情况下导出 `sixel`，其余情况导出 `none`（图像区域因此总是回退为可见的半块字符画，而不是一片空白），把 `dsh-tui-vscode.imageProtocol` 显式设为 `none` 时恒为 `none`，设为 `auto` 时不导出该变量。VS Code 的 `@xterm/addon-image` 会对 Kitty 图形协议查询回一个从未经真实绘制验证的 `OK`，而 dsh-tui 让 Kitty 优先于 Sixel——于是图片被擦掉后再没人重绘；固定 Sixel 可绕开这条路径。启用 `terminal.integrated.enableImages` **必须重载窗口**，注入的变量需 **dsh-tui ≥ 0.10.0**（更老版本会忽略它——无害）。会话启动时若该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的设置。
 
 - **终端图片的能力判定改用「窗口启动快照」：设置已写入但未重载时保持字符画，而不是变成空白**：门禁读**两个观测**——窗口启动时快照一次的 `terminal.integrated.enableImages` 值（`activate()` 读取，本窗口内刻意不刷新）**与**实时值——只有两者都为真才注入 `sixel`。因此在未重载的情况下写入该设置（无论是扩展自己的「启用并重载窗口」点击，还是你改的 `settings.json`），本窗口余下的会话仍导出 `none`；这一状态现在会明确弹一次「需重载窗口后才生效」的提示并提供**重载窗口**动作，与点击路径共用同一句文案（此前这条路径静默通过，图像槽位正是这样变成永久空白的）。只有重载之后启动的会话才会拿到 `sixel`；设置写入失败是「只提示一次」的唯一刻意例外——那次什么都没写进去，所以下次启动会话会再问一次。
