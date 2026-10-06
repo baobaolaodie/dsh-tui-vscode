@@ -15,6 +15,7 @@ import {
   normalizeTerminalImageProtocol,
   resolveTerminalImageProtocol,
   shouldOfferImageSetup,
+  shouldShowImageSetupPrompt,
   resolveTerminalImageCapability,
   buildLaunchEnv,
   type TerminalImageProtocol,
@@ -916,5 +917,40 @@ test('extension.ts routes the image setup offer through the preference gate (Sou
     calls[0].getText(extensionFile),
     /shouldOfferImageSetup\(/,
     'the offer must pass through shouldOfferImageSetup, or an explicit none is still asked to enable images',
+  )
+})
+
+// Sourcery ⑥:写失败后「下次再问」的承诺由两处状态承担——窗口内的内存标记,以及
+// globalState 里的持久标记。清持久标记是异步的,可能被延迟甚至拒绝,此时 globalState
+// 里仍留着「已问过」;旧的 `内存 || 持久` 判定会让它压掉刚承诺的重试:用户既没被写进
+// 设置,也被永久静默。下面把窗口内状态变成三态并让它在「重试」这件事上具有权威性。
+test('the in-window retry outranks a stale persisted prompt marker (Sourcery ⑥)', () => {
+  // 本窗口还没问过:看持久标记——没有(或读不到)就问,上一个窗口问过就不问(既有跨窗口去重)
+  assert.equal(shouldShowImageSetupPrompt('idle', undefined), true, 'a first ask must go out')
+  assert.equal(shouldShowImageSetupPrompt('idle', false), true, 'a cleared marker must not block a first ask')
+  assert.equal(shouldShowImageSetupPrompt('idle', true), false, 'a previous window already asked')
+  // 本窗口已问过:不问,持久标记此刻是什么都不影响(既有一次性语义)
+  assert.equal(shouldShowImageSetupPrompt('asked', true), false)
+  assert.equal(shouldShowImageSetupPrompt('asked', undefined), false)
+  // 写失败后的重试:即使持久标记仍在(清除被延迟/被拒绝),也必须问——这正是⑥
+  assert.equal(shouldShowImageSetupPrompt('retry', true), true, 'a stale persisted marker must not eat the retry')
+  assert.equal(shouldShowImageSetupPrompt('retry', false), true)
+  assert.equal(shouldShowImageSetupPrompt('retry', undefined), true)
+})
+
+// 上面那条纯函数只有在接线真的用它、且失败路径真的把窗口内状态置为 retry 时才起作用;
+// extension.ts 无法被 `npm test` require,所以沿用 AST 结构护栏钉住这两处接线。
+test('extension.ts arms the retry on a failed write through the memory gate (Sourcery ⑥)', () => {
+  assert.ok(
+    importedNames(extensionFile, './session').includes('shouldShowImageSetupPrompt'),
+    `${extensionSourcePath} must import shouldShowImageSetupPrompt from './session'`,
+  )
+  const reset = findFunction(extensionFile, 'resetImageSetupPrompt')
+  if (reset === undefined) {
+    assert.fail(`${extensionSourcePath} must declare resetImageSetupPrompt`)
+  }
+  assert.ok(
+    stringLiteralsIn(reset).includes('retry'),
+    'the failure path must arm the in-window retry state, or a stale persisted marker can silence the next session start',
   )
 })

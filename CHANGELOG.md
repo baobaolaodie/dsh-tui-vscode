@@ -30,6 +30,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - **`imageProtocol: none` no longer gets the "enable images" prompt**: the setup offer was handed to the prompt regardless of the protocol preference, so a user who explicitly chose character art was still asked to turn image rendering on — and, because the one-time marker is written before the notification is awaited, that unwanted offer also took away the retry the failure path promises. The offer now passes through a preference gate, so `none` suppresses it (and consumes nothing); the `sixel` default, `auto` and unreadable values keep the existing offers.
 
+- **The retry promised after a failed settings write can no longer be silenced by a stale prompt marker**: reopening the prompt cleared the in-memory flag and *then* tried to clear the persisted `globalState` marker, so a delayed or rejected clear left the entry behind — and the next session start saw "already prompted", suppressing exactly the retry the failure had promised, while the setting stayed off. The window now tracks its own three-state memory (`idle` / `asked` / `retry`) and the retry state is authoritative for the rest of the window, whatever the persisted marker still says; one ask per profile across windows and one ask per window are unchanged.
+
 ## [0.7.4] - 2026-10-03
 
 > via PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36)

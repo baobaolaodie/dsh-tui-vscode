@@ -380,6 +380,46 @@ export function shouldOfferImageSetup(
 }
 
 /**
+ * What THIS window remembers about the one-time image-setup prompt.
+ *
+ * Three states rather than a boolean because "not shown" has two very different
+ * meanings (Sourcery ⑥): nothing has been asked yet (`idle`, where the
+ * cross-window marker in globalState must still be honoured), versus a settings
+ * write just failed after asking (`retry`, where the user was explicitly
+ * promised another offer).
+ */
+export type ImageSetupPromptMemory =
+  /** Nothing asked yet in this window — the persisted marker decides. */
+  | 'idle'
+  /** Asked (and marked) in this window — never ask again in it. */
+  | 'asked'
+  /** A write failed after asking — the promised retry is armed. */
+  | 'retry'
+
+/**
+ * Whether the one-time image-setup offer may go out now, from the window's own
+ * memory plus the persisted cross-window marker.
+ *
+ * The failure path clears the persisted marker fire-and-forget, so that clear
+ * can be delayed or rejected; if the marker alone decided, a failed settings
+ * write would leave the user both unserved AND permanently unprompted — the
+ * exact opposite of the retry the failure path promises. `retry` therefore
+ * outranks the persisted marker, and only `idle` consults it, which keeps the
+ * existing semantics intact: one ask per profile across windows, one ask per
+ * window while it is unanswered.
+ *
+ * Pure and total: a missing/unreadable marker counts as "not asked".
+ */
+export function shouldShowImageSetupPrompt(
+  memory: ImageSetupPromptMemory,
+  persistedShown: boolean | undefined,
+): boolean {
+  if (memory === 'retry') return true
+  if (memory === 'asked') return false
+  return persistedShown !== true
+}
+
+/**
  * Host capability for terminal images, derived from the renderer facts that are
  * actually observable in this window — never from the bare
  * `terminal.integrated.enableImages` setting.

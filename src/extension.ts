@@ -24,6 +24,8 @@ import {
   resolveLaunchCommand,
   resolveTerminalImageCapability,
   shouldOfferImageSetup,
+  shouldShowImageSetupPrompt,
+  type ImageSetupPromptMemory,
   type TerminalEnv,
   type TerminalImageProtocol,
   type TerminalImageSetupOffer,
@@ -305,23 +307,30 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // THIS window is in, which a cross-window globalState entry cannot answer for.
   // See promptForImageSetup (REVIEW M-2).
   const IMAGE_SETUP_PROMPTED_KEY = 'dsh-tui-vscode.imageSetupPrompted'
-  // In-memory mirror: globalState.update() is async, and two quick starts must
-  // not race into two notifications.
-  let imageSetupPromptShown = false
+  // What THIS window remembers about the prompt: globalState.update() is async,
+  // two quick starts must not race into two notifications, and — after a failed
+  // settings write — the window's own state has to outrank the persisted marker
+  // the failure path may not have managed to clear (Sourcery ⑥). See
+  // shouldShowImageSetupPrompt for the full truth table.
+  let imageSetupPromptMemory: ImageSetupPromptMemory = 'idle'
 
   /**
-   * Leave the prompt unhandled so a later session start tries again (DESIGN R1).
-   *
-   * This is the ONE deliberate exception to AC-5's one-shot prompt, tracked as
-   * REVIEW F-4: it opens only after a REJECTED settings write (restricted
-   * setting / untrusted workspace), i.e. while the user asked to enable images
-   * and is still unserved. Every outcome a user can actually choose — the
+   * Reopen the prompt so a later session start tries again (DESIGN R1) — the ONE
+   * deliberate exception to AC-5's one-shot prompt, tracked as REVIEW F-4: it
+   * opens only after a settings write FAILED (rejected, or defeated by a
+   * higher-priority override — Sourcery ③), i.e. while the user asked to enable
+   * images and is still unserved. Every outcome a user can actually choose — the
    * enable click, "Not Now", dismissing the notification — stays one-shot for
    * the life of the globalState entry. Dropping the retry instead would strand
    * the user on the manual path with no way back to the one-click route.
+   *
+   * The in-window state is set to `retry` FIRST and deliberately not derived
+   * from the persisted marker: clearing that marker is fire-and-forget and may
+   * be delayed or rejected, and letting the stale entry decide would silence the
+   * very retry this call promises (Sourcery ⑥).
    */
   function resetImageSetupPrompt(): void {
-    imageSetupPromptShown = false
+    imageSetupPromptMemory = 'retry'
     // The rejection must be observed (REVIEW F-9): this very write is what
     // makes the next session start retry, so failing silently would break the
     // promise it carries. `.then(undefined, …)` rather than `.catch(…)`: the
@@ -346,7 +355,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * marker only means "may be asked once more in a later window".
    */
   function markImageSetupPrompted(): void {
-    imageSetupPromptShown = true
+    imageSetupPromptMemory = 'asked'
     void context.globalState.update(IMAGE_SETUP_PROMPTED_KEY, true).then(undefined, error => {
       console.error('[dsh-tui-vscode] could not record the image setup prompt:', error)
     })
@@ -447,7 +456,16 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       await offerWindowReload()
       return
     }
-    if (imageSetupPromptShown || context.globalState.get<boolean>(IMAGE_SETUP_PROMPTED_KEY)) {
+    // One-shot gate: this window's own memory first — `asked` wins outright,
+    // and `retry` (armed by a failed write) wins over the persisted marker the
+    // failure path may not have cleared (Sourcery ⑥) — then the cross-window
+    // marker, which only decides for a window that has not asked yet.
+    if (
+      !shouldShowImageSetupPrompt(
+        imageSetupPromptMemory,
+        context.globalState.get<boolean>(IMAGE_SETUP_PROMPTED_KEY),
+      )
+    ) {
       return
     }
     // Mark as shown BEFORE awaiting the notification: the user must be asked

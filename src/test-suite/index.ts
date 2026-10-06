@@ -1702,6 +1702,7 @@ async function checkNonePreferenceSuppressesOffer(
  * leaves behind.
  */
 async function checkDefeatedWriteReportsFailure(
+  api: Api,
   images: vscode.WorkspaceConfiguration,
 ): Promise<void> {
   const enableAction = t('Enable and Reload Window')
@@ -1735,6 +1736,27 @@ async function checkDefeatedWriteReportsFailure(
       readEnableImages(),
       false,
       'the override must still pin the effective value to false — that is the state the failed write has to detect',
+    )
+    // (Sourcery ⑥) The failure promised a retry, and the persisted marker that
+    // retry has to survive may still be there: clearing it is fire-and-forget,
+    // so a delayed or rejected `globalState.update` leaves exactly this state.
+    // Plant the stale marker and assert the retry still goes out — the window's
+    // own memory must be authoritative for a promise it just made.
+    await sleep(300) // let the fire-and-forget clear settle; a later clear can only remove the staleness
+    await api.seedImageSetupPrompted(true)
+    const retry: string[] = []
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => {
+        retry.push(String(message))
+        return t('Not Now')
+      },
+      async () => { await startAndReadEnv() },
+    )
+    assert.deepEqual(
+      retry,
+      [offer],
+      `a stale persistent prompt marker must not silence the promised retry; got: ${retry.join(' | ')}`,
     )
   } finally {
     await images.update('enableImages', undefined, vscode.ConfigurationTarget.Workspace)
@@ -1901,7 +1923,7 @@ async function runImagesOffSubset(): Promise<void> {
     // window's one free slot (⑤), and it must still be free afterwards for the
     // failure leg (③) to reach the click path.
     await checkNonePreferenceSuppressesOffer(images)
-    await checkDefeatedWriteReportsFailure(images)
+    await checkDefeatedWriteReportsFailure(api, images)
     await checkPromptedProfileStillExplainsReload(api, images)
     await checkInWindowWriteStaysNone(images)
     await checkOffInjectsNone(images)

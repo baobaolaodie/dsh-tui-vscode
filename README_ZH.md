@@ -125,7 +125,7 @@ flowchart LR
 
 吉祥物立绘、聊天里的照片缩略图与图片预览，只有下列条件全部满足时才显示为真实栅格图：
 
-1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。设置写入失败是「只提示一次」的唯一刻意例外：那次什么都没写进去，所以下次启动会话会再给一次一键路径。**写进去了却不生效**也算同一类失败——`terminal.integrated.enableImages` 是窗口作用域，工作区/文件夹级的覆盖会压过扩展写入的全局值，所以扩展写完会**回读有效值**，而不是相信那次写入本身；此时给出手动指引而不是重载引导，提示也不记为「已问过」。
+1. **VS Code 侧**：`terminal.integrated.enableImages` 需为 `true`（VS Code 默认 `false`），且改完必须**重载窗口**——VS Code 只在建立 WebGL 渲染器时加载 `@xterm/addon-image` 渲染器，不重载该设置就不生效。会话启动时若检测到该设置未开，扩展会提示一次并提供「启用并重载窗口」动作，绝不在未经确认时改写你的 VS Code 设置。设置写入失败是「只提示一次」的唯一刻意例外：那次什么都没写进去，所以下次启动会话会再给一次一键路径。**写进去了却不生效**也算同一类失败——`terminal.integrated.enableImages` 是窗口作用域，工作区/文件夹级的覆盖会压过扩展写入的全局值，所以扩展写完会**回读有效值**，而不是相信那次写入本身；此时给出手动指引而不是重载引导，提示也不记为「已问过」。这次重试由**本窗口自己的状态**保证，而不是靠持久标记：清除持久标记是「发出去就不管」的异步写，被延迟或被拒绝都不能把刚做出的承诺压掉。
 2. **渲染器侧**：`terminal.integrated.gpuAcceleration` 不能使 WebGL 渲染器不可用。VS Code 对 `enableImages` 的定义原文即「will only work when `terminal.integrated.gpuAcceleration` is enabled」，而图像 addon 只挂在 WebGL 渲染器上——请把 `gpuAcceleration` 留在 `auto`（默认）或设为 `on`。为 `off`（或旧版的 `canvas` 渲染器取值）时 addon 从未被加载，扩展因此对该窗口的每个会话都导出 `none` 并保持静默：此时「启用 `enableImages`」与「重载窗口」都无法把 addon 找回来。
 3. **dsh-TUI 侧**：扩展会导出 `DSH_TUI_IMAGE_PROTOCOL`，该变量自 **0.10.0** 起被 dsh-TUI 识别（0.10.0–0.13.0 逐版本核对 `lib/types/ink/ink.js`；0.9.0/0.9.1 无此变量）。更老的 dsh-TUI 会直接忽略该变量——无害，但也不会有任何变化。
 
