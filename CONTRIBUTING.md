@@ -12,7 +12,7 @@ Thank you for considering contributing to dsh-tui-vscode! The workflow and conve
 
 - Node.js 24 (dev default; the CI test matrix runs Node 22/24); package management uses **npm** (`npm ci`).
 - The e2e "real dsh-tui resume" test needs a global `dsh` CLI and `dsh-tui` (skipped automatically when absent).
-- UAT that needs a real VS Code install with an isolated profile: `scripts/uat-devhost.ps1` (Windows PowerShell) — it strips the agent shell's `NO_COLOR`/`TERM` before launching (a host started from an agent shell otherwise renders the TUI in greyscale, LESSONS L-013) and prints the commit anchors the evidence must be pinned to (L-015).
+- UAT that needs a real VS Code install with an isolated profile: `scripts/uat-devhost.ps1` (Windows PowerShell) — it strips the agent shell's `NO_COLOR`/`TERM` before launching (a host started from an agent shell otherwise renders the TUI in greyscale, LESSONS L-013) and prints the commit anchors the evidence must be pinned to (L-015) — it recompiles `out/` first (skip with `-SkipBuild`, which flags the anchor as not build-guaranteed) and locates the checkout and `Code.exe` without machine-specific paths (`-Repo` / `-CodeExe` / `DSH_UAT_CODE_EXE` override).
 - Install the local hook for development: `node scripts/install-commit-hook.mjs` (blocks fast-to-revert issues like commit-message format).
 
 ## Running tests

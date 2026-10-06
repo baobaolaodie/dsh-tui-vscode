@@ -12,7 +12,7 @@
 
 - Node.js 24（开发默认；CI 测试矩阵为 Node 22/24）；包管理用 **npm**（`npm ci` 安装）。
 - e2e 的"真实 dsh-tui 恢复测试"需要本机全局安装 `dsh` CLI 与 `dsh-tui`（无则自动跳过该用例）。
-- 需要真实安装的 VS Code + 隔离 profile 的 UAT：用 `scripts/uat-devhost.ps1`（Windows PowerShell）——它启动前剥离 agent shell 的 `NO_COLOR`/`TERM`（否则从 agent shell 起来的宿主会把 TUI 渲染成灰阶，LESSONS L-013），并打印证据必须钉住的提交锚点（L-015）。
+- 需要真实安装的 VS Code + 隔离 profile 的 UAT：用 `scripts/uat-devhost.ps1`（Windows PowerShell）——它启动前剥离 agent shell 的 `NO_COLOR`/`TERM`（否则从 agent shell 起来的宿主会把 TUI 渲染成灰阶，LESSONS L-013），并打印证据必须钉住的提交锚点（L-015）——它会先重编译 `out/`（可加 `-SkipBuild` 跳过，此时输出会标注该锚点未经构建保证），并用与机器无关的方式定位检出目录与 `Code.exe`（可用 `-Repo` / `-CodeExe` / `DSH_UAT_CODE_EXE` 覆盖）。
 - 开发时建议安装本地钩子：`node scripts/install-commit-hook.mjs`（拦截提交消息格式等快速可逆问题）。
 
 ## 运行测试
