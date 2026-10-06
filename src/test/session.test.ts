@@ -630,50 +630,74 @@ const TERMINAL_IMAGE_PROTOCOLS: Record<TerminalImageProtocol, true> = {
   none: true,
 }
 
-test('the package.json imageProtocol enum stays bound to TerminalImageProtocol (F-5)', () => {
+/**
+ * The `dsh-tui-vscode.imageProtocol` declaration in package.json: the enum the
+ * settings UI offers and the default it starts from. Read here so both cases
+ * below compare against ONE expression of what is declared — REVIEW B-1 found
+ * the fallback tier spelled out a second time (a literal `'sixel'` in the m-3
+ * case), which would go stale the moment the declaration moves to another tier.
+ */
+function declaredImageProtocol(): { enum: string[]; default?: string } {
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as {
     contributes?: {
       configuration?: { properties?: Record<string, { enum?: string[]; default?: string }> }
     }
   }
   const declared = pkg.contributes?.configuration?.properties?.['dsh-tui-vscode.imageProtocol']
-  const declaredEnum = declared?.enum ?? []
+  return { enum: declared?.enum ?? [], default: declared?.default }
+}
+
+test('the package.json imageProtocol enum and default stay bound to TerminalImageProtocol (F-5)', () => {
+  const declared = declaredImageProtocol()
+  const declaredEnum = declared.enum
   assert.deepEqual(
     [...declaredEnum].sort(),
     Object.keys(TERMINAL_IMAGE_PROTOCOLS).sort(),
     'contributes.configuration enum must list exactly the TerminalImageProtocol values',
   )
   assert.ok(
-    declaredEnum.includes(declared?.default ?? ''),
-    `the declared default (${String(declared?.default)}) must be one of the enum values`,
+    declaredEnum.includes(declared.default ?? ''),
+    `the declared default (${String(declared.default)}) must be one of the enum values`,
   )
-  // T-FIX-08 的 🟢 残留:归一化的兜底档(session.ts 里写死的 'sixel')与 package.json
-  // 声明的 default 是同一决策的两处表达,前面几条只绑了「enum 的取值集合」和
-  // 「default ∈ enum」——都不比较**哪一档是默认**。把 default 改成另一个合法档
-  // (如 none)会全绿,而运行期遇到未知取值仍退到写死的那档。故未知值必须等于声明的
-  // default;取不到 default 时先显式判负,不静默跳过。
+  // T-FIX-08 的 🟢 残留:归一化的兜底档与 package.json 声明的 default 是同一决策的
+  // 两处表达,前面几条只绑了「enum 的取值集合」和「default ∈ enum」——都不比较
+  // **哪一档是默认**。把 default 改成另一个合法档(如 none)会全绿,而运行期遇到未知
+  // 取值仍退到归一化里写死的那档。故未知值必须等于声明的 default;取不到 default 时
+  // 先显式判负,不静默跳过。
   assert.ok(
-    declared?.default,
-    `package.json must declare a default for dsh-tui-vscode.imageProtocol (got ${String(declared?.default)})`,
+    declared.default,
+    `package.json must declare a default for dsh-tui-vscode.imageProtocol (got ${String(declared.default)})`,
   )
   assert.equal(
     normalizeTerminalImageProtocol('unknown-tier'),
-    declared?.default,
-    `an unknown tier must fall back to the declared default (${String(declared?.default)})`,
+    declared.default,
+    `an unknown tier must fall back to the declared default (${String(declared.default)})`,
   )
 })
 
 // m-3:归一化是取值空间**唯一**的入口——设置可以是手写的 settings.json,也可能来自
-// 未来加了档而运行期还没跟上的版本,所以未知值必须落安全档 sixel(再由能力门禁决定
-// 注入与否,见 resolveTerminalImageProtocol),绝不把未知字符串原样送进启动路径。
-test('normalizeTerminalImageProtocol keeps every known tier and defaults anything else to sixel (m-3)', () => {
+// 未来加了档而运行期还没跟上的版本,所以未知值必须落到 package.json 声明的那一档
+// (今天即安全档 sixel;再由能力门禁决定注入与否,见 resolveTerminalImageProtocol),
+// 绝不把未知字符串原样送进启动路径。
+test('normalizeTerminalImageProtocol keeps every known tier and defaults anything else to the declared default (m-3)', () => {
   for (const known of ['auto', 'sixel', 'none'] as const) {
     assert.equal(normalizeTerminalImageProtocol(known), known, `the known tier ${known} must survive unchanged`)
   }
   // 空值 / 上游有而本扩展没有的档(kitty) / 大小写不同(设置是枚举选择器,只有精确值
-  // 才算已知)一律落 sixel——这与 resolveTerminalImageProtocol 的未知值出口同档。
+  // 才算已知)一律落**声明的那一档**——这与 resolveTerminalImageProtocol 的未知值出口
+  // 同档。B-1:这里曾把兜底档写死为字面量 'sixel',与 package.json 的声明构成第二处
+  // 静默表达:声明改档而这条断言不改 ⇒ 假红;声明改了而实现没跟 ⇒ 这条断言也看不出。
+  const declaredDefault = declaredImageProtocol().default
+  assert.ok(
+    declaredDefault,
+    `package.json must declare a default for dsh-tui-vscode.imageProtocol (got ${String(declaredDefault)})`,
+  )
   for (const unknown of [undefined, '', 'kitty', 'AUTO']) {
-    assert.equal(normalizeTerminalImageProtocol(unknown), 'sixel', `${String(unknown)} must fall back to sixel`)
+    assert.equal(
+      normalizeTerminalImageProtocol(unknown),
+      declaredDefault,
+      `${String(unknown)} must fall back to the declared default (${String(declaredDefault)})`,
+    )
   }
 })
 
