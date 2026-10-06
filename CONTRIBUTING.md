@@ -65,6 +65,8 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 1. **A new version number is mandatory**: Marketplace versions cannot be overwritten or reused after deletion — every release must use an incremented version number (uploading the same version is rejected).
 2. **CHANGELOG**: move the `Unreleased` content into a version section `## [x.y.z] - date`, linking the PRs merged in this batch (the release-consistency CI requires a PR link or a direct-push marker in every version section).
 3. **Five-point sync**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) — verified by CI.
-4. `npm run package`, then upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
-5. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
-6. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
+4. `npm run package` to build the vsix.
+5. **Compare the packaged size with the last release** before uploading: `gh release view <prev-tag> --json assets`. An order-of-magnitude jump means `.vscodeignore` is letting a local tool directory into the package — fix it before uploading (see LESSONS L-004 / L-018).
+6. Upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
+7. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
+8. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
