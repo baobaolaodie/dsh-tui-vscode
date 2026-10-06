@@ -420,6 +420,74 @@ export function shouldShowImageSetupPrompt(
 }
 
 /**
+ * The scope-level values `Configuration.inspect()` reports for a setting: what a
+ * user EXPLICITLY wrote into each writable scope, as opposed to the value the
+ * scopes resolve to together. Only the two scopes that can outrank a Global
+ * write are modelled — a `window`-scoped setting that supports no language
+ * overrides (`terminal.integrated.enableImages` is exactly that) can never have
+ * a language-scoped value — and `undefined` means "this scope sets nothing",
+ * which is not an override. The fields are ordered by precedence — the folder
+ * value outranks the workspace value — and the verdict reads them down that
+ * chain, exactly as VS Code resolves the setting itself.
+ */
+export interface ConfigurationScopeValues<T> {
+  /** The workspace-folder (`.vscode/settings.json` of one folder) value. */
+  workspaceFolderValue?: T
+  /** The workspace value. */
+  workspaceValue?: T
+}
+
+/**
+ * Whether a higher-precedence EXPLICIT value defeats the Global write the
+ * "Enable and Reload Window" click performs — the verdict that must be reached
+ * BEFORE writing, never by reading the setting back afterwards.
+ *
+ * `terminal.integrated.enableImages` has window scope, so a workspace or folder
+ * override outranks the Global value the extension writes; a write that succeeds
+ * but cannot take effect must take the manual failure path instead of offering a
+ * reload that would change nothing (Sourcery ③). The v0.7.5 attempt at that
+ * verdict re-read the effective value right after `update()` resolved — but
+ * VS Code resolves that promise before the new value reaches this extension
+ * host's configuration model, so the read could still see the old `false` and
+ * sent every successful click down the failure path (the opposite bug). Reading
+ * the scopes beforehand depends on no write-visibility timing at all: no write
+ * happens when the verdict is "defeated", and a clean profile is judged from
+ * what the scopes held before it, which is exactly the state the write will
+ * modify.
+ *
+ * The verdict belongs to the HIGHEST-PRECEDENCE scope that is DEFINED, because
+ * that is the scope VS Code resolves the setting from (Sourcery:
+ * "Higher-precedence folder setting is ignored"): it reads
+ * `workspaceFolderValue` first, then `workspaceValue`, then the Global value
+ * this write sets. `undefined` means that scope sets nothing — it is not an
+ * override, so it decides nothing and the search moves down one scope; a
+ * DEFINED `false` at the deciding scope is what defeats the write, and a
+ * DEFINED `true` there is the effective value already being on, which the write
+ * leaves alone and the reload offer can legitimately serve. Judging every scope
+ * instead — "any `false` wins" — got the folder-true/workspace-false pair
+ * backwards: the effective setting was already `true`, yet the click skipped
+ * the write and took the manual path, so the user never got the reload that
+ * would load the renderer. Reading the scopes as a precedence chain is not
+ * optimism: it is the same resolution order VS Code's own configuration model
+ * applies.
+ *
+ * Pure and total, and conservative where it cannot know: an unreadable
+ * inspection (the setting is not registered in this VS Code build, or its
+ * schema moved) cannot prove the write will take effect, so it fails closed.
+ */
+export function isEnableImagesWriteDefeated(
+  scopes: ConfigurationScopeValues<boolean> | undefined,
+): boolean {
+  if (scopes === undefined) return true
+  // Folder first: it outranks the workspace scope.
+  if (scopes.workspaceFolderValue !== undefined) return scopes.workspaceFolderValue === false
+  // No folder value: the workspace scope decides.
+  if (scopes.workspaceValue !== undefined) return scopes.workspaceValue === false
+  // Nothing sets this setting: the Global write is the effective value.
+  return false
+}
+
+/**
  * Host capability for terminal images, derived from the renderer facts that are
  * actually observable in this window — never from the bare
  * `terminal.integrated.enableImages` setting.
