@@ -23,6 +23,7 @@ import {
   normalizeTerminalLocation,
   resolveLaunchCommand,
   resolveTerminalImageCapability,
+  shouldOfferImageSetup,
   type TerminalEnv,
   type TerminalImageProtocol,
   type TerminalImageSetupOffer,
@@ -464,18 +465,30 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     await applyImageSetupChoice()
   }
 
+  /**
+   * Start (or resume) a dsh-tui session: read the settings ONCE for this launch
+   * (REVIEW F-8), offer the image setup while it is still both possible and
+   * wanted, then create the terminal and hand the launch command to the
+   * send-once gate. The offer is deliberately fire-and-forget: DESIGN D5 keeps
+   * that side quest from ever affecting the launch itself.
+   */
   function runCommand(resume: boolean, resumeSession?: string): void {
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
     // let that side quest affect the launch itself. The offer comes from the
     // window-start capability snapshot, so a write this window has not reloaded
-    // into asks for the reload instead of going silent (F-3).
+    // into asks for the reload instead of going silent (F-3). An explicit
+    // `imageProtocol: none` then suppresses it: asking a user who chose
+    // character art to enable images is pointless, and it would consume the
+    // one-time marker for a prompt they never wanted (Sourcery ⑤).
     const imageCapability = resolveTerminalImageCapability(
       hostImagesAtWindowStart,
       cfg.imagesEnabledSetting,
       gpuAccelerationAtWindowStart,
     )
-    void promptForImageSetup(imageCapability.offer).catch(error =>
+    void promptForImageSetup(
+      shouldOfferImageSetup(cfg.imageProtocol, imageCapability.offer),
+    ).catch(error =>
       console.error('[dsh-tui-vscode] image setup prompt failed:', error),
     )
     const isWindows = process.platform === 'win32'

@@ -14,6 +14,7 @@ import {
   normalizeTerminalLocation,
   normalizeTerminalImageProtocol,
   resolveTerminalImageProtocol,
+  shouldOfferImageSetup,
   resolveTerminalImageCapability,
   buildLaunchEnv,
   type TerminalImageProtocol,
@@ -433,6 +434,36 @@ test('an unrecognized preference still lands on the capability gate', () => {
   assert.equal(resolveTerminalImageProtocol(unknown, false), 'none')
 })
 
+// Sourcery ⑤:把 dsh-tui-vscode.imageProtocol 显式设为 none 就是「我就要字符画」的
+// 明示选择,此时再弹「启用图片」引导既与选择相悖,又会消耗一次性的提示标记(标记在
+// 通知弹出前就写入,一旦写下,后续启动再也不会引导)——用户什么也没得到,还丢了重试。
+// 引导与偏好因此收口成这一个纯函数判定,extension.ts 只做细接线。
+test('an explicit none preference suppresses the image setup offer (Sourcery ⑤)', () => {
+  for (const offer of ['enableImages', 'reloadWindow'] as const) {
+    assert.equal(
+      shouldOfferImageSetup('none', offer),
+      undefined,
+      `an explicit none must suppress the ${offer} offer instead of consuming the one-time prompt`,
+    )
+  }
+  // 其余档位保持既有引导行为:未设置(默认 sixel)/ sixel / auto
+  for (const preference of [undefined, 'sixel', 'auto'] as const) {
+    assert.equal(
+      shouldOfferImageSetup(preference, 'enableImages'),
+      'enableImages',
+      `preference=${String(preference)} must keep the enable offer`,
+    )
+    assert.equal(
+      shouldOfferImageSetup(preference, 'reloadWindow'),
+      'reloadWindow',
+      `preference=${String(preference)} must keep the reload offer`,
+    )
+  }
+  // 没有引导时依旧是「没有」:这道门只做抑制,绝不凭空造出引导
+  assert.equal(shouldOfferImageSetup('none', undefined), undefined)
+  assert.equal(shouldOfferImageSetup('sixel', undefined), undefined)
+})
+
 test('buildLaunchEnv injects DSH_TUI_IMAGE_PROTOCOL per the host capability gate (AC-1 / AC-2)', () => {
   assert.equal(
     buildLaunchEnv({ lang: 'zh', imageProtocol: 'sixel', hostImagesEnabled: true }).DSH_TUI_IMAGE_PROTOCOL,
@@ -845,5 +876,45 @@ test('extension.ts carries no second imageProtocol value space (m-3)', () => {
   assert.ok(
     importedNames(extensionFile, './session').includes('normalizeTerminalImageProtocol'),
     `${extensionSourcePath} must import normalizeTerminalImageProtocol from './session'`,
+  )
+})
+
+/** 所有 `promptForImageSetup(...)` 调用点(锚点找不到时由断言显式判负)。 */
+function offerPromptCalls(file: ts.SourceFile): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'promptForImageSetup'
+    ) {
+      calls.push(node)
+    }
+    node.forEachChild(visit)
+  }
+  visit(file)
+  return calls
+}
+
+// Sourcery ⑤ 的另一半:「弹之前先过门」必须真的接上。extension.ts 在模块顶层
+// import 'vscode',`npm test` 无法 require 它,所以这里沿用 m-3 的结构护栏形态:
+// 断言偏好门被引入,且唯一的引导调用点确实把 offer 从它手里取——只把引导函数换个
+// 参数(例如直接把 imageCapability.offer 传进去)在运行期是「用户选了 none 仍被
+// 打扰」,类型系统看不出来,这条能看出来。
+test('extension.ts routes the image setup offer through the preference gate (Sourcery ⑤)', () => {
+  assert.ok(
+    importedNames(extensionFile, './session').includes('shouldOfferImageSetup'),
+    `${extensionSourcePath} must import shouldOfferImageSetup from './session'`,
+  )
+  const calls = offerPromptCalls(extensionFile)
+  assert.equal(
+    calls.length,
+    1,
+    `expected exactly one promptForImageSetup call site in ${extensionSourcePath}, got ${calls.length}`,
+  )
+  assert.match(
+    calls[0].getText(extensionFile),
+    /shouldOfferImageSetup\(/,
+    'the offer must pass through shouldOfferImageSetup, or an explicit none is still asked to enable images',
   )
 })

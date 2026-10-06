@@ -28,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 - **A settings write that a higher-priority override defeats is now reported as a failure instead of a success**: `terminal.integrated.enableImages` has window scope, so a workspace or folder override outranks the Global value the "Enable and Reload Window" click writes — the update resolved, the extension offered the reload and marked the one-time prompt as answered, while image rendering stayed off with no further offer. The write is now followed by a read of the **effective** value, and anything but `true` takes the existing failure path: the manual instructions appear and the prompt is reset so a later session start can retry.
 
+- **`imageProtocol: none` no longer gets the "enable images" prompt**: the setup offer was handed to the prompt regardless of the protocol preference, so a user who explicitly chose character art was still asked to turn image rendering on — and, because the one-time marker is written before the notification is awaited, that unwanted offer also took away the retry the failure path promises. The offer now passes through a preference gate, so `none` suppresses it (and consumes nothing); the `sixel` default, `auto` and unreadable values keep the existing offers.
+
 ## [0.7.4] - 2026-10-03
 
 > via PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36)

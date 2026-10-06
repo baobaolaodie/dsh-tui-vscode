@@ -138,7 +138,7 @@ Because VS Code only builds that renderer while it loads a window, the extension
 | Value | Exported | Behavior |
 | --- | --- | --- |
 | `sixel` | `sixel` | Real raster images while terminal image rendering is on; with `enableImages` set to `false`, the default degrades to half-block character art, so the image area stays visible instead of going blank. |
-| `none` | `none` | Always half-block character art, even when rendering is on. |
+| `none` | `none` | Always half-block character art, even when rendering is on. The extension also skips the setup prompt for this choice: a user who asked for character art is never nagged to enable images, and the one-time prompt is not consumed by an offer they did not want. |
 | `auto` | *(removed)* | **Remove** `DSH_TUI_IMAGE_PROTOCOL` from the session environment and let dsh-TUI decide on its own — the opt-out path for when upstream protocol detection is fixed. Merely not writing the key would not be enough: VS Code overlays this env onto the environment the terminal would inherit, so a value exported by your own shell profile (or inherited from the VS Code process) would still reach dsh-tui and silently pin that protocol. |
 
 **Verified combination**: Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0. Other platforms, remote setups and other VS Code versions are **unverified**; the character-art fallback keeps the worst case visible rather than blank.

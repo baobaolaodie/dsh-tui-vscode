@@ -1645,6 +1645,46 @@ const readEnableImages = (): boolean =>
   vscode.workspace.getConfiguration('terminal.integrated').get<boolean>('enableImages', false)
 
 /**
+ * (c1) `imageProtocol: none` means "character art is what I want": the setup
+ * offer must not appear, and it must not consume the window's one-time prompt
+ * marker either — the marker is written BEFORE the notification is awaited, so
+ * a prompt the user never wanted would silently take the promised retry away
+ * (Sourcery ⑤).
+ *
+ * The non-consumption half is asserted by the NEXT leg: this window's only free
+ * offer slot is still available, so `checkDefeatedWriteReportsFailure` sees the
+ * one-click enable offer instead of nothing. Runs in the state that would
+ * normally offer it (setting off, no reload pending).
+ */
+async function checkNonePreferenceSuppressesOffer(
+  images: vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const silent: string[] = []
+  let launched: string[] = []
+  try {
+    await cfg.update('imageProtocol', 'none', vscode.ConfigurationTarget.Global)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => { silent.push(String(message)) },
+      async () => { launched = await startAndReadEnv() },
+    )
+    assert.equal(
+      silent.length,
+      0,
+      `an explicit none must not be asked to enable images: ${silent.join(' | ')}`,
+    )
+    assert.ok(
+      injectedImageProtocol(launched, 'none'),
+      `an explicit none must still reach the session as a protocol value; got: ${launched.join(' | ')}`,
+    )
+  } finally {
+    await cfg.update('imageProtocol', undefined, vscode.ConfigurationTarget.Global)
+  }
+  console.log('[e2e] PASS images: an explicit none preference suppresses the setup offer')
+}
+
+/**
  * (c0) A settings write that `Global` accepts but a higher-precedence override
  * still defeats must be reported as FAILURE (Sourcery ③).
  *
@@ -1657,8 +1697,9 @@ const readEnableImages = (): boolean =>
  * a later start may retry, and no reload is offered for something that would not
  * take effect.
  *
- * Must run FIRST in this window: it is the window's only free offer slot, and
- * the retry leg below depends on the marker state this failure leaves behind.
+ * Must run FIRST of the offer legs in this window: it is the window's only free
+ * offer slot, and the retry leg below depends on the marker state this failure
+ * leaves behind.
  */
 async function checkDefeatedWriteReportsFailure(
   images: vscode.WorkspaceConfiguration,
@@ -1857,7 +1898,9 @@ async function runImagesOffSubset(): Promise<void> {
   const images = vscode.workspace.getConfiguration('terminal.integrated')
   try {
     // First, and before the profile is marked as prompted: the offer is the
-    // window's one free slot (③).
+    // window's one free slot (⑤), and it must still be free afterwards for the
+    // failure leg (③) to reach the click path.
+    await checkNonePreferenceSuppressesOffer(images)
     await checkDefeatedWriteReportsFailure(images)
     await checkPromptedProfileStillExplainsReload(api, images)
     await checkInWindowWriteStaysNone(images)

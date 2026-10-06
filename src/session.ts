@@ -355,6 +355,31 @@ export function normalizeTerminalImageProtocol(value: string | undefined): Termi
 export type TerminalImageSetupOffer = 'enableImages' | 'reloadWindow'
 
 /**
+ * Whether a session start may still OFFER that setup, given what the user asked
+ * for through `dsh-tui-vscode.imageProtocol`.
+ *
+ * An explicit `none` is the user saying "character art is what I want": asking
+ * them to turn image rendering on contradicts that choice, and — because
+ * `promptForImageSetup` marks the prompt as shown BEFORE it awaits the
+ * notification — it would also burn the window's one-time prompt marker, so the
+ * user gets nothing and loses the retry they were promised (Sourcery ⑤). The
+ * capability gate keeps deciding WHICH offer applies (if any); this one only
+ * decides whether that offer is still wanted.
+ *
+ * Pure and total, and deliberately narrow: every other preference — the
+ * `sixel` default, an unreadable/unknown value, and `auto` (which hands the
+ * protocol decision to dsh-tui but says nothing about the host capability) —
+ * keeps the existing offer, and `undefined` in means `undefined` out.
+ */
+export function shouldOfferImageSetup(
+  preference: TerminalImageProtocol | undefined,
+  offer: TerminalImageSetupOffer | undefined,
+): TerminalImageSetupOffer | undefined {
+  if (preference === 'none') return undefined
+  return offer
+}
+
+/**
  * Host capability for terminal images, derived from the renderer facts that are
  * actually observable in this window — never from the bare
  * `terminal.integrated.enableImages` setting.
