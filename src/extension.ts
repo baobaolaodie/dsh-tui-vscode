@@ -435,6 +435,18 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     await offerWindowReload()
   }
 
+  /**
+   * Run the terminal-images setup prompt for one session start, if the caller's
+   * offer says there is still something to do: explain the missing reload (the
+   * branch that is deliberately NOT one-shot — REVIEW M-2), or ask the one-time
+   * "enable and reload" question whose answer decides whether
+   * `applyImageSetupChoice` may write.
+   *
+   * The offer arrives already filtered by `shouldOfferImageSetup` (Sourcery ⑤),
+   * and the one-time question passes the gate in `shouldShowImageSetupPrompt`
+   * (Sourcery ⑥); the reload explanation bypasses that gate on purpose, because
+   * it describes a state THIS window is in rather than asking a favour.
+   */
   async function promptForImageSetup(offer: TerminalImageSetupOffer | undefined): Promise<void> {
     // No offer means this window's snapshot was already true: nothing to fix.
     if (!offer) return

@@ -571,6 +571,18 @@ export interface LaunchEnvInput {
   extra?: Record<string, string>
 }
 
+/**
+ * Compose the env overlay for one session launch: the TUI language, the
+ * host-capability-gated image protocol (with the `auto` tier expressed as a
+ * deletion — see {@link TerminalEnv}), an optional `$DSH_HOME`, and the
+ * `$VISUAL` fallback that only fires while neither `$VISUAL` nor `$EDITOR`
+ * exists in `base`.
+ *
+ * Pure and total: it never reads configuration or the environment directly, so
+ * the same snapshot always yields the same overlay, and `extra` stays the last
+ * writer (the extension's IDE channel pair and resume ids win over anything
+ * computed here).
+ */
 export function buildLaunchEnv(input: LaunchEnvInput): TerminalEnv {
   const base = input.base ?? {}
   const env: TerminalEnv = {}
