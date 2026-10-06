@@ -5,6 +5,7 @@
 .vscode/**
 .smoke/**
 .e2e-workspace/**
+.e2e-git-parent/**
 .vscode-test/**
 npm-cache/**
 out/test/**
