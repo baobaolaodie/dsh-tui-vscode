@@ -1709,6 +1709,12 @@ async function checkNonePreferenceSuppressesOffer(
  * see — and it consumes the window's one free offer slot. The `finally` hands
  * that slot back (the e2e seam clears the window's own memory, the extension API
  * the persisted entry) so the legs below still get their offer.
+ *
+ * The leg also pins that the offer really CARRIES the enable action (Sourcery:
+ * "Missing enable action passes test"): answering the notification by its
+ * message text alone would let the stub fabricate a click the user cannot
+ * perform, and every success assertion here would stay green while the prompt
+ * stopped offering a way to enable images.
  */
 async function checkCleanEnableClickSucceeds(
   api: Api,
@@ -1732,15 +1738,28 @@ async function checkCleanEnableClickSucceeds(
     await withDialogStub(
       'showInformationMessage',
       async (message: string, ...items: string[]) => {
+        const offered = items.map(String)
         messages.push(String(message))
-        actions.push(items.map(String))
-        // Accept the enable offer; leave the reload offer unanswered — pressing
-        // its "Reload Window" action would reload the host mid-suite.
-        return String(message) === offer ? enableAction : undefined
+        actions.push(offered)
+        // Accept the enable offer ONLY when the prompt really offered that
+        // button: a stub that answers on the message text alone fabricates a
+        // click the user could not perform, so the success assertions below
+        // would keep passing after the product stopped handing the action out.
+        // Leave the reload offer unanswered — pressing its "Reload Window"
+        // action would reload the host mid-suite.
+        return String(message) === offer && offered.includes(enableAction) ? enableAction : undefined
       },
       async () => { await startAndReadEnv() },
     )
     assert.equal(messages[0], offer, 'the leg must start from the one-click enable offer')
+    // The button the stub is about to "press" must be one the prompt actually
+    // offered: the notification is the only place a user can enable images
+    // from, so an offer that lost its action must fail this leg instead of
+    // being clicked by the test's own stub.
+    assert.ok(
+      actions[0].includes(enableAction),
+      `the one-click offer must carry the "${enableAction}" action; got: ${JSON.stringify(actions[0])}`,
+    )
     // The verdict is the SECOND message: either the reload offer (the write took
     // effect) or the manual copy (it could not).
     await poll(() => (messages.length >= 2 ? messages : undefined), 15000)
