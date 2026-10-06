@@ -28,7 +28,7 @@
   "config.dsh-tui-vscode.lang.enum.": "Do not set DSH_TUI_LANG; dsh-tui uses its own default (Chinese).",
   "config.dsh-tui-vscode.lang.enum.zh": "Force the Chinese UI.",
   "config.dsh-tui-vscode.lang.enum.en": "Force the English UI.",
-  "config.dsh-tui-vscode.imageProtocol.enum.auto": "Export no protocol value; dsh-tui decides on its own. Kept as the opt-out path for when upstream protocol detection is fixed.",
+  "config.dsh-tui-vscode.imageProtocol.enum.auto": "Remove DSH_TUI_IMAGE_PROTOCOL from the session environment (so a value inherited from the VS Code process or a shell profile cannot leak in); dsh-tui decides on its own. Kept as the opt-out path for when upstream protocol detection is fixed.",
   "config.dsh-tui-vscode.imageProtocol.enum.sixel": "Pin the Sixel protocol: real raster images when terminal.integrated.enableImages is true (reload the window after enabling it) and terminal.integrated.gpuAcceleration is auto or on, half-block character art otherwise. Default.",
   "config.dsh-tui-vscode.imageProtocol.enum.none": "Never use raster images; always render half-block character art. Pick this for text-only output."
 }

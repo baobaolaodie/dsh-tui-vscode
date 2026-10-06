@@ -115,7 +115,7 @@ flowchart LR
 | `dsh-tui-vscode.extraArgs` | `[]` | 每次启动追加的 CLI 参数，如 `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | 终端位置：`editor`（中间编辑区新列）/ `active`（当前编辑列）/ `panel`（底部面板） |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`，写入 `DSH_TUI_LANG` |
-| `dsh-tui-vscode.imageProtocol` | `sixel` | 导出给 `DSH_TUI_IMAGE_PROTOCOL` 的取值：`sixel`（真实栅格图——需 `terminal.integrated.enableImages` 为 `true` **且已重载窗口**，并保持 `terminal.integrated.gpuAcceleration` 为 `auto`/`on`；否则退成半块字符画）、`none`（始终半块字符画）、`auto`（不导出任何取值，交回 dsh-TUI 判定）。需 **dsh-TUI ≥ 0.10.0**。详见[终端图片](#终端图片) |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | 导出给 `DSH_TUI_IMAGE_PROTOCOL` 的取值：`sixel`（真实栅格图——需 `terminal.integrated.enableImages` 为 `true` **且已重载窗口**，并保持 `terminal.integrated.gpuAcceleration` 为 `auto`/`on`；否则退成半块字符画）、`none`（始终半块字符画）、`auto`（把该变量从会话环境中**移除**，交回 dsh-TUI 判定）。需 **dsh-TUI ≥ 0.10.0**。详见[终端图片](#终端图片) |
 | `dsh-tui-vscode.injectEditor` | `true` | 未设 `$VISUAL`/`$EDITOR` 时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的命令 |
 | `dsh-tui-vscode.dshHome` | `""` | 覆盖会话的 `$DSH_HOME`（空 = 继承） |
@@ -139,7 +139,7 @@ flowchart LR
 | --- | --- | --- |
 | `sixel` | `sixel` | 终端图像渲染开启时显示真实栅格图；`enableImages` 为 `false` 时默认档退成半块字符画，保证图像区域可见而不是一片空白。 |
 | `none` | `none` | 即使渲染已开启，也始终使用半块字符画。 |
-| `auto` | *（不导出）* | 不导出任何取值，交回 dsh-TUI 自行判定——上游协议判定修好后的退出路径。 |
+| `auto` | *（移除）* | 把 `DSH_TUI_IMAGE_PROTOCOL` 从会话环境中**移除**，交回 dsh-TUI 自行判定——上游协议判定修好后的退出路径。仅仅「不写这个键」并不够：VS Code 把这份 env 叠加在终端原本要继承的环境之上，所以你自己 shell profile 里导出的值（或从 VS Code 进程继承来的值）仍会抵达 dsh-tui，把它悄悄钉在某个协议上。 |
 
 **已验证组合**：Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0。其他平台、远程环境与其他 VS Code 版本**均未验证**；字符画兜底保证最差情况仍是可见内容而非空白。
 

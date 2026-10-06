@@ -1735,8 +1735,52 @@ async function checkOffInjectsNone(images: vscode.WorkspaceConfiguration): Promi
 }
 
 /**
- * A leg (a0 + a1 + a2), host `DSH_E2E_IMAGE_MODE=images-off`: the window started
- * with `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
+ * (d) `imageProtocol: auto` must DELETE an inherited `DSH_TUI_IMAGE_PROTOCOL`
+ * instead of merely not writing it: `createTerminal` overlays the env onto the
+ * one the terminal would inherit, so an omitted key leaves whatever the VS Code
+ * process (or a profile) exported visible to dsh-tui — which would silently
+ * pin a protocol the user asked to auto-detect (Sourcery ②).
+ *
+ * The inherited fixture is planted by run-tests.ts (`DSH_TUI_IMAGE_PROTOCOL=kitty`
+ * in the launched process env), and the fake launcher reports whatever the child
+ * actually received — so `DSH_TUI_IMAGE_PROTOCOL=` (empty) is the delete and a
+ * surviving `kitty` is the leak.
+ */
+async function checkAutoRemovesInheritedProtocol(): Promise<void> {
+  assert.equal(
+    process.env.DSH_TUI_IMAGE_PROTOCOL,
+    'kitty',
+    'this host must inherit the foreign DSH_TUI_IMAGE_PROTOCOL fixture — run-tests.ts sets it for image hosts',
+  )
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const silent: string[] = []
+  let auto: string[] = []
+  try {
+    await cfg.update('imageProtocol', 'auto', vscode.ConfigurationTarget.Global)
+    await withDialogStub(
+      'showInformationMessage',
+      async (message: string) => { silent.push(String(message)) },
+      async () => { auto = await startAndReadEnv() },
+    )
+    assert.ok(
+      auto.includes('DSH_TUI_IMAGE_PROTOCOL='),
+      `the launcher must still report the key; got: ${auto.join(' | ')}`,
+    )
+    assert.ok(
+      !auto.includes('DSH_TUI_IMAGE_PROTOCOL=kitty'),
+      `auto must remove the value inherited from the VS Code process, not leave it in place; got: ${auto.join(' | ')}`,
+    )
+  } finally {
+    await cfg.update('imageProtocol', undefined, vscode.ConfigurationTarget.Global)
+  }
+  assert.equal(silent.length, 0, `auto has nothing to offer: ${silent.join(' | ')}`)
+  console.log('[e2e] PASS images: auto removes the inherited DSH_TUI_IMAGE_PROTOCOL value')
+}
+
+/**
+ * A leg (a0 + a1 + a2) plus the auto-delete leg (d), host
+ * `DSH_E2E_IMAGE_MODE=images-off`: the window started with
+ * `terminal.integrated.enableImages` off, which run-tests.ts guarantees by
  * launching against a wiped `--user-data-dir` (no settings.json).
  */
 async function runImagesOffSubset(): Promise<void> {
@@ -1758,6 +1802,9 @@ async function runImagesOffSubset(): Promise<void> {
     await checkPromptedProfileStillExplainsReload(api, images)
     await checkInWindowWriteStaysNone(images)
     await checkOffInjectsNone(images)
+    // Last: it changes `dsh-tui-vscode.imageProtocol`, not the enableImages
+    // state the legs above depend on.
+    await checkAutoRemovesInheritedProtocol()
   } finally {
     // Leave no setting — and no prompt marker — behind for a rerun against a
     // surviving profile.

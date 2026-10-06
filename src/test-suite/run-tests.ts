@@ -156,13 +156,20 @@ async function main(): Promise<void> {
     join(imagesOnProfile, 'User', 'settings.json'),
     JSON.stringify({ 'terminal.integrated.enableImages': true }, null, 2) + '\n',
   )
+  // `DSH_TUI_IMAGE_PROTOCOL` is planted in the launched VS Code process env (and
+  // therefore in the environment its terminals inherit) as a foreign value the
+  // extension must not let leak into a session: it is the fixture for the
+  // `imageProtocol: auto` leg, which can only be observed end to end — the
+  // extension host's own process.env cannot stand in for the terminal's
+  // inherited environment, since `createTerminal` overlays rather than replaces
+  // it (Sourcery ②).
   const imageLaunch = async (mode: 'images-off' | 'images-on', profile: string): Promise<void> => {
     const startedAt = Date.now()
     await runTests({
       extensionDevelopmentPath: root,
       extensionTestsPath: join(__dirname, 'index.js'),
       launchArgs: [ws, '--disable-workspace-trust', `--user-data-dir=${profile}`],
-      extensionTestsEnv: { DSH_E2E_IMAGE_MODE: mode },
+      extensionTestsEnv: { DSH_E2E_IMAGE_MODE: mode, DSH_TUI_IMAGE_PROTOCOL: 'kitty' },
     })
     console.log(`[e2e] ${mode} launch completed in ${Date.now() - startedAt}ms`)
   }

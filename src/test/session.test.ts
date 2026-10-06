@@ -418,9 +418,11 @@ test('resolveTerminalImageProtocol lets an explicit none override the host capab
   assert.equal(resolveTerminalImageProtocol('none', false), 'none')
 })
 
-test('resolveTerminalImageProtocol yields nothing for auto (AC-4)', () => {
-  assert.equal(resolveTerminalImageProtocol('auto', true), undefined)
-  assert.equal(resolveTerminalImageProtocol('auto', false), undefined)
+test('resolveTerminalImageProtocol yields the REMOVE marker for auto (AC-4)', () => {
+  // `null`(而不是 undefined)是 VS Code 终端 env 的「删除该变量」标记,见下一条:
+  // auto 必须显式删除继承来的同名值,而不是「不写这个键」。
+  assert.equal(resolveTerminalImageProtocol('auto', true), null)
+  assert.equal(resolveTerminalImageProtocol('auto', false), null)
 })
 
 test('an unrecognized preference still lands on the capability gate', () => {
@@ -461,15 +463,28 @@ test('buildLaunchEnv keeps none when the user disabled images explicitly (AC-3)'
   assert.equal(env.DSH_TUI_IMAGE_PROTOCOL, 'none')
 })
 
-test('buildLaunchEnv never emits DSH_TUI_IMAGE_PROTOCOL for auto (AC-4)', () => {
+// Sourcery ②:auto 档此前「不注入该键」,但 VS Code 的 TerminalOptions.env 是叠加
+// (overlay)而不是替换——继承环境里已有的 DSH_TUI_IMAGE_PROTOCOL 会原样漏进会话,
+// dsh-tui 于是根本没拿到自动判定,反而沿用外部那个陈旧取值(例如 profile 里 export 的
+// kitty)。VS Code 的 env 契约允许把变量显式设为 null 表示**删除**,所以 auto 必须表达
+// 「删掉它」;这也是本函数返回值从 undefined 改成 null 的原因。
+test('auto marks DSH_TUI_IMAGE_PROTOCOL for removal so an inherited value cannot leak (Sourcery ②)', () => {
   for (const hostImagesEnabled of [true, false]) {
     const env = buildLaunchEnv({ lang: 'zh', imageProtocol: 'auto', hostImagesEnabled })
     assert.ok(
-      !Object.keys(env).includes('DSH_TUI_IMAGE_PROTOCOL'),
-      `auto must not inject the key (hostImagesEnabled=${hostImagesEnabled}): ${JSON.stringify(env)}`,
+      Object.keys(env).includes('DSH_TUI_IMAGE_PROTOCOL'),
+      `auto must express the removal instead of omitting the key (hostImagesEnabled=${hostImagesEnabled}): ${JSON.stringify(env)}`,
+    )
+    assert.equal(
+      env.DSH_TUI_IMAGE_PROTOCOL,
+      null,
+      'null is VS Code\'s "remove this variable from the inherited environment" marker',
     )
   }
-  // extra 仍是 last-writer-wins 的显式覆盖通道(既有合并语义不变)
+  // 其余键一律保持字符串(删除标记只属于图像协议这一个键)
+  const env = buildLaunchEnv({ lang: 'zh', imageProtocol: 'auto' })
+  assert.equal(env.DSH_TUI_LANG, 'zh', 'unrelated keys must keep their existing string shape')
+  // extra 仍是 last-writer-wins 的显式覆盖通道——覆盖会赢过删除
   assert.equal(
     buildLaunchEnv({ imageProtocol: 'auto', extra: { DSH_TUI_IMAGE_PROTOCOL: 'sixel' } })
       .DSH_TUI_IMAGE_PROTOCOL,

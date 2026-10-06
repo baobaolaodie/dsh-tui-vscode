@@ -115,7 +115,7 @@ Key points:
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
 | `dsh-tui-vscode.terminalLocation` | `editor` | Terminal placement: `editor` (new editor-area column) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
-| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded** and `terminal.integrated.gpuAcceleration` left at `auto`/`on`; degrades to half-block character art otherwise), `none` (always half-block character art), `auto` (export nothing and let dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
+| `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel` (real raster images — needs `terminal.integrated.enableImages` to be `true` **with the window reloaded** and `terminal.integrated.gpuAcceleration` left at `auto`/`on`; degrades to half-block character art otherwise), `none` (always half-block character art), `auto` (removes the variable from the session environment and lets dsh-TUI decide). Requires **dsh-TUI ≥ 0.10.0**. See [Terminal images](#terminal-images). |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
@@ -139,7 +139,7 @@ Because VS Code only builds that renderer while it loads a window, the extension
 | --- | --- | --- |
 | `sixel` | `sixel` | Real raster images while terminal image rendering is on; with `enableImages` set to `false`, the default degrades to half-block character art, so the image area stays visible instead of going blank. |
 | `none` | `none` | Always half-block character art, even when rendering is on. |
-| `auto` | *(nothing)* | Export nothing and let dsh-TUI decide on its own — the opt-out path for when upstream protocol detection is fixed. |
+| `auto` | *(removed)* | **Remove** `DSH_TUI_IMAGE_PROTOCOL` from the session environment and let dsh-TUI decide on its own — the opt-out path for when upstream protocol detection is fixed. Merely not writing the key would not be enough: VS Code overlays this env onto the environment the terminal would inherit, so a value exported by your own shell profile (or inherited from the VS Code process) would still reach dsh-tui and silently pin that protocol. |
 
 **Verified combination**: Windows 11 (10.0.26200) + VS Code 1.140.0 + dsh-TUI 0.13.0. Other platforms, remote setups and other VS Code versions are **unverified**; the character-art fallback keeps the worst case visible rather than blank.
 

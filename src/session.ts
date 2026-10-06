@@ -431,9 +431,10 @@ export function resolveTerminalImageCapability(
  * drop its half-block fallback and paint nothing — an empty slot is worse than
  * a coarse but visible character image.
  *
- * `auto` is the escape hatch that hands the decision back to dsh-tui itself;
- * it must inject NOTHING (not the string `'auto'`), which is also the exit
- * path once upstream renders kitty correctly.
+ * `auto` is the escape hatch that hands the decision back to dsh-tui itself; it
+ * must REMOVE the variable rather than leave it alone — see
+ * {@link TerminalEnv} — which is also the exit path once upstream renders kitty
+ * correctly.
  *
  * Pure and total: a missing preference means the `sixel` default, and an
  * unknown one — or an unreadable host capability — lands on the same
@@ -442,15 +443,32 @@ export function resolveTerminalImageCapability(
 export function resolveTerminalImageProtocol(
   preference: TerminalImageProtocol | undefined,
   hostImagesEnabled: boolean | undefined,
-): 'sixel' | 'none' | undefined {
+): 'sixel' | 'none' | null {
   // User intent first: an explicit `none` wins over the host capability.
   if (preference === 'none') return 'none'
-  // `auto` = "let dsh-tui decide" — the caller skips the key entirely.
-  if (preference === 'auto') return undefined
+  // `auto` = "let dsh-tui decide": the key must be DELETED, not skipped —
+  // `createTerminal` overlays this env onto the inherited one, so omitting the
+  // key would leak whatever the extension host or the profile exported
+  // (Sourcery ②).
+  if (preference === 'auto') return null
   // `'sixel'` (the default) and anything unrecognized: only a host that can
   // actually paint may be asked for the raster path.
   return hostImagesEnabled === true ? 'sixel' : 'none'
 }
+
+/**
+ * The env overlay handed to `vscode.window.createTerminal({ env })`: a `string`
+ * sets a variable, and **`null` removes it from the session environment**.
+ *
+ * The distinction is the whole point (Sourcery ②): VS Code overlays this object
+ * onto the environment the terminal would otherwise inherit — it does NOT
+ * replace it — so "the key is absent here" means "whatever the parent had stays
+ * visible to dsh-tui", while `null` is the documented delete marker. Only a
+ * value that must really disappear (the `auto` image-protocol tier) uses it;
+ * every other key stays a plain string, so this type cannot silently change the
+ * behavior of the existing injections.
+ */
+export type TerminalEnv = Record<string, string | null>
 
 export interface LaunchEnvInput {
   /** Process environment to respect (e.g. process.env). */
@@ -459,8 +477,9 @@ export interface LaunchEnvInput {
   lang?: string
   /**
    * The `dsh-tui-vscode.imageProtocol` preference, resolved through
-   * {@link resolveTerminalImageProtocol} into DSH_TUI_IMAGE_PROTOCOL;
-   * `auto` deliberately injects nothing.
+   * {@link resolveTerminalImageProtocol} into DSH_TUI_IMAGE_PROTOCOL; `auto`
+   * deliberately REMOVES the key (a `null` in the returned overlay) so an
+   * inherited value cannot reach dsh-tui.
    */
   imageProtocol?: TerminalImageProtocol
   /**
@@ -487,17 +506,17 @@ export interface LaunchEnvInput {
   extra?: Record<string, string>
 }
 
-export function buildLaunchEnv(input: LaunchEnvInput): Record<string, string> {
+export function buildLaunchEnv(input: LaunchEnvInput): TerminalEnv {
   const base = input.base ?? {}
-  const env: Record<string, string> = {}
+  const env: TerminalEnv = {}
   const lang = input.lang?.trim() ?? ''
   if (lang) {
     env.DSH_TUI_LANG = lang
   }
   const imageProtocol = resolveTerminalImageProtocol(input.imageProtocol, input.hostImagesEnabled)
-  if (imageProtocol) {
-    env.DSH_TUI_IMAGE_PROTOCOL = imageProtocol
-  }
+  // Always present: a value, or `null` for the `auto` tier — which is a DELETE
+  // instruction, not an omission (Sourcery ②).
+  env.DSH_TUI_IMAGE_PROTOCOL = imageProtocol
   const dshHome = input.dshHome?.trim() ?? ''
   if (dshHome) {
     env.DSH_HOME = dshHome

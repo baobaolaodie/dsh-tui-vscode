@@ -23,6 +23,7 @@ import {
   normalizeTerminalLocation,
   resolveLaunchCommand,
   resolveTerminalImageCapability,
+  type TerminalEnv,
   type TerminalImageProtocol,
   type TerminalImageSetupOffer,
 } from './session'
@@ -163,7 +164,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // `cfg` is the snapshot the caller read ONCE for this launch (REVIEW F-8):
   // reading the configuration again in here would let the env gate and the
   // session-start prompt judge two different snapshots of the same launch.
-  function buildEnv(cfg: Settings, extra: Record<string, string> = {}): Record<string, string> {
+  /**
+   * Build the terminal env overlay for one launch from the caller's settings
+   * snapshot. The image-protocol gate is resolved HERE rather than at each call
+   * site so the sessions and the prompt of a single launch can never disagree,
+   * and `extra` (the IDE channel pair, resume ids) stays the last writer — see
+   * `buildLaunchEnv` for the merge order. The returned overlay carries VS Code's
+   * `null`-deletes-the-variable marker for the `auto` tier (Sourcery ②).
+   */
+  function buildEnv(cfg: Settings, extra: Record<string, string> = {}): TerminalEnv {
     // The env gate takes the CAPABILITY, not the raw setting: a value written
     // after this window started has no renderer behind it, and asking dsh-tui
     // for sixel without one blanks the image slots (US-3).
@@ -229,7 +238,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     },
   ): boolean => ideServer.broadcastSelection(selection)
 
-  function createTerminal(cfg: Settings, env: Record<string, string>): vscode.Terminal {
+  /**
+   * Open the session terminal: fixed name/icon, the workspace root as cwd, the
+   * configured placement, and the env overlay from `buildEnv` — whose `null`
+   * values VS Code turns into deletions from the inherited environment
+   * (Sourcery ②), which is what makes the `auto` image-protocol tier work.
+   */
+  function createTerminal(cfg: Settings, env: TerminalEnv): vscode.Terminal {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? homedir()
     // Placement is configurable (dsh-tui-vscode.terminalLocation), taken from
     // the snapshot read once per launch (REVIEW F-8) so a settings change still

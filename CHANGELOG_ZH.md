@@ -22,6 +22,8 @@
 
 - **图像门禁现在还要求渲染器本身能加载图像 addon**：此前把 `terminal.integrated.enableImages` 为 `true` 当作「能画图」的证明，但 VS Code 对该设置的定义原文即「will only work when `terminal.integrated.gpuAcceleration` is enabled」，而 `@xterm/addon-image` 只挂在 WebGL 渲染器上。`gpuAcceleration` 为 `off`（或旧版的 `canvas` 渲染器取值）时 addon 从未被加载，那些窗口里的会话却拿到了 `sixel`，dsh-tui 因此丢掉半块字符画兜底——又多一处永久空白的图像槽位。窗口启动快照现在把 `gpuAcceleration` 一并纳入：只有 `auto`/`on` 才允许走栅格路径，其余取值（含读不到）一律导出 `none` 并且**完全不弹**启用引导——因为「启用 `enableImages`」与「重载窗口」都不可能把 addon 找回来。残余风险如实记录、不声称已解决：VS Code 没有「当前实际使用哪个渲染器」的 API，没有可用 GPU 的机器上 `auto` 落到 canvas 渲染器时无法察觉；窗口运行期间改动 `gpuAcceleration` 也要等重载（重启扩展宿主）后才会被重新读取。
 
+- **`imageProtocol: auto` 现在会移除继承来的 `DSH_TUI_IMAGE_PROTOCOL`，而不是「不写这个键」**：`createTerminal` 把这份 env 叠加在终端原本要继承的环境之上、而不是替换它，所以「不注入」意味着扩展宿主、shell profile 或父进程导出的同名值仍会抵达 dsh-tui——它因此根本不会自动判定，而是被钉在那个外来取值上。env 构建器现在用 VS Code 的 `null` 标记表达删除（启动 env 叠加类型仅为这一个键允许 `null`），README 也写明 `auto` 是**移除该变量**而非「不设置它」。
+
 ## [0.7.4] - 2026-10-03
 
 > 经 PR [#36](https://github.com/baobaolaodie/dsh-tui-vscode/pull/36) 合并
