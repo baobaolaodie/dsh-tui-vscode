@@ -39,6 +39,8 @@ import {
   shouldBroadcastSelection,
 } from './auto-mention'
 import { IdeServer, selectionLineRange } from './ide/server'
+import { EditReview } from './edit-review'
+import { NativeReview } from './native-review'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -82,6 +84,9 @@ export interface ExtensionApi {
   sendInput(text: string): void
   /** True while a dsh-tui terminal exists. */
   hasTerminal(): boolean
+  getNativeReviewStatus(): Record<string, unknown>
+  getNativeReviewTestBridge(): unknown
+  getEditReviewTestBridge(): unknown
   /**
    * E2E seam (test-only): write the persistent "image setup prompt already
    * shown" marker directly.
@@ -145,6 +150,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     sessionsTree,
   )
   sessionsTree.startWatching(readSettings().dshHome)
+  const editReview = new EditReview(context, { terminalName: TERMINAL_NAME })
+  context.subscriptions.push(editReview)
+  const nativeReview = new NativeReview(context, editReview)
   // Re-point the tree (and the commands that resolve through it) when the
   // configured DSH home changes: without this, a live config change would keep
   // listing the old home while delete/archive still resolved against it.
@@ -269,7 +277,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       kind === 'panel'
         ? vscode.TerminalLocation.Panel
         : { viewColumn: kind === 'active' ? vscode.ViewColumn.Active : vscode.ViewColumn.Beside }
-    return vscode.window.createTerminal({
+    const terminal = vscode.window.createTerminal({
       name: TERMINAL_NAME,
       cwd,
       env,
@@ -277,6 +285,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       location,
       isTransient: true,
     })
+    editReview.trackTerminal(terminal)
+    return terminal
   }
 
   /** Wait until the shell is ready to accept input (shell integration or a
@@ -520,7 +530,8 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * send-once gate. The offer is deliberately fire-and-forget: DESIGN D5 keeps
    * that side quest from ever affecting the launch itself.
    */
-  function runCommand(resume: boolean, resumeSession?: string): void {
+  async function runCommand(resume: boolean, resumeSession?: string): Promise<void> {
+    await editReview.prepareSession()
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
     // let that side quest affect the launch itself. The offer comes from the
@@ -983,6 +994,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       if (terminal) terminal.sendText(text, false)
     },
     hasTerminal: () => hasTerminal(),
+    getNativeReviewStatus: () => ({ ...nativeReview.lastEvidence, active: nativeReview.session.active, ownedFiles: nativeReview.session.owned.size }),
+    getNativeReviewTestBridge: () => {
+      if (context.extensionMode !== vscode.ExtensionMode.Test) throw Error('Test mode only')
+      return nativeReview
+    },
+    getEditReviewTestBridge: () => {
+      if (context.extensionMode !== vscode.ExtensionMode.Test) throw Error('Test mode only')
+      return editReview
+    },
     // `await`ed rather than fire-and-forget: the caller is the e2e suite, and a
     // rejected write there must fail the case instead of passing it vacuously
     // (the same "no unhandled rejection" rule the F-9 guard enforces).

@@ -30,5 +30,16 @@
   "config.dsh-tui-vscode.lang.enum.en": "强制使用英文界面。",
   "config.dsh-tui-vscode.imageProtocol.enum.auto": "把 DSH_TUI_IMAGE_PROTOCOL 从会话环境中移除（从 VS Code 进程或 shell profile 继承来的同名值因此不会漏进去），由 dsh-tui 自行判定。作为上游协议判定修好后的退出路径保留。",
   "config.dsh-tui-vscode.imageProtocol.enum.sixel": "固定 Sixel 协议：terminal.integrated.enableImages 为 true（开启后需重载窗口）且 terminal.integrated.gpuAcceleration 为 auto 或 on 时显示真实栅格图，否则退成半块字符画。默认值。",
-  "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它；该档位下扩展也不再弹终端图片的启用引导。"
+  "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它；该档位下扩展也不再弹终端图片的启用引导。",
+  "command.dsh-tui-vscode.editKeep.title": "保留 AI 改动",
+  "command.dsh-tui-vscode.editUndo.title": "撤销 AI 改动",
+  "command.dsh-tui-vscode.editShowDiff.title": "对比原稿",
+  "command.dsh-tui-vscode.editKeepAll.title": "保留全部 AI 改动",
+  "command.dsh-tui-vscode.editUndoAll.title": "撤销全部 AI 改动",
+  "view.dsh-tui-vscode.editReview.name": "AI 改动待审",
+  "view.dsh-tui-vscode.editReview.welcome": "还没有待审的 AI 改动。\n\ndsh-tui 会话改动过的文件会出现在这里，可逐个保留 Keep 或撤销 Undo；编辑器里也会标出待审的行。",
+  "config.dsh-tui-vscode.editReview.enabled.description": "跟踪 dsh-tui 会话对文件的改动：在编辑器里标出待审的行，并提供保留 Keep / 撤销 Undo（见「AI 改动待审」视图）。完全在插件层旁观文件变化，不改动 TUI。",
+  "config.dsh-tui-vscode.editReview.exclude.description": "不参与 AI 改动跟踪的 glob 模式（不标注、也不存原稿）。",
+  "command.dsh-tui-vscode.editNextHunk.title": "下一处待审改动",
+  "command.dsh-tui-vscode.editPrevHunk.title": "上一处待审改动"
 }
