@@ -43,6 +43,7 @@ import { EditReview } from './edit-review'
 import { NativeReview } from './native-review'
 
 const TERMINAL_NAME = 'DeepSeek'
+let shutdownReview: (() => Promise<void>) | undefined
 
 interface Settings {
   command: string
@@ -153,6 +154,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const editReview = new EditReview(context, { terminalName: TERMINAL_NAME })
   context.subscriptions.push(editReview)
   const nativeReview = new NativeReview(context, editReview)
+  shutdownReview = async () => {
+    await Promise.all([editReview.shutdown(), nativeReview.shutdown()])
+  }
   // Re-point the tree (and the commands that resolve through it) when the
   // configured DSH home changes: without this, a live config change would keep
   // listing the old home while delete/archive still resolved against it.
@@ -1013,7 +1017,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   }
 }
 
-export function deactivate(): void {
-  // The IDE selection channel server (and its lock file) is torn down via
-  // the context.subscriptions dispose hook registered in activate().
+export async function deactivate(): Promise<void> {
+  // VS Code awaits deactivate; subscription dispose alone cannot guarantee
+  // a debounced review snapshot or ownership update finishes before exit.
+  await shutdownReview?.()
+  shutdownReview = undefined
 }

@@ -11,6 +11,7 @@ const OPEN = 'dsh-tui-vscode.nativeReviewOpen';
 const FINISH = 'dsh-tui-vscode.nativeReviewFinish';
 const STATUS = 'dsh-tui-vscode.nativeReviewStatus';
 const RELEASE = 'dsh-tui-vscode.nativeReviewRelease';
+const RELEASE_CURRENT = 'dsh-tui-vscode.nativeReviewReleaseCurrent';
 const SHOW = 'dsh-tui-vscode.nativeReviewShow';
 class NativeReview {
     constructor(context, legacy) {
@@ -51,7 +52,12 @@ class NativeReview {
             vscode.commands.registerCommand(OPEN, () => this.startOpen()),
             vscode.commands.registerCommand(FINISH, () => this.finish()),
             vscode.commands.registerCommand(STATUS, () => this.showStatus()),
-            vscode.commands.registerCommand(RELEASE, () => this.releaseResolved()),
+            vscode.commands.registerCommand(RELEASE, uri => this.releaseResolved(uri)),
+            vscode.commands.registerCommand(RELEASE_CURRENT, uri => {
+                const selected = uri?.scheme ? uri : vscode.window.activeTextEditor?.document.uri;
+                if (!selected || !this.owns(selected.fsPath)) { void vscode.window.showWarningMessage('Open a native-tracked file first.'); return; }
+                return this.releaseResolved(selected);
+            }),
             vscode.commands.registerCommand(SHOW, uri => this.showReview(uri)),
             this
         );
@@ -102,6 +108,7 @@ class NativeReview {
         const paths = [...this.session.owned];
         if (!this.workspaceState) return Promise.resolve();
         const next = this.persistence.then(() => this.workspaceState.update(OWNERSHIP_KEY, paths));
+        this.lastPersistence = next;
         this.persistence = next.catch(error => this.log(`Ownership persistence failed: ${error.message}`));
         return next;
     }
@@ -233,29 +240,51 @@ class NativeReview {
         }
         if (!this.session.finish()) void vscode.window.showInformationMessage('No active native tracking to finish.');
     }
-    async releaseResolved() {
+    async releaseResolved(target) {
         if (this.disposed || this.releasing) return;
         if (this.launching || this.session.active || this.pending)
             return vscode.window.showWarningMessage('Finish native tracking first.');
         this.releasing = true;
-        try { return await this.releaseResolvedOnce(); }
+        try { return await this.releaseResolvedOnce(target); }
         finally { this.releasing = false; this.refreshStatus(); }
     }
-    async releaseResolvedOnce() {
+    async releaseResolvedOnce(target) {
         const epoch = this.epoch;
-        const paths = [...this.session.owned];
-        if (!paths.length) return vscode.window.showInformationMessage('No files owned by native review.');
+        const paths = target?.scheme === 'file'
+            ? [...this.session.owned].filter(path => path === (process.platform === 'win32' ? target.fsPath.toLowerCase() : target.fsPath))
+            : [...this.session.owned];
+        if (!paths.length) { void vscode.window.showInformationMessage('No files owned by native review.'); return; }
         const confirmed = await vscode.window.showWarningMessage('Only continue after every selected native change has been kept or undone. This returns these files to ordinary tracking; it does not resolve native edits for you.', { modal: true }, 'All native changes resolved');
         if (confirmed !== 'All native changes resolved' || this.disposed || epoch !== this.epoch) return;
-        let docs;
-        try { docs = await Promise.all(paths.map(path => vscode.workspace.openTextDocument(vscode.Uri.file(path)))); }
-        catch (error) {
-            this.log(error);
-            return vscode.window.showWarningMessage('Could not open every tracked file. Native ownership was retained.');
+        const docs = [], missing = [];
+        const isMissing = error => error?.code === 'ENOENT' || error?.code === 'FileNotFound';
+        for (const path of paths) {
+            try {
+                if (vscode.workspace.fs?.stat) await vscode.workspace.fs.stat(vscode.Uri.file(path));
+                docs.push(await vscode.workspace.openTextDocument(vscode.Uri.file(path)));
+            }
+            catch (error) {
+                if (!isMissing(error)) { this.log(error); void vscode.window.showWarningMessage('Could not open every selected tracked file. Native ownership was retained.'); return; }
+                // Confirm absence through the filesystem, not just editor state.
+                try { await vscode.workspace.fs.stat(vscode.Uri.file(path)); return; }
+                catch (statError) { if (!isMissing(statError)) { this.log(statError); return; } }
+                const open = vscode.workspace.textDocuments?.find(doc => doc.uri.fsPath === path && !doc.isClosed);
+                if (open?.isDirty) { void vscode.window.showWarningMessage('Save or resolve the missing file\'s editor buffer first. Native ownership was retained.'); return; }
+                missing.push(path);
+            }
         }
         if (this.disposed || epoch !== this.epoch || this.session.active || this.pending) return;
-        if (docs.some(doc => doc.isDirty))
-            return vscode.window.showWarningMessage('Save the resolved files first. Native ownership was retained.');
+        if (docs.some(doc => doc.isDirty)) { void vscode.window.showWarningMessage('Save the resolved files first. Native ownership was retained.'); return; }
+        if (missing.length) {
+            const label = 'Stop protecting missing files';
+            const answer = await vscode.window.showWarningMessage(`${missing.length} selected file(s) are missing. Native deletion review is unsupported. This stops native ownership without restoring files or resolving native edits. Continue?`, { modal: true }, label);
+            if (answer !== label || this.disposed || epoch !== this.epoch) return;
+            for (const path of missing) {
+                try { await vscode.workspace.fs.stat(vscode.Uri.file(path)); void vscode.window.showWarningMessage('A missing file reappeared. Native ownership was retained; review again.'); return; }
+                catch (error) { if (!isMissing(error)) { this.log(error); return; } }
+            }
+        }
+        if (docs.some(doc => doc.isDirty) || this.disposed || epoch !== this.epoch) return;
         const previousOwned = new Set(this.session.owned);
         this.session.release(paths);
         try { await this.persistOwnership(); }
@@ -263,7 +292,8 @@ class NativeReview {
             this.session.owned = previousOwned;
             return vscode.window.showWarningMessage('Could not save review ownership. Native ownership was retained.');
         }
-        for (const doc of docs) this.legacy.settled.set(doc.uri.fsPath, doc.getText());
+        for (const doc of docs) this.legacy.settled.set(doc.uri.fsPath, this.legacy.documentSnapshot?.(doc) ?? doc.getText());
+        for (const path of missing) this.legacy.settled.delete(path);
         this.legacy.refreshAll();
         this.legacy.bar?.refresh();
         this.log(`Returned ${paths.length} resolved files to ordinary tracking.`);
@@ -272,7 +302,12 @@ class NativeReview {
         this.log(JSON.stringify({ ...this.lastEvidence, active: this.session.active, ownedFiles: this.session.owned.size }));
         this.output.show(true);
     }
+    shutdown() {
+        this.dispose();
+        return this.lastPersistence ?? this.persistence;
+    }
     dispose() {
+        if (this.disposed) return;
         this.epoch++;
         this.disposed = true;
         clearTimeout(this.launchTimer);

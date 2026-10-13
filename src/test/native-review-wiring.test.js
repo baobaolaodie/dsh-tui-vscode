@@ -270,3 +270,44 @@ test('registration failure does not crash extension activation', () => {
     owner.dispose();
     mock.chat.createChatParticipant = create;
 });
+test('missing native file can be explicitly released without releasing other tracked files', async () => {
+    const legacy = { settled: new Map([['missing', 'old']]), refreshAll() {} };
+    const owner = new NativeReview({ subscriptions: [] }, legacy);
+    owner.session.owned.add('missing'); owner.session.owned.add('other');
+    const warning = mock.window.showWarningMessage, open = mock.workspace.openTextDocument, stat = mock.workspace.fs;
+    mock.workspace.openTextDocument = async () => { throw Object.assign(Error('missing'), { code: 'FileNotFound' }); };
+    mock.workspace.fs = { stat: async () => { throw Object.assign(Error('missing'), { code: 'FileNotFound' }); } };
+    mock.window.showWarningMessage = async (_, options, label) => label;
+    try {
+        await owner.releaseResolved({ scheme: 'file', fsPath: 'missing' });
+        assert.equal(owner.owns('missing'), false);
+        assert.equal(owner.owns('other'), true);
+        assert.equal(legacy.settled.has('missing'), false);
+    } finally { mock.window.showWarningMessage = warning; mock.workspace.openTextDocument = open; mock.workspace.fs = stat; owner.dispose(); }
+});
+test('missing native file retains ownership when extra abandonment confirmation is declined', async () => {
+    const legacy = { settled: new Map(), refreshAll() {} };
+    const owner = new NativeReview({ subscriptions: [] }, legacy);
+    owner.session.owned.add('missing');
+    const warning = mock.window.showWarningMessage, open = mock.workspace.openTextDocument, stat = mock.workspace.fs;
+    mock.workspace.openTextDocument = async () => { throw Object.assign(Error('missing'), { code: 'FileNotFound' }); };
+    mock.workspace.fs = { stat: async () => { throw Object.assign(Error('missing'), { code: 'FileNotFound' }); } };
+    let warnings = 0;
+    mock.window.showWarningMessage = async (_, options, label) => ++warnings === 1 ? label : undefined;
+    try {
+        await owner.releaseResolved();
+        assert.equal(owner.owns('missing'), true);
+        assert.equal(warnings, 2);
+    } finally { mock.window.showWarningMessage = warning; mock.workspace.openTextDocument = open; mock.workspace.fs = stat; owner.dispose(); }
+});
+test('awaited native shutdown waits for ownership persistence and reports failure', async () => {
+    let finish;
+    const state = { get: (_, fallback) => fallback, update: () => new Promise((_, reject) => { finish = reject; }) };
+    const owner = new NativeReview({ subscriptions: [], workspaceState: state }, {});
+    owner.session.owned.add('a');
+    const writing = owner.persistOwnership(); writing.catch(() => {});
+    const closing = owner.shutdown();
+    await new Promise(resolve => setImmediate(resolve));
+    finish(Error('shutdown storage failed'));
+    await assert.rejects(closing, /shutdown storage failed/);
+});

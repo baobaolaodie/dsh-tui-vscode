@@ -22,6 +22,27 @@ function owner() {
     Object.assign(o,{ disposed:false, ledger:new EditLedger(),settled:new Map(),directoryInventory:new Map(),selfMarks:new Map(),saveMarks:new Map(),fileQueues:new Map(),writingPaths:new Set(),enabled:()=>true,excluded:()=>false,sessionActive:()=>true });
     return o;
 }
+async function assertCompletes(operation, message) {
+    let timer;
+    try {
+        await Promise.race([
+            operation,
+            new Promise((_, reject) => { timer = setTimeout(() => reject(Error(message)), 250); }),
+        ]);
+    } finally { clearTimeout(timer); }
+}
+test('stale decision completes and releases its path queue without dismissing a notification', async () => {
+    const previous = mock.window.showWarningMessage;
+    const o = owner();
+    let warnings = 0;
+    mock.window.showWarningMessage = () => { warnings++; return new Promise(() => {}); };
+    try {
+        await assertCompletes(o.withPath('missing', () => o.undoHunk('missing', {})), 'stale Undo awaited notification dismissal');
+        await o.withPath('missing', async () => {});
+        assert.equal(warnings, 1);
+        assert.equal(o.fileQueues.size, 0);
+    } finally { mock.window.showWarningMessage = previous; }
+});
 test('unscanned existing change is never treated as new file deletion', async()=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-review-test-'));
     try {
@@ -65,4 +86,83 @@ test('same-path decisions and filesystem events share ordering',async()=>{
     const a=o.withPath('f',async()=>{calls.push('a');await new Promise(r=>release=r);calls.push('b');});
     const b=o.withPath('f',async()=>calls.push('c'));
     await new Promise(r=>setImmediate(r));assert.deepEqual(calls,['a']);release();await Promise.all([a,b]);assert.deepEqual(calls,['a','b','c']);
+});
+test('old file Keep cannot accept a disk rewrite before the watcher updates ledger', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-review-test-'));
+    try {
+        const file = path.join(root, 'existing.txt');
+        await fs.writeFile(file, 'newer unseen\n');
+        const o = owner(); o.resolvePath = value => value;
+        o.ledger.record(file, 'modify', 'original\n', false, 'reviewed\n');
+        await o.keep(file, o.fileHint(o.ledger.get(file)));
+        assert.ok(o.ledger.get(file), 'unseen version must remain pending');
+        assert.equal(await fs.readFile(file, 'utf8'), 'newer unseen\n');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+test('BOM baseline is never passed through WorkspaceEdit or missing-file restoration', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-review-test-'));
+    try {
+        const file = path.join(root, 'bom.txt');
+        const o = owner(); o.resolvePath = value => value;
+        o.ledger.record(file, 'delete', '\uFEFForiginal\r\n', false, null);
+        let writes = 0; o.applyPlan = async () => { writes++; };
+        await o.undo(file);
+        assert.equal(writes, 0);
+        assert.ok(o.ledger.get(file));
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+test('shutdown waits for initialized state and in-flight decisions before final flush', async () => {
+    const o = owner();
+    let initialized, decision;
+    o.ready = new Promise(resolve => { initialized = resolve; });
+    o.docTimers = new Map();
+    const final = o.withPath('f', async () => { await new Promise(resolve => { decision = resolve; }); o.ledger.record('f', 'modify', 'before', false, 'after'); });
+    let persisted;
+    o.flushState = async () => { persisted = o.ledger.toJSON(); };
+    const closing = o.shutdown();
+    initialized(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(persisted, undefined);
+    await o.withPath('g', () => { throw Error('new work must not start during shutdown'); });
+    decision(); await final; await closing;
+    assert.equal(persisted.entries[0].after, 'after');
+});
+test('storage failure propagates to awaited flush and later retries still work', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-review-store-'));
+    try {
+        const blocker = path.join(root, 'not-a-directory'); await fs.writeFile(blocker, 'x');
+        const o = owner(); o.persistence = Promise.resolve();
+        let target = path.join(blocker, 'pending.json'); o.storeFile = () => target;
+        await assert.rejects(o.flushState());
+        target = path.join(root, 'pending.json');
+        o.ledger.record('f', 'modify', 'before', false, 'after');
+        await o.flushState();
+        assert.equal(JSON.parse(await fs.readFile(target, 'utf8')).entries[0].after, 'after');
+        assert.deepEqual((await fs.readdir(root)).sort(), ['not-a-directory', 'pending.json']);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+test('old file Keep detects editor/disk mismatch and deleted-file recreation', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-review-test-'));
+    const previous = mock.workspace.textDocuments;
+    try {
+        const file = path.join(root, 'existing.txt'); await fs.writeFile(file, 'after');
+        const o = owner(); o.resolvePath = value => value;
+        o.ledger.record(file, 'modify', 'before', false, 'after');
+        mock.workspace.textDocuments = [{ uri: mock.Uri.file(file), isClosed: false, isDirty: false, getText: () => 'old editor' }];
+        await o.keep(file, o.fileHint(o.ledger.get(file))); assert.ok(o.ledger.get(file));
+        mock.workspace.textDocuments = [];
+        o.ledger.clear(); o.ledger.record(file, 'delete', 'before', false, null);
+        await o.keep(file, o.fileHint(o.ledger.get(file))); assert.ok(o.ledger.get(file));
+    } finally { mock.workspace.textDocuments = previous; await fs.rm(root, { recursive: true, force: true }); }
+});
+test('explicit current whole-file Keep can accept a saved mixed version without writing', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-review-test-'));
+    try {
+        const file = path.join(root, 'mixed.txt'); await fs.writeFile(file, 'AI and user saved');
+        const o = owner(); o.resolvePath = value => value;
+        o.ledger.record(file, 'modify', 'before', false, 'AI'); o.ledger.get(file).userTouched = true;
+        await o.keep(file);
+        assert.equal(o.ledger.get(file), null);
+        assert.equal(o.settled.get(file), 'AI and user saved');
+        assert.equal(await fs.readFile(file, 'utf8'), 'AI and user saved');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
 });

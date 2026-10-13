@@ -34,6 +34,7 @@ const node_path_1 = require("node:path");
 const edit_review_core_1 = require("./edit-review-core");
 const precise = require("./precise-review-core");
 const fsp = node_fs_1.promises;
+const { randomUUID } = require('node:crypto');
 const SCHEME = 'dsh-edit-review';
 const KEEP_CMD = 'dsh-tui-vscode.editKeep';
 const UNDO_CMD = 'dsh-tui-vscode.editUndo';
@@ -197,14 +198,15 @@ class EditReview {
             // away so the baseline exists even when the bounded startup scan
             // never reached the file.
             if (doc.uri.scheme === 'file' && !this.settled.has(doc.uri.fsPath) && !this.ledger.get(doc.uri.fsPath))
-                this.settled.set(doc.uri.fsPath, doc.getText());
+                this.settled.set(doc.uri.fsPath, this.documentSnapshot(doc));
         }), vscode.workspace.onDidSaveTextDocument((doc) => {
             if (doc.uri.scheme !== 'file')
                 return;
             const pending = this.ledger.get(doc.uri.fsPath);
             if (pending && !this.writingPaths?.has(doc.uri.fsPath)) { pending.userTouched = true; this.schedulePersist(); }
-            this.saveMarks.set(doc.uri.fsPath, { expires: Date.now() + MARK_TTL_MS, text: doc.getText() });
-            if (!this.ledger.get(doc.uri.fsPath)) this.settled.set(doc.uri.fsPath, doc.getText());
+            const snapshot = this.documentSnapshot(doc);
+            this.saveMarks.set(doc.uri.fsPath, { expires: Date.now() + MARK_TTL_MS, text: snapshot });
+            if (!this.ledger.get(doc.uri.fsPath)) this.settled.set(doc.uri.fsPath, snapshot);
             this.scheduleDocSettle(doc.uri.fsPath);
         }), vscode.workspace.onDidChangeTextDocument((e) => {
             if (e.document.uri.scheme !== 'file')
@@ -235,7 +237,7 @@ class EditReview {
         // ---- capture open buffers, restore pending state, warm the cache -----
         for (const doc of vscode.workspace.textDocuments) {
             if (doc.uri.scheme === 'file')
-                this.settled.set(doc.uri.fsPath, doc.getText());
+                this.settled.set(doc.uri.fsPath, this.documentSnapshot(doc));
         }
         this.ready = Promise.all([this.loadState(), this.warmScan()]).then(() => { this.observedDuringScan = null; });
         this.refreshAll();
@@ -251,17 +253,28 @@ class EditReview {
                 .finally(() => { this.polling = false; });
         }, 750);
     }
-    dispose() {
-        this.disposed = true;
+    shutdown() {
+        if (this.shutdownPromise) return this.shutdownPromise;
+        this.closing = true;
         clearInterval(this.pollTimer);
-        this.unsub?.();
-        for (const t of this.docTimers.values())
-            clearTimeout(t);
+        for (const timer of this.docTimers.values()) clearTimeout(timer);
         this.docTimers.clear();
-        for (const t of this.fsRetries?.values() ?? []) clearTimeout(t);
-        if (this.persistTimer)
-            clearTimeout(this.persistTimer);
-        void this.flushState();
+        for (const timer of this.fsRetries?.values() ?? []) clearTimeout(timer);
+        if (this.persistTimer) clearTimeout(this.persistTimer);
+        this.persistTimer = null;
+        const pending = [...this.fileQueues.values()];
+        this.shutdownPromise = (async () => {
+            await this.ready;
+            await Promise.allSettled(pending);
+            await this.flushState();
+        })();
+        return this.shutdownPromise;
+    }
+    dispose() {
+        if (this.disposed) return;
+        void this.shutdown().catch(error => console.error('[dsh-tui-vscode] Review shutdown failed:', error));
+        this.disposed = true;
+        this.unsub?.();
         this.decor.added.dispose();
         this.decor.insSpan.dispose();
         this.decor.ghost.dispose();
@@ -287,6 +300,19 @@ class EditReview {
             return true;
         return false;
     }
+    documentSnapshot(doc) {
+        // The model omits the UTF-8 encoding BOM; disk snapshots do not. Retain
+        // exactly one encoding preamble for baseline/save-shield comparisons.
+        const text = doc.getText();
+        let fd;
+        try {
+            fd = node_fs_1.openSync(doc.uri.fsPath, 'r');
+            const prefix = Buffer.alloc(3);
+            const count = node_fs_1.readSync(fd, prefix, 0, 3, 0);
+            return count === 3 && prefix.equals(Buffer.from([0xef, 0xbb, 0xbf])) ? '\uFEFF' + text : text;
+        } catch { return text; }
+        finally { if (fd !== undefined) node_fs_1.closeSync(fd); }
+    }
     // ---- settled-state cache ----------------------------------------------
     scheduleDocSettle(path) {
         const prev = this.docTimers.get(path);
@@ -303,7 +329,7 @@ class EditReview {
         try {
             const doc = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && d.uri.fsPath === path);
             if (doc && !doc.isClosed) {
-                this.settled.set(path, doc.getText());
+                this.settled.set(path, this.documentSnapshot(doc));
                 return;
             }
             const st = await fsp.lstat(path);
@@ -398,7 +424,7 @@ class EditReview {
         return this.withPath(uri.fsPath, () => this.processFsEvent(uri, kind));
     }
     async withPath(path, operation) {
-        if (!path) return;
+        if (!path || this.closing) return;
         const prior = this.fileQueues.get(path) ?? this.ready ?? Promise.resolve();
         const next = prior.catch(() => {}).then(operation);
         this.fileQueues.set(path, next);
@@ -471,8 +497,9 @@ class EditReview {
         return base ? node_path_1.join(base.fsPath, 'edit-review-pending.json') : null;
     }
     schedulePersist() {
+        if (this.closing || this.disposed) return;
         if (this.persistTimer) clearTimeout(this.persistTimer);
-        this.persistTimer = setTimeout(() => { this.persistTimer = null; void this.flushState(); }, PERSIST_DEBOUNCE_MS);
+        this.persistTimer = setTimeout(() => { this.persistTimer = null; void this.flushState().catch(() => {}); }, PERSIST_DEBOUNCE_MS);
     }
     flushState() {
         const file = this.storeFile();
@@ -480,12 +507,14 @@ class EditReview {
         const state = JSON.stringify(this.ledger.toJSON());
         const next = this.persistence.then(async () => {
             await fsp.mkdir(node_path_1.dirname(file), { recursive: true });
-            const temp = file + '.tmp';
-            await fsp.writeFile(temp, state, 'utf8');
-            await fsp.rename(temp, file);
+            const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+            try {
+                await fsp.writeFile(temp, state, 'utf8');
+                await fsp.rename(temp, file);
+            } finally { await fsp.unlink(temp).catch(() => {}); }
         });
         this.persistence = next.catch(error => console.error('[dsh-tui-vscode] Review storage failed:', error));
-        return this.persistence;
+        return next;
     }
     async loadState() {
         const file = this.storeFile();
@@ -536,7 +565,7 @@ class EditReview {
         }
         const entry = this.ledger.get(editor.document.uri.fsPath);
         const empty = [];
-        if (!entry || entry.kind === 'delete' || entry.beforeMissing || this.nativeReview?.owns(editor.document.uri.fsPath)) {
+        if (!entry || entry.kind === 'delete' || entry.beforeMissing || this.bomUnsupported(entry) || this.nativeReview?.owns(editor.document.uri.fsPath)) {
             editor.setDecorations(this.decor.added, empty);
             editor.setDecorations(this.decor.insSpan, empty);
             editor.setDecorations(this.decor.ghost, empty);
@@ -675,7 +704,7 @@ class EditReview {
             void vscode.window.showInformationMessage(vscode.l10n.t('No pending AI edit for this file'));
             return;
         }
-        if (entry.beforeMissing) return vscode.window.showWarningMessage("Cannot compare: the pre-edit original was not captured.");
+        if (entry.beforeMissing) return this.warn("Cannot compare: the pre-edit original was not captured.");
         const q = `f=${encodeURIComponent(path)}`;
         const left = vscode.Uri.parse(`${SCHEME}:original?side=before&${q}`);
         // Right side is the real file when it still exists (so the review tab
@@ -744,7 +773,14 @@ class EditReview {
             await fsp.writeFile(path, text, { encoding: 'utf8', flag: 'w' });
         }
         const actual = await fsp.readFile(path, 'utf8');
-        if (actual !== text || (doc && doc.getText() !== text)) throw Error('Saved content changed during restoration (possibly a save participant). Original review was retained.');
+        if (actual !== text || (doc && doc.getText() !== text)) {
+            const entry = this.ledger.get(path);
+            if (entry) {
+                entry.userTouched = true;
+                this.ledger.setAfter(path, actual);
+            }
+            throw Error('Saving changed the file (possibly a save participant). Exact Undo did not complete; the original was retained and the current file requires review.');
+        }
         this.settled.set(path, text);
     }
     async applyPlan(entry, action, expected) {
@@ -778,10 +814,21 @@ class EditReview {
             return '';
         }
     }
+    warn(message) {
+        // Informational refusal is complete; a non-modal notification must not
+        // hold the per-path decision/watcher queue until it is dismissed.
+        void vscode.window.showWarningMessage(message);
+    }
     staleWarning() {
-        return vscode.window.showWarningMessage('This review button is out of date, or the file has later edits. Refresh the diff; no change was applied.');
+        return this.warn('This review button is out of date, or the file has later edits. Refresh the diff; no change was applied.');
+    }
+    bomUnsupported(entry, current) {
+        // TextDocument omits the encoding BOM. Until it is tracked separately,
+        // never feed a disk preamble through WorkspaceEdit or recreate it.
+        return [entry?.before, entry?.after, current].some(text => typeof text === 'string' && text.startsWith('\uFEFF'));
     }
     async safeCurrent(entry) {
+        if (this.bomUnsupported(entry)) return null;
         try { await this.assertSafePath(entry.path); } catch { return null; }
         if (entry.userTouched) return null;
         const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === entry.path && !d.isClosed);
@@ -832,7 +879,7 @@ class EditReview {
         if (!h) return this.staleWarning();
         const fixed = precise.undoChange(current, h);
         try { await this.writeContent(path, fixed, current); }
-        catch (error) { return vscode.window.showWarningMessage(error.message); }
+        catch (error) { return this.warn(error.message); }
         this.ledger.setAfter(path, fixed);
         if (entry.kind !== 'create' && entry.before === fixed) this.ledger.remove(path);
         this.bar?.refresh();
@@ -869,19 +916,28 @@ class EditReview {
         const path = this.resolvePath(target);
         if (path && this.nativeReview?.owns(path)) return this.nativeReview.showReview(vscode.Uri.file(path));
         if (!path || !vscode.workspace.getWorkspaceFolder(vscode.Uri.file(path))) return;
-        if (hint?.file) {
-            if (!this.matchesFileHint(path, hint)) return this.staleWarning();
+        const fileHint = hint?.file ? hint : target?.reviewHint;
+        if (fileHint) {
+            if (!this.matchesFileHint(path, fileHint)) return this.staleWarning();
             hint = undefined;
         }
         if (path && hint)
             return this.keepHunk(path, hint);
         const entry = path ? this.ledger.get(path) : null;
-        if (!entry) return vscode.window.showInformationMessage(vscode.l10n.t('No pending AI edit for this file'));
+        if (!entry) { void vscode.window.showInformationMessage(vscode.l10n.t('No pending AI edit for this file')); return; }
         const beforeHash = precise.digest(entry.before), afterHash = precise.digest(entry.after);
-        const current = await this.readCurrent(path);
+        let current = null;
+        try { current = await fsp.readFile(path, 'utf8'); }
+        catch (error) { if (error.code !== 'ENOENT') return this.warn(error.message); }
+        const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === path && !d.isClosed);
+        // Keep never writes. Only here a disk BOM may be compared with the
+        // model's logical text, not inserted into an editor or restored.
+        const modelMatches = !doc || current !== null && (doc.getText() === current || current.startsWith('\uFEFF') && doc.getText() === current.slice(1));
+        if (doc?.isDirty || !modelMatches) return this.warn('Save or resolve editor changes before Keep. The pending review was retained.');
         if (this.ledger.get(path) !== entry || precise.digest(entry.before) !== beforeHash || precise.digest(entry.after) !== afterHash) return this.staleWarning();
+        if ((fileHint || !entry.userTouched) && current !== entry.after) return this.staleWarning();
         this.ledger.keep(path);
-        if (entry.kind === 'delete') this.settled.delete(path);
+        if (current === null) this.settled.delete(path);
         else this.settled.set(path, current);
         vscode.window.setStatusBarMessage(vscode.l10n.t('Kept {0}', node_path_1.basename(path)), 3000);
     }
@@ -889,8 +945,9 @@ class EditReview {
         const path = this.resolvePath(target);
         if (path && this.nativeReview?.owns(path)) return this.nativeReview.showReview(vscode.Uri.file(path));
         if (!path || !vscode.workspace.getWorkspaceFolder(vscode.Uri.file(path))) return;
-        if (hint?.file) {
-            if (!this.matchesFileHint(path, hint)) return this.staleWarning();
+        const fileHint = hint?.file ? hint : target?.reviewHint;
+        if (fileHint) {
+            if (!this.matchesFileHint(path, fileHint)) return this.staleWarning();
             hint = undefined;
         }
         if (path && hint)
@@ -907,17 +964,19 @@ class EditReview {
             currentExists = true;
         }
         catch (error) {
-            if (error.code !== 'ENOENT') return vscode.window.showWarningMessage(error.message);
+            if (error.code !== 'ENOENT') return this.warn(error.message);
             currentExists = false;
         }
+        if (this.bomUnsupported(entry, currentText)) return this.warn('Undo for UTF-8 BOM files is not supported yet. No restoration was applied; use version control.');
+        if (fileHint && currentText !== entry.after) return this.staleWarning();
         const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === path && !d.isClosed);
         if (doc?.isDirty || (doc && currentExists && doc.getText() !== currentText)) {
-            return vscode.window.showWarningMessage('Save or resolve your editor changes before Undo. No user edits were overwritten.');
+            return this.warn('Save or resolve your editor changes before Undo. No user edits were overwritten.');
         }
         const expectedAfter = entry.after, expectedBefore = entry.before;
         const plan = (0, edit_review_core_1.planUndo)(entry, currentExists, currentText);
         if (plan.action === 'drop') { this.ledger.remove(path); return; }
-        if (plan.action === 'blocked') return vscode.window.showWarningMessage('The pre-edit original was not captured; Undo is unavailable. Use version control.');
+        if (plan.action === 'blocked') return this.warn('The pre-edit original was not captured; Undo is unavailable. Use version control.');
         const action = plan.action === 'confirm' ? plan.fallback : plan.action;
         if (plan.action === 'confirm' || action === 'delete-file') {
             const label = 'Confirm Undo';
@@ -926,10 +985,10 @@ class EditReview {
         }
         if (this.ledger.get(path) !== entry || entry.after !== expectedAfter || entry.before !== expectedBefore) return this.staleWarning();
         let latest = null;
-        try { latest = await fsp.readFile(path, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') return vscode.window.showWarningMessage(error.message); }
+        try { latest = await fsp.readFile(path, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') return this.warn(error.message); }
         if (latest !== currentText || doc?.isDirty) return this.staleWarning();
         try { await this.applyPlan(entry, action, currentText); }
-        catch (error) { return vscode.window.showWarningMessage(error.message); }
+        catch (error) { return this.warn(error.message); }
     }
     async keepAll() {
         const paths = this.entries().map((e) => e.path);
@@ -957,7 +1016,7 @@ class EditReview {
         if (entry.beforeMissing)
             return vscode.l10n.t('original not captured');
         const { addedLines, removedLines } = precise.reviewDiff(entry.before ?? '', entry.after ?? '');
-        const warning = entry.userTouched ? ' · user edits: confirm Undo' : '';
+        const warning = this.bomUnsupported(entry) ? ' · BOM: Undo unavailable' : entry.userTouched ? ' · user edits: confirm Undo' : '';
         const kind = entry.kind === 'create' ? ` ${vscode.l10n.t('new')}` : entry.kind === 'delete' ? ` ${vscode.l10n.t('deleted')}` : '';
         return `${(0, edit_review_core_1.formatCounts)(addedLines, removedLines)}${kind}${warning}`;
     }
@@ -982,7 +1041,7 @@ class PendingTreeProvider {
         return item;
     }
     getChildren() {
-        return this.owner.entries();
+        return this.owner.entries().map(entry => ({ ...entry, reviewHint: this.owner.fileHint(entry) }));
     }
     dispose() {
         this.emitter.dispose();
@@ -1008,7 +1067,7 @@ class ReviewBarProvider {
     }
     provideCodeLenses(doc) {
         const entry = this.owner.ledger.get(doc.uri.fsPath);
-        if (!entry || entry.beforeMissing || entry.kind === 'delete')
+        if (!entry || entry.beforeMissing || entry.kind === 'delete' || this.owner.bomUnsupported(entry))
             return [];
         const { hunks } = precise.reviewDiff(entry.before ?? '', doc.getText());
         if (hunks.length === 0)

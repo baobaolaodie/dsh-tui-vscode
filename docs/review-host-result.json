@@ -1,0 +1,85 @@
+{
+  "version": "1.141.0",
+  "inferenceRequested": false,
+  "onlyFixtureFiles": true,
+  "status": "passed",
+  "phases": [
+    {
+      "phase": "watcher and per-change decisions",
+      "at": "2026-10-13T06:34:29.638Z"
+    },
+    {
+      "phase": "fast rewrite after user save",
+      "at": "2026-10-13T06:34:31.627Z"
+    },
+    {
+      "phase": "user edit protection and stale command completion",
+      "at": "2026-10-13T06:34:33.796Z"
+    },
+    {
+      "phase": "new file acceptance and deleted file restoration",
+      "at": "2026-10-13T06:34:34.067Z"
+    },
+    {
+      "phase": "new file partial acceptance",
+      "at": "2026-10-13T06:34:34.418Z"
+    },
+    {
+      "phase": "stale controls and batch undo",
+      "at": "2026-10-13T06:34:34.839Z"
+    },
+    {
+      "phase": "UTF-8 BOM document and disk round trip",
+      "at": "2026-10-13T06:34:35.356Z"
+    },
+    {
+      "phase": "save participant mutation retains original review",
+      "at": "2026-10-13T06:34:35.626Z"
+    },
+    {
+      "phase": "awaited shutdown persists queued pending review",
+      "at": "2026-10-13T06:34:35.891Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-10-13T06:34:36.168Z"
+    }
+  ],
+  "phase": "complete",
+  "watcherCapturedExactOriginal": true,
+  "flatCodeLenses": 9,
+  "eachHunkHasKeepUndo": true,
+  "keepOneLineUpdatesDiffBaseline": true,
+  "undoOneAdjacentLinePreservesOthers": true,
+  "exactCRLFAndNoFinalNewline": true,
+  "undoOtherHunkPreservesKeptLine": true,
+  "fastRewriteNotHiddenBySaveShield": true,
+  "wholeFileUndo": true,
+  "userEditsBlockPerHunkUndo": true,
+  "dirtyUserBufferBlocksWholeUndo": true,
+  "keepAll": true,
+  "newFileKeep": true,
+  "deletedFileRestored": true,
+  "partialNewFileUndoPreservesAcceptedExistence": true,
+  "staleFileControlsDoNotChangeOrAcceptNewWrites": true,
+  "batchUndoRestoresMultipleFiles": true,
+  "bomUserSaveDoesNotCreatePhantomReview": true,
+  "bomDocumentTextIncludesPreamble": false,
+  "bomModelPreambleMismatchRejectedSafely": true,
+  "saveParticipantMismatchRetainsOriginalReview": true,
+  "awaitedShutdownPersistsQueuedDecision": true,
+  "verification": {
+    "date": "2026-10-13",
+    "timezone": "Asia/Shanghai (GMT+8)",
+    "baselineCommit": "7724752fe119b1934c733552e81f9dfd974b67b5",
+    "sourceState": "baseline plus uncommitted continuation fixes",
+    "nodeChecks": {
+      "existing": 160,
+      "review": 90,
+      "failed": 0
+    },
+    "hostExitCode": 0,
+    "repeatRunsPassed": 2,
+    "scope": "Stable plugin review fixtures only; native externalEdit UI was not revalidated. BOM Undo is refused, not supported."
+  }
+}
