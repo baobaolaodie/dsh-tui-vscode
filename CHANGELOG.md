@@ -14,7 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **Live edit review for dsh-tui sessions (Keep / Undo)**: files changed through the file tools of an extension-launched dsh-tui session now appear in the editor with line-level diff marks, per-change and whole-file **Keep / Undo** controls, an "AI Edits" sidebar view, a `dsh: N pending` status-bar count, and a full original ↔ edit comparison. AI authorship comes only from authenticated DSH file-tool transactions (`write` / `edit` / `str_replace_editor`); ordinary external writes are never labeled. Native VS Code external-edit review ships behind an experimental setting and stays off by default.
+
 ### Changed
+
+- **Session launch path**: dsh-tui sessions started by the extension (default `dsh-tui` command, non-WSL) additionally receive a temporary review-bridge `--patch` file and an edit token through the environment; custom commands and WSL are untouched.
 
 ### Fixed
 

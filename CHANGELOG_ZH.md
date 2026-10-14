@@ -12,7 +12,11 @@
 
 ### Added
 
+- **dsh-tui 会话的实时编辑审阅（Keep / Undo）**：扩展启动的 dsh-tui 会话经文件工具改动的文件会在编辑器内呈现行级 diff 标记、逐处与整文件 **Keep / Undo**、侧边栏「AI Edits」视图、状态栏 `dsh: N pending` 计数，以及完整的「原稿 ↔ 改动」对比。AI 归属只来自经过认证的 DSH 文件工具事务（`write` / `edit` / `str_replace_editor`）；普通外部写入不会被标记。VS Code 原生外部编辑审阅作为实验设置提供，默认关闭。
+
 ### Changed
+
+- **会话启动路径**：由扩展启动的 dsh-tui 会话（默认 `dsh-tui` 命令、非 WSL）会额外通过临时 `--patch` 文件加载审阅桥，并在环境中携带一个编辑令牌；自定义命令与 WSL 不受影响。
 
 ### Fixed
 
