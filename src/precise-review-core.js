@@ -56,4 +56,33 @@ function resolveChange(entry, current, hint) {
     if (!hint || hint.id !== entry.id || hint.beforeHash !== digest(entry.before) || hint.afterHash !== digest(entry.after) || current !== entry.after) return null;
     return reviewDiff(entry.before ?? '', current, hint.line).hunks.find(h => h.afterOffset === hint.offset && h.beforeOffset === hint.beforeOffset && digest(h.oldText) === hint.oldHash && digest(h.newText) === hint.newHash) ?? null;
 }
-module.exports = { tokens, reviewDiff, keepChange, undoChange, changeHint, resolveChange, digest };
+/** Mirror only provably disjoint user edits into the original snapshot.
+ * Coordinates come from exact-text hunks, never substring search (duplicates
+ * are common in code). Touching an AI deletion/insertion gap is ambiguous.
+ */
+function rebaseUserEdit(before, after, current) {
+    const unchanged = { before, after, conflict: true };
+    if (typeof before !== 'string' || typeof after !== 'string' || typeof current !== 'string') return unchanged;
+    if (current === after) return { before, after, conflict: false };
+    const ai = reviewDiff(before, after).hunks;
+    const user = reviewDiff(after, current).hunks;
+    const mapped = [];
+    for (const u of user) {
+        const start = u.beforeOffset, end = u.beforeEnd;
+        for (const h of ai) {
+            const hs = h.afterOffset, he = h.afterEnd;
+            const overlap = start < he && end > hs;
+            const userGap = start === end && start >= hs && start <= he;
+            const aiGap = hs === he && hs >= start && hs <= end;
+            if (overlap || userGap || aiGap) return unchanged;
+        }
+        const map = offset => offset + ai.filter(h => h.afterEnd <= offset).reduce((n, h) => n + h.oldText.length - h.newText.length, 0);
+        const bs = map(start), be = map(end);
+        if (before.slice(bs, be) !== u.oldText) return unchanged;
+        mapped.push({ start: bs, end: be, text: u.newText });
+    }
+    let rebased = before;
+    for (const edit of mapped.reverse()) rebased = rebased.slice(0, edit.start) + edit.text + rebased.slice(edit.end);
+    return { before: rebased, after: current, conflict: false };
+}
+module.exports = { tokens, reviewDiff, keepChange, undoChange, changeHint, resolveChange, digest, rebaseUserEdit };

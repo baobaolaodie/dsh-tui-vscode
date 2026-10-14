@@ -189,6 +189,90 @@ class NativeReview {
             void vscode.window.showWarningMessage(`Native review could not open: ${error.message}. No file was changed.`);
         }
     }
+    /** One verified tool call, not the lifetime of a terminal. This awaits
+     * the actual externalEdit callback before allowing the tool to write. */
+    async beginOperation(operation) {
+        if (!this.participant || this.disposed || this.pending || this.session.active || this.launching) return null;
+        if (this.legacy.ledger.get(operation.path)) return null;
+        let readyResolve, readyReject, doneResolve;
+        const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+        const done = new Promise(resolve => { doneResolve = resolve; });
+        const pending = {
+            resources: [vscode.Uri.file(operation.path)], nonce: crypto.randomUUID(), epoch: this.epoch,
+            automatic: true, operation, readyResolve, readyReject, doneResolve, canceled: false, error: null,
+        };
+        this.pending = pending;
+        const timer = setTimeout(() => {
+            pending.canceled = true;
+            if (this.pending === pending) this.pending = null;
+            pending.readyReject(Error('Native snapshot unavailable before tool execution'));
+            this.session.finish(); this.refreshStatus();
+        }, 5000);
+        try {
+            if (pending.canceled) throw Error('Native operation canceled before request');
+            await vscode.commands.executeCommand('workbench.action.chat.open', {
+                mode: 'edit', query: `@dsh-review /track ${pending.nonce}`, isPartialQuery: false,
+            });
+            await ready;
+            clearTimeout(timer);
+            return {
+                complete: async () => {
+                    // Disk publication alone does not mean the editor model
+                    // has observed it. End streaming only after that reload,
+                    // otherwise a delayed reload becomes a non-AI/user edit.
+                    const doc = await vscode.workspace.openTextDocument(pending.resources[0]);
+                    const start = Date.now();
+                    const expected = operation.after.replaceAll('\r\n', '\n');
+                    while (this.legacy.documentSnapshot(doc).replaceAll('\r\n', '\n') !== expected) {
+                        if (pending.canceled || pending.error || Date.now() - start > 5000) throw Error('Native editor did not synchronize the tool result');
+                        await new Promise(resolve => setTimeout(resolve, 25));
+                    }
+                    // The public TextDocument event precedes the workbench's
+                    // async file reload/diff observer. Keep the capture open
+                    // for that observer to settle before ending the request.
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    this.session.finish(); await done; if (pending.error) throw Error(pending.error);
+                },
+                cancel: async () => { pending.canceled = true; this.session.finish(); await done; },
+            };
+        } catch (error) {
+            clearTimeout(timer);
+            if (this.pending === pending) this.pending = null;
+            this.log(`Automatic native review unavailable: ${error.message}`);
+            if (this.owns(operation.path)) throw error;
+            return null;
+        }
+    }
+    async handleAutomatic(pending, response, token) {
+        let canceled = false;
+        const subscription = token.onCancellationRequested(() => { canceled = true; this.session.finish(); });
+        try {
+            if (token.isCancellationRequested || pending.canceled || this.disposed || pending.epoch !== this.epoch) throw Error('Native request canceled');
+            await this.legacy.assertSafePath(pending.operation.path);
+            const doc = await vscode.workspace.openTextDocument(pending.resources[0]);
+            if (doc.isDirty || this.legacy.documentSnapshot(doc) !== pending.operation.before) throw Error('Editor differs from prepared tool mutation');
+            if (pending.canceled || this.disposed || pending.epoch !== this.epoch) throw Error('Native snapshot preparation expired');
+            await this.session.run(response, pending.resources, async () => {
+                if (pending.canceled) { this.session.finish(); throw Error('Native snapshot preparation expired'); }
+                await this.persistOwnership();
+                if (canceled || pending.canceled || this.disposed) { this.session.finish(); throw Error('Native snapshot canceled'); }
+                this.lastEvidence.snapshotReady = true;
+                this.legacy.refreshAll(); this.legacy.bar?.refresh();
+                pending.readyResolve();
+            });
+            this.lastEvidence.automaticCompleted = true;
+        } catch (error) {
+            pending.error = error.message;
+            pending.readyReject(error);
+            this.lastEvidence.error = error.message;
+            this.log(error);
+        } finally {
+            subscription.dispose();
+            pending.doneResolve();
+            this.refreshStatus(); this.legacy.refreshAll(); this.legacy.bar?.refresh();
+        }
+        return {};
+    }
     async handle(request, response, token) {
         this.lastEvidence.externalEditAvailable = typeof response.externalEdit === 'function';
         const pending = this.pending;
@@ -199,6 +283,7 @@ class NativeReview {
         }
         clearTimeout(this.launchTimer);
         this.pending = null;
+        if (pending.automatic) return this.handleAutomatic(pending, response, token);
         this.lastEvidence.externalEditAvailable = typeof response.externalEdit === 'function';
         const cancellation = token.onCancellationRequested(() => this.session.finish());
         try {
@@ -234,6 +319,7 @@ class NativeReview {
         this.epoch++;
         clearTimeout(this.launchTimer);
         if (this.pending) {
+            if (this.pending.automatic) { this.pending.canceled = true; this.pending.readyReject(Error('Native review finished before snapshot')); }
             this.pending = null;
             this.refreshStatus();
             return;
@@ -311,6 +397,7 @@ class NativeReview {
         this.epoch++;
         this.disposed = true;
         clearTimeout(this.launchTimer);
+        if (this.pending?.automatic) { this.pending.canceled = true; this.pending.readyReject(Error('Native review disposed')); }
         this.pending = null;
         this.session.finish();
         this.status.hide();

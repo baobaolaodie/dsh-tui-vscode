@@ -1,30 +1,8 @@
 "use strict";
 /**
- * edit-review — VS Code glue for the AI edit review feature (Phase 1).
- *
- * Everything lives in the plugin layer: the TUI is NOT modified. AI file
- * changes are observed from the outside — a workspace file watcher plus
- * "settled state" snapshots taken when things are quiet — and classified as
- * AI edits when they land on disk while a dsh-tui session terminal is running
- * and they are neither an editor save nor one of our own writes.
- *
- * Surface (Phase 1) — TWO colors only, mirroring VS Code's own diff palette
- * (the one Copilot's chat-editing renderer paints with): green = new content
- * (added or rewritten live lines, inserted-line background), red = old content
- * (removed lines and the replaced half of a rewrite, shown as strikethrough
- * ghost text on removed-text background). Hover offers Keep / Undo / Compare
- * with original;
- * - a sidebar list "AI Edits" with per-file Keep / Undo buttons plus
- *   Keep-all / Undo-all in the view title;
- * - Keep / Undo buttons on the editor title bar while the active file has a
- *   pending change.
- *
- * Baseline ("原稿") capture, in order of trust:
- * 1. a warm workspace scan at activation (bounded: size/count caps);
- * 2. refreshes whenever user edits settle (open editors use their buffer, so
- *    unsaved work counts too);
- * 3. if neither exists when an AI edit lands, the entry is flagged
- *    "original not captured" and Undo is refused for it (no silent guesses).
+ * Stable review surfaces for verified file-tool transactions. Watchers keep
+ * ordinary baselines current; terminal lifetime is never edit provenance.
+ * Complete removed lines are available in the native VS Code diff editor.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EditReview = void 0;
@@ -33,8 +11,11 @@ const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const edit_review_core_1 = require("./edit-review-core");
 const precise = require("./precise-review-core");
+const { deletedTextDecoration } = require('./review-decoration');
 const fsp = node_fs_1.promises;
 const { randomUUID } = require('node:crypto');
+/** Case-folded map key for paths that arrive from both the tool and VS Code. */
+const reviewPathKey = (path) => (0, edit_review_core_1.canonicalPathKey)(path);
 const SCHEME = 'dsh-edit-review';
 const KEEP_CMD = 'dsh-tui-vscode.editKeep';
 const UNDO_CMD = 'dsh-tui-vscode.editUndo';
@@ -202,20 +183,16 @@ class EditReview {
         }), vscode.workspace.onDidSaveTextDocument((doc) => {
             if (doc.uri.scheme !== 'file')
                 return;
-            const pending = this.ledger.get(doc.uri.fsPath);
-            if (pending && !this.writingPaths?.has(doc.uri.fsPath)) { pending.userTouched = true; this.schedulePersist(); }
             const snapshot = this.documentSnapshot(doc);
+            if (!this.writingPaths?.has(doc.uri.fsPath)) this.observeUserText(doc.uri.fsPath, snapshot);
             this.saveMarks.set(doc.uri.fsPath, { expires: Date.now() + MARK_TTL_MS, text: snapshot });
             if (!this.ledger.get(doc.uri.fsPath)) this.settled.set(doc.uri.fsPath, snapshot);
             this.scheduleDocSettle(doc.uri.fsPath);
         }), vscode.workspace.onDidChangeTextDocument((e) => {
             if (e.document.uri.scheme !== 'file')
                 return;
-            const pending = this.ledger.get(e.document.uri.fsPath);
-            if (pending && e.document.isDirty && !this.writingPaths?.has(e.document.uri.fsPath)) {
-                pending.userTouched = true;
-                this.schedulePersist();
-            }
+            if (e.document.isDirty && e.contentChanges.length && !this.writingPaths?.has(e.document.uri.fsPath))
+                this.observeUserText(e.document.uri.fsPath, this.documentSnapshot(e.document));
             this.bar?.refresh();
             this.refreshAll();
             this.scheduleDocSettle(e.document.uri.fsPath);
@@ -280,6 +257,28 @@ class EditReview {
         this.decor.ghost.dispose();
         this.decor.removed.dispose();
     }
+    // Mirror provably independent user edits into BOTH snapshots. Overlap is
+    // explicit conflict, not an additional AI change or permanent save latch.
+    observeUserText(path, current) {
+        const entry = this.ledger.get(path);
+        if (!entry || this.nativeReview?.owns(path) || this.activeTransactions?.has(reviewPathKey(path))) return;
+        if (current === entry.after) {
+            if (entry.userTouched && entry.conflict !== 'save-participant') { entry.userTouched = false; delete entry.conflict; this.ledger.emit(); }
+            return;
+        }
+        const rebased = entry.beforeMissing ? { conflict: true } : precise.rebaseUserEdit(entry.before, entry.after, current);
+        if (rebased.conflict) {
+            entry.userTouched = true; entry.conflict = 'overlap-or-external'; this.ledger.emit();
+            return;
+        }
+        entry.before = rebased.before; entry.after = rebased.after;
+        entry.userTouched = false; delete entry.conflict;
+        this.ledger.emit();
+    }
+    reviewSnapshot(entry, doc) {
+        return !!entry && !entry.userTouched && !entry.beforeMissing && entry.kind !== 'delete'
+            && !this.activeTransactions?.has(reviewPathKey(entry.path)) && !this.bomUnsupported(entry) && !doc.isDirty && doc.getText() === entry.after;
+    }
     // ---- settings ----------------------------------------------------------
     enabled() {
         return vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.enabled', true);
@@ -324,7 +323,7 @@ class EditReview {
         }, DOC_SETTLE_MS));
     }
     async refreshSettled(path) {
-        if (this.ledger.get(path) || this.sessionActive()) return;
+        if (this.ledger.get(path) || this.activeTransactions?.has(reviewPathKey(path))) return;
         const generation = this.settled.get(path);
         try {
             const doc = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && d.uri.fsPath === path);
@@ -335,7 +334,7 @@ class EditReview {
             const st = await fsp.lstat(path);
             if (!st.isFile() || st.size > MAX_FILE_BYTES) return;
             const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await fsp.readFile(path));
-            if (!this.ledger.get(path) && !this.sessionActive() && this.settled.get(path) === generation && !text.includes('\u0000')) this.settled.set(path, text);
+            if (!this.ledger.get(path) && !this.activeTransactions?.has(reviewPathKey(path)) && this.settled.get(path) === generation && !text.includes('\u0000')) this.settled.set(path, text);
         }
         catch {
             this.settled.delete(path);
@@ -452,33 +451,18 @@ class EditReview {
         this.pruneMarks(Date.now());
         const own = this.selfMarks.get(path), save = this.saveMarks.get(path);
         // Shield only the exact saved content, not all subsequent writes for 2s.
-        if ((own && own.text === after) || (save && save.text === after) || !this.sessionActive()) {
-            if (!this.ledger.get(path)) {
-                if (after === null) this.settled.delete(path); else this.settled.set(path, after);
-            }
-            return;
-        }
-        const open = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === path && !d.isClosed);
-        if (open?.isDirty) {
-            // Model reload/save can transiently be dirty. Retry after it settles;
-            // an actually dirty user buffer is never overwritten or adopted.
-            this.scheduleFsRetry(uri);
-            return;
-        }
+        if (this.activeTransactions?.has(reviewPathKey(path))) return;
+        if ((own && own.text === after) || (save && save.text === after)) return;
+        // An external filesystem event is not an AI tool transaction. Do not
+        // create/extend AI entries even when a DeepSeek terminal is running.
         const existing = this.ledger.get(path);
-        if (existing?.after === after) return;
+        if (existing) {
+            if (after !== existing.after) this.observeUserText(path, after);
+        } else if (after === null) this.settled.delete(path);
+        else this.settled.set(path, after);
         const inventory = this.directoryInventory.get(node_path_1.dirname(path));
-        const provenCreate = kind === 'create' && inventory && !inventory.has(node_path_1.basename(path));
-        const beforeText = existing ? existing.before : this.settled.get(path) ?? null;
-        const beforeMissing = existing ? existing.beforeMissing : !this.settled.has(path) && !provenCreate;
-        const entryKind = kind === 'delete' ? 'delete' : provenCreate && !existing && !this.settled.has(path) ? 'create' : 'modify';
-        if (after !== null) inventory?.add(node_path_1.basename(path));
-        if (after === null) this.settled.delete(path); else this.settled.set(path, after);
-        if (!beforeMissing && beforeText === after) { this.ledger.remove(path); return; }
-        const entry = this.ledger.record(path, entryKind, beforeText, beforeMissing, after);
-        if (entry && !existing && vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.autoShowDiff', true)) {
-            void this.showDiff(path, true)?.catch(error => console.error('[dsh-tui-vscode] Cannot open review:', error));
-        }
+        if (after === null) inventory?.delete(node_path_1.basename(path));
+        else inventory?.add(node_path_1.basename(path));
     }
     scheduleFsRetry(uri) {
         if (!this.fsRetries) this.fsRetries = new Map();
@@ -491,6 +475,42 @@ class EditReview {
         }, 250);
         this.fsRetries.set(path, timer);
     }
+    beginVerifiedTransaction(operation) {
+        if (!this.activeTransactions) this.activeTransactions = new Map();
+        this.activeTransactions.set(reviewPathKey(operation.path), operation);
+        const existing = this.ledger.get(operation.path);
+        const beforeMissing = existing ? existing.beforeMissing : false;
+        const before = existing ? existing.before : operation.before;
+        if (existing && (existing.userTouched || existing.after !== operation.before)) {
+            existing.userTouched = true;
+            existing.conflict ??= 'transaction-before-mismatch';
+            this.ledger.emit();
+            return false;
+        }
+        if (!this.verifiedBegins) this.verifiedBegins = new Map();
+        this.verifiedBegins.set(reviewPathKey(operation.path), { ...operation, before, beforeMissing, previouslyPending: !!existing });
+        return true;
+    }
+    endVerifiedTransaction(operation) {
+        this.activeTransactions?.delete(reviewPathKey(operation.path));
+        const begin = this.verifiedBegins?.get(reviewPathKey(operation.path));
+        this.verifiedBegins?.delete(reviewPathKey(operation.path));
+        if (!begin) return null;
+        if (begin.before === operation.after) {
+            this.ledger.remove(operation.path);
+            this.settled.set(operation.path, operation.after);
+            return null;
+        }
+        // A new verified edit must not relabel an older unverified span.
+        const entry = this.ledger.record(operation.path, operation.before === null ? 'create' : 'modify', begin.before, begin.beforeMissing, operation.after, 'file-tool-v1');
+        if (entry && entry.provenance === 'file-tool-v1') { entry.userTouched = false; delete entry.conflict; this.ledger.emit(); }
+        if (entry && !begin.previouslyPending && vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.autoShowDiff', true)) {
+            void this.showDiff(operation.path, true)?.catch(error => console.error('[dsh-tui-vscode] Cannot open review:', error));
+        }
+        if (operation.after === null) this.settled.delete(operation.path); else this.settled.set(operation.path, operation.after);
+        return entry;
+    }
+    cancelVerifiedTransaction(operation) { this.activeTransactions?.delete(reviewPathKey(operation.path)); this.verifiedBegins?.delete(reviewPathKey(operation.path)); }
     // ---- persistence (pending state survives a window reload) --------------
     storeFile() {
         const base = this.context.storageUri;
@@ -559,20 +579,26 @@ class EditReview {
         if (entries.length) { this.pendingStatus.text = `$(diff) dsh: ${entries.length} pending`; this.pendingStatus.show(); }
         else this.pendingStatus.hide();
     }
+    isDiffEditor(editor) {
+        if (typeof vscode.TabInputTextDiff !== 'function') return false;
+        return (vscode.window.tabGroups?.all ?? []).some(group =>
+            group.viewColumn === editor.viewColumn && group.activeTab?.input instanceof vscode.TabInputTextDiff
+            && group.activeTab.input.modified.toString() === editor.document.uri.toString());
+    }
     decorateEditor(editor) {
         if (!editor || editor.document.uri.scheme !== 'file') {
             return;
         }
         const entry = this.ledger.get(editor.document.uri.fsPath);
         const empty = [];
-        if (!entry || entry.kind === 'delete' || entry.beforeMissing || this.bomUnsupported(entry) || this.nativeReview?.owns(editor.document.uri.fsPath)) {
+        if (this.isDiffEditor(editor) || !this.reviewSnapshot(entry, editor.document) || this.nativeReview?.owns(editor.document.uri.fsPath)) {
             editor.setDecorations(this.decor.added, empty);
             editor.setDecorations(this.decor.insSpan, empty);
             editor.setDecorations(this.decor.ghost, empty);
             editor.setDecorations(this.decor.removed, empty);
             return;
         }
-        const { hunks } = precise.reviewDiff(entry.before ?? '', editor.document.getText());
+        const { hunks } = precise.reviewDiff(entry.before ?? '', entry.after);
         const added = [];
         const insSpan = [];
         const ghost = [];
@@ -588,7 +614,7 @@ class EditReview {
                 const anchor = Math.max(0, Math.min(h.startLine, maxLine));
                 const anchorRange = new vscode.Range(anchor, 0, anchor, 1);
                 removed.push({ range: anchorRange, hoverMessage: hover });
-                ghost.push({ range: anchorRange, before: this.ghostText(h.removedTexts) });
+                ghost.push(deletedTextDecoration(anchorRange, this.ghostText(h.removedTexts)));
                 continue;
             }
             // Inserted / rewritten lines — core's recipe, span by span:
@@ -612,21 +638,18 @@ class EditReview {
                         if (colEnd > colStart)
                             insSpan.push({ range: new vscode.Range(line, colStart, line, colEnd), hoverMessage: hover });
                         if (e.oEnd > e.oStart)
-                            ghost.push({
-                                // Core anchors deleted text on the CHANGED
-                                // SPAN's range — never an empty one.
-                                range: new vscode.Range(line, colStart, line, Math.max(colEnd, colStart + 1)),
-                                before: this.ghostText([oldLine.slice(e.oStart, e.oEnd)]),
-                            });
+                            ghost.push(deletedTextDecoration(
+                                new vscode.Range(line, colStart, line, Math.max(colEnd, colStart + 1)),
+                                this.ghostText([oldLine.slice(e.oStart, e.oEnd)]),
+                            ));
                     }
                 }
             }
             if (h.removedTexts.length > pairs) {
                 const line = Math.min(start + Math.max(count - 1, 0), maxLine);
-                ghost.push({
-                    range: new vscode.Range(line, 0, line, 1),
-                    before: this.ghostText(h.removedTexts.slice(pairs)),
-                });
+                ghost.push(deletedTextDecoration(
+                    new vscode.Range(line, 0, line, 1), this.ghostText(h.removedTexts.slice(pairs)),
+                ));
             }
         }
         this.setSafe(editor, this.decor.added, added);
@@ -643,11 +666,7 @@ class EditReview {
             console.error('[dsh-tui-vscode] edit-review decoration batch skipped:', err);
         }
     }
-    /**
-     * The red half of the two-color scheme: old content as inline ghost text —
-     * removed-text background plus a strikethrough, exactly the styling of VS
-     * Code's own `.inline-deleted-text` (the renderer Copilot's edits use).
-     */
+    /** Short red preview only; the native diff/editor shows full old lines. */
     ghostText(texts) {
         const joined = texts.join(GHOST_SEP);
         return {
@@ -667,15 +686,15 @@ class EditReview {
         const ms = new vscode.MarkdownString();
         ms.isTrusted = { enabledCommands: TRUSTED_CMDS };
         const hint = precise.changeHint(entry, h);
-        ms.appendMarkdown(`**${vscode.l10n.t('AI edit pending: {0}', (0, edit_review_core_1.formatCounts)(h.added, h.removed))}**\n\n`);
+        const source = entry.provenance === 'file-tool-v1' ? 'AI edit pending: {0}' : 'Source-unverified change: {0}';
+        ms.appendMarkdown(`**${vscode.l10n.t(source, (0, edit_review_core_1.formatCounts)(h.added, h.removed))}**\n\n`);
         // Per-edit decisions — Copilot's hover flow: this change can be kept
         // or undone "without affecting other edits in the file".
         ms.appendMarkdown(`${cmdLink(KEEP_CMD, entry.path, vscode.l10n.t('Keep this change'), hint)} \u00b7 `
             + `${cmdLink(UNDO_CMD, entry.path, vscode.l10n.t('Undo this change'), hint)} \u00b7 `
             + `${cmdLink(DIFF_CMD, entry.path, vscode.l10n.t('Compare with original'))}`);
-        // Red fallback net: the replaced text also lives in the hover card as
-        // strikethrough, so the "old half" stays visible even if the platform
-        // ever drops inline attachments entirely.
+        // The hover is a readable old-text preview, not a view zone. Full
+        // deleted lines are available through Compare with original.
         if (h.removedTexts.length > 0) {
             ms.appendMarkdown('\n\n');
             ms.appendText(h.removedTexts.join(' ⏎ ').slice(0, 160));
@@ -777,6 +796,7 @@ class EditReview {
             const entry = this.ledger.get(path);
             if (entry) {
                 entry.userTouched = true;
+                entry.conflict = 'save-participant';
                 this.ledger.setAfter(path, actual);
             }
             throw Error('Saving changed the file (possibly a save participant). Exact Undo did not complete; the original was retained and the current file requires review.');
@@ -820,7 +840,7 @@ class EditReview {
         void vscode.window.showWarningMessage(message);
     }
     staleWarning() {
-        return this.warn('This review button is out of date, or the file has later edits. Refresh the diff; no change was applied.');
+        return this.warn('This control refers to an earlier review snapshot. Use the current AI Edits controls. If user edits overlap the change, save them and choose Keep current file or explicitly confirmed Undo file; no change was applied.');
     }
     bomUnsupported(entry, current) {
         // TextDocument omits the encoding BOM. Until it is tracked separately,
@@ -828,14 +848,14 @@ class EditReview {
         return [entry?.before, entry?.after, current].some(text => typeof text === 'string' && text.startsWith('\uFEFF'));
     }
     async safeCurrent(entry) {
-        if (this.bomUnsupported(entry)) return null;
+        if (this.bomUnsupported(entry) || entry.conflict === 'save-participant' || this.activeTransactions?.has(reviewPathKey(entry.path))) return null;
         try { await this.assertSafePath(entry.path); } catch { return null; }
-        if (entry.userTouched) return null;
         const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === entry.path && !d.isClosed);
         if (doc?.isDirty) return null;
         try {
             const disk = await fsp.readFile(entry.path, 'utf8');
             if (this.ledger.get(entry.path) !== entry || disk !== entry.after || (doc && doc.getText() !== disk)) return null;
+            if (entry.userTouched) { entry.userTouched = false; delete entry.conflict; }
             return disk;
         } catch { return null; }
     }
@@ -914,6 +934,7 @@ class EditReview {
     }
     async keep(target, hint) {
         const path = this.resolvePath(target);
+        if (path && this.activeTransactions?.has(reviewPathKey(path))) return this.warn('AI tool edit is still running. Review becomes available when the tool finishes.');
         if (path && this.nativeReview?.owns(path)) return this.nativeReview.showReview(vscode.Uri.file(path));
         if (!path || !vscode.workspace.getWorkspaceFolder(vscode.Uri.file(path))) return;
         const fileHint = hint?.file ? hint : target?.reviewHint;
@@ -943,6 +964,7 @@ class EditReview {
     }
     async undo(target, hint) {
         const path = this.resolvePath(target);
+        if (path && this.activeTransactions?.has(reviewPathKey(path))) return this.warn('AI tool edit is still running. Review becomes available when the tool finishes.');
         if (path && this.nativeReview?.owns(path)) return this.nativeReview.showReview(vscode.Uri.file(path));
         if (!path || !vscode.workspace.getWorkspaceFolder(vscode.Uri.file(path))) return;
         const fileHint = hint?.file ? hint : target?.reviewHint;
@@ -1016,9 +1038,10 @@ class EditReview {
         if (entry.beforeMissing)
             return vscode.l10n.t('original not captured');
         const { addedLines, removedLines } = precise.reviewDiff(entry.before ?? '', entry.after ?? '');
-        const warning = this.bomUnsupported(entry) ? ' · BOM: Undo unavailable' : entry.userTouched ? ' · user edits: confirm Undo' : '';
+        const warning = this.bomUnsupported(entry) ? ' · BOM: Undo unavailable' : entry.userTouched ? ' · overlapping/later edits: resolve first' : '';
+        const provenance = entry.provenance === 'file-tool-v1' ? '' : ' · source unverified';
         const kind = entry.kind === 'create' ? ` ${vscode.l10n.t('new')}` : entry.kind === 'delete' ? ` ${vscode.l10n.t('deleted')}` : '';
-        return `${(0, edit_review_core_1.formatCounts)(addedLines, removedLines)}${kind}${warning}`;
+        return `${(0, edit_review_core_1.formatCounts)(addedLines, removedLines)}${kind}${warning}${provenance}`;
     }
 }
 exports.EditReview = EditReview;
@@ -1067,9 +1090,13 @@ class ReviewBarProvider {
     }
     provideCodeLenses(doc) {
         const entry = this.owner.ledger.get(doc.uri.fsPath);
-        if (!entry || entry.beforeMissing || entry.kind === 'delete' || this.owner.bomUnsupported(entry))
-            return [];
-        const { hunks } = precise.reviewDiff(entry.before ?? '', doc.getText());
+        if (!entry || this.owner.nativeReview?.owns(entry.path)) return [];
+        if (!this.owner.reviewSnapshot(entry, doc))
+            return entry ? [new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
+                title: entry.userTouched ? 'Review paused: overlapping or later edits · Compare original' : 'Review synchronizing · Compare original',
+                command: DIFF_CMD, arguments: [entry.path],
+            })] : [];
+        const { hunks } = precise.reviewDiff(entry.before ?? '', entry.after);
         if (hunks.length === 0)
             return [];
         const path = entry.path;
@@ -1083,7 +1110,7 @@ class ReviewBarProvider {
             lens('$(chevron-up)', PREV_CMD, [path]),
             lens('$(chevron-down)', NEXT_CMD, [path]),
             lens(`$(check-all) ${vscode.l10n.t('Keep')} file`, KEEP_CMD, [path, this.owner.fileHint(entry)]),
-            lens(`$(discard) ${vscode.l10n.t('Undo')} file`, UNDO_CMD, [path, this.owner.fileHint(entry)]),
+            lens(`$(undo) ${vscode.l10n.t('Undo')} file`, UNDO_CMD, [path, this.owner.fileHint(entry)]),
             lens(`$(compare) ${vscode.l10n.t('Compare with original')}`, DIFF_CMD, [path]),
         ];
         for (const [i, h] of hunks.slice(0, MAX_DECORATED_HUNKS).entries()) {

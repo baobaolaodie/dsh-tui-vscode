@@ -133,6 +133,10 @@ export interface IdeServerOptions {
    * tests can use a short deadline.
    */
   handshakeTimeoutMs?: number
+  /** Dedicated edit credential is spawn-only; never advertised in lock files. */
+  editToken?: string
+  onEdit?: (owner: object, method: string, params: unknown) => Promise<unknown>
+  onEditDisconnect?: (owner: object) => void
 }
 
 /** Default handshake deadline for unauthenticated sockets. */
@@ -152,6 +156,10 @@ export class IdeServer {
   private readonly lockRoot: string
   private readonly workspaceFolders: () => string[]
   private readonly handshakeTimeoutMs: number
+  private readonly editToken?: string
+  private readonly onEdit?: IdeServerOptions['onEdit']
+  private readonly onEditDisconnect?: IdeServerOptions['onEditDisconnect']
+  private editSockets = new Set<WsSocket>()
   private wss: WebSocketServer | null = null
   private sockets = new Set<WsSocket>()
   private env: Record<string, string> | null = null
@@ -162,6 +170,9 @@ export class IdeServer {
     this.lockRoot = options.lockRoot ?? join(homedir(), '.dsh-tui')
     this.workspaceFolders = options.workspaceFolders
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS
+    this.editToken = options.editToken
+    this.onEdit = options.onEdit
+    this.onEditDisconnect = options.onEditDisconnect
   }
 
   /** Bound port, or undefined while stopped. */
@@ -204,7 +215,7 @@ export class IdeServer {
    * server is not running (lock discovery remains available to the TUI).
    */
   envForTerminal(): Record<string, string> {
-    return this.env ?? {}
+    return this.env === null ? {} : { ...this.env, ...(this.editToken ? { DSH_VSCODE_EDIT_TOKEN: this.editToken } : {}) }
   }
 
   /** Remove the lock and close the server. Safe in every state. */
@@ -218,12 +229,13 @@ export class IdeServer {
       // ws calls back immediately when not listening — still resolve.
       wss.close(() => resolve())
       try {
-        for (const socket of [...this.sockets]) socket.terminate()
+        for (const socket of [...this.sockets, ...this.editSockets]) socket.terminate()
       } catch {
         // Sockets already gone — closing the server is what matters.
       }
     })
     this.sockets.clear()
+    this.editSockets.clear()
   }
 
   /**
@@ -251,7 +263,7 @@ export class IdeServer {
   private listen(port = 0): Promise<number> {
     return new Promise((resolve, reject) => {
       // Loopback only: the selection channel must never leave the machine.
-      const wss = new WebSocketServer({ host: '127.0.0.1', port }, () => {
+      const wss = new WebSocketServer({ host: '127.0.0.1', port, maxPayload: 4 * 1024 * 1024 }, () => {
         const address = wss.address()
         const bound = typeof address === 'object' && address !== null ? address.port : 0
         this.attach(wss)
@@ -280,6 +292,8 @@ export class IdeServer {
 
   private onConnection(socket: WsSocket): void {
     let helloDone = false
+    let editClient = false
+    let inFlight = 0
     // A silent peer must not hold its socket open forever: unauthenticated
     // sockets never enter `sockets`, so stop() does not terminate them, and
     // `wss.close()`'s callback (which waits for every connection to close)
@@ -287,14 +301,34 @@ export class IdeServer {
     const deadline = setTimeout(() => {
       if (!helloDone) socket.terminate()
     }, this.handshakeTimeoutMs)
-    socket.on('close', () => clearTimeout(deadline))
+    socket.on('close', () => { clearTimeout(deadline); if (editClient) this.onEditDisconnect?.(socket) })
     socket.on('message', raw => {
-      if (helloDone) return
+      if (helloDone && !editClient) return
       let parsed: unknown
       try {
         parsed = JSON.parse(String(raw))
       } catch {
         socket.close()
+        return
+      }
+      if (helloDone && editClient) {
+        const request = parsed as { id?: unknown; method?: unknown; params?: unknown }
+        if (typeof request?.id !== 'string' || request.id.length > 100 || !['edit/begin', 'edit/end'].includes(String(request.method)) || inFlight >= 16) { socket.close(); return }
+        inFlight++
+        void Promise.resolve().then(() => this.onEdit?.(socket, String(request.method), request.params)).then(
+          result => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ id: request.id, result })) },
+          () => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ id: request.id, error: 'Edit transaction refused; review state unchanged.' })) },
+        ).finally(() => { inFlight-- })
+        return
+      }
+      const editHello = parsed as { method?: unknown; params?: { token?: unknown; protocolVersion?: unknown } }
+      if (editHello?.method === 'edit/hello') {
+        if (!this.editToken || editHello.params?.token !== this.editToken || editHello.params?.protocolVersion !== 1 || !this.onEdit) { socket.close(); return }
+        editClient = true; helloDone = true; clearTimeout(deadline)
+        this.editSockets.add(socket)
+        socket.on('close', () => this.editSockets.delete(socket))
+        socket.on('error', () => this.editSockets.delete(socket))
+        socket.send(JSON.stringify({ method: 'edit/hello_ack', params: { protocolVersion: 1, workspaceFolders: this.workspaceFolders() } }))
         return
       }
       const record = parsed as { method?: unknown; params?: { token?: unknown; protocolVersion?: unknown } }

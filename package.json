@@ -446,6 +446,16 @@
           "type": "boolean",
           "default": true,
           "description": "Open a live VS Code comparison when a new pending file is observed; keep terminal keyboard focus. Disable to use inline controls and the AI Edits list only."
+        },
+        "dsh-tui-vscode.editReview.bridge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use an authenticated DSH file-tool transaction bridge. Unverified shell and external writes are never marked as AI edits."
+        },
+        "dsh-tui-vscode.editReview.native": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review."
         }
       }
     }

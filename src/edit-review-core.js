@@ -19,7 +19,7 @@
  *   so Undo reverts the whole un-reviewed stretch and Keep accepts all of it.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EditLedger = exports.MAX_DIFF_DP_LINES = void 0;
+exports.canonicalPathKey = exports.EditLedger = exports.MAX_DIFF_DP_LINES = void 0;
 exports.splitLines = splitLines;
 exports.diffLines = diffLines;
 exports.diffWords = diffWords;
@@ -30,6 +30,25 @@ exports.formatCounts = formatCounts;
 /** Above this size the exact comparison degrades to one coarse block (speed). */
 const MAX_DIFF_DP_LINES = 1500;
 exports.MAX_DIFF_DP_LINES = MAX_DIFF_DP_LINES;
+/**
+ * Canonical key for the review maps. The same file can arrive from two
+ * sources with different casing: the DSH tool argument ("C:\Users\...",
+ * whatever the tool/agent wrote) and VS Code's document path (the workspace
+ * URI casing, "c:\Users\..."). Windows file systems are case-insensitive,
+ * so keying by the raw string splits one file into two halves: the pending
+ * badge and the diff (they carry the entry's own path) keep working, while
+ * every editor-side lookup misses and the file shows no buttons or marks.
+ * Fold separators + case on win32 only; entries keep the original path text
+ * for display and file operations.
+ */
+function canonicalPathKey(path, platform = process.platform) {
+    if (typeof path !== 'string' || path.length === 0)
+        return path;
+    if (platform !== 'win32')
+        return path;
+    return path.replace(/\//g, '\\').toLowerCase();
+}
+exports.canonicalPathKey = canonicalPathKey;
 /**
  * Split text into lines; tolerant of LF / CRLF / lone CR. '' has no lines and
  * a trailing line break is a terminator, not an extra empty line (so 'a\nb'
@@ -331,7 +350,7 @@ class EditLedger {
         return this.entries.size;
     }
     get(path) {
-        return this.entries.get(path) ?? null;
+        return this.entries.get(canonicalPathKey(path)) ?? null;
     }
     list() {
         return [...this.entries.values()].sort((x, y) => y.lastTs - x.lastTs);
@@ -343,11 +362,12 @@ class EditLedger {
      * - anything else            → `after` is refreshed, `before` is preserved
      * Returns the (new or updated) entry, or null when a pair cancelled out.
      */
-    record(path, kind, beforeText, beforeMissing, afterText) {
-        const existing = this.entries.get(path);
+    record(path, kind, beforeText, beforeMissing, afterText, provenance) {
+        const key = canonicalPathKey(path);
+        const existing = this.entries.get(key);
         if (existing) {
             if (existing.kind === 'create' && kind === 'delete') {
-                this.entries.delete(path);
+                this.entries.delete(key);
                 this.emit();
                 return null;
             }
@@ -355,6 +375,8 @@ class EditLedger {
                 existing.kind = 'modify';
             }
             existing.userTouched = existing.userTouched === true;
+            // Provenance can never be upgraded by merging a later tool edit.
+            if (provenance && existing.provenance !== provenance) existing.provenance = 'unverified';
             existing.after = afterText;
             existing.lastTs = Date.now();
             this.emit();
@@ -368,18 +390,20 @@ class EditLedger {
             before: beforeMissing ? null : beforeText,
             beforeMissing: beforeMissing === true,
             after: afterText,
+            provenance: provenance ?? 'unverified',
             firstTs: now,
             lastTs: now,
         };
-        this.entries.set(path, entry);
+        this.entries.set(key, entry);
         this.emit();
         return entry;
     }
     /** Accept (Keep) one file's pending change. Returns the dropped entry. */
     keep(path) {
-        const entry = this.entries.get(path) ?? null;
+        const key = canonicalPathKey(path);
+        const entry = this.entries.get(key) ?? null;
         if (entry) {
-            this.entries.delete(path);
+            this.entries.delete(key);
             this.emit();
         }
         return entry;
@@ -390,7 +414,7 @@ class EditLedger {
     }
     /** Re-anchor the baseline after ONE edit was kept (per-edit Keep). */
     rebaseBefore(path, beforeText) {
-        const entry = this.entries.get(path);
+        const entry = this.entries.get(canonicalPathKey(path));
         if (!entry)
             return null;
         entry.before = beforeText;
@@ -401,7 +425,7 @@ class EditLedger {
     }
     /** Refresh the AFTER image (per-edit Undo rewrote the file). */
     setAfter(path, afterText) {
-        const entry = this.entries.get(path);
+        const entry = this.entries.get(canonicalPathKey(path));
         if (!entry)
             return null;
         entry.after = afterText;
@@ -427,6 +451,8 @@ class EditLedger {
                 beforeMissing: e.beforeMissing,
                 after: e.after,
                 userTouched: e.userTouched === true,
+                provenance: e.provenance ?? 'unverified',
+                conflict: e.conflict,
                 firstTs: e.firstTs,
                 lastTs: e.lastTs,
             })),
@@ -443,13 +469,15 @@ class EditLedger {
                 continue;
             if (rec.kind !== 'create' && rec.kind !== 'modify' && rec.kind !== 'delete')
                 continue;
-            this.entries.set(rec.path, {
+            this.entries.set(canonicalPathKey(rec.path), {
                 id: typeof rec.id === 'string' ? rec.id : `e${++this.seq}`,
                 path: rec.path,
                 kind: rec.kind,
                 before: typeof rec.before === 'string' ? rec.before : null,
                 beforeMissing: rec.kind !== 'create' && (rec.beforeMissing === true || typeof rec.before !== 'string'),
                 userTouched: rec.userTouched === true,
+                provenance: rec.provenance === 'file-tool-v1' ? 'file-tool-v1' : 'unverified',
+                conflict: typeof rec.conflict === 'string' ? rec.conflict : undefined,
                 after: typeof rec.after === 'string' ? rec.after : null,
                 firstTs: typeof rec.firstTs === 'number' ? rec.firstTs : Date.now(),
                 lastTs: typeof rec.lastTs === 'number' ? rec.lastTs : Date.now(),

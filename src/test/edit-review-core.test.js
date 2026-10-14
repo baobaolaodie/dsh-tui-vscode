@@ -5,7 +5,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { EditLedger, diffLines, diffWords, applyHunkKeep, applyHunkRevert, planUndo, formatCounts } = require('../edit-review-core');
+const { EditLedger, diffLines, diffWords, applyHunkKeep, applyHunkRevert, planUndo, formatCounts, canonicalPathKey } = require('../edit-review-core');
 // ---- diffLines -------------------------------------------------------------
 test('identical texts produce no hunks and zero counts', () => {
     const d = diffLines('a\nb\nc', 'a\nb\nc');
@@ -154,6 +154,38 @@ test('toJSON/load round-trips the ledger', () => {
     const led3 = new EditLedger();
     led3.load({ version: 99, entries: 'nonsense' });
     assert.equal(led3.size, 0);
+});
+// ---- path keying (tool path vs VS Code document path) ----------------------
+test('canonicalPathKey folds separators and case on win32 only', () => {
+    assert.equal(canonicalPathKey('C:/Users/Linus/File.TXT', 'win32'), 'c:\\users\\linus\\file.txt');
+    assert.equal(canonicalPathKey('C:\\Users\\Linus\\File.TXT', 'win32'), 'c:\\users\\linus\\file.txt');
+    assert.equal(canonicalPathKey('C:/Users/Linus', 'linux'), 'C:/Users/Linus');
+    assert.equal(canonicalPathKey('C:\\Users\\Linus', 'darwin'), 'C:\\Users\\Linus');
+    assert.equal(canonicalPathKey('', 'win32'), '');
+});
+test('ledger lookups survive drive-letter and separator case differences', { skip: process.platform !== 'win32' }, () => {
+    // The DSH tool reports e.g. "C:\\Users\\..."; VS Code document paths use
+    // the workspace URI casing (lowercase drive). Both must be one file.
+    const led = new EditLedger();
+    led.record('C:\\Users\\Linus\\桌面\\test', 'modify', 'old', false, 'new', 'file-tool-v1');
+    assert.equal(led.get('c:\\Users\\Linus\\桌面\\test').after, 'new');
+    assert.equal(led.get('c:/users/linus/桌面/test').after, 'new');
+    assert.equal(led.size, 1);
+    led.record('c:\\users\\linus\\桌面\\test', 'modify', 'ignored', false, 'newer', 'file-tool-v1');
+    assert.equal(led.size, 1);
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').after, 'newer');
+    led.setAfter('c:\\USERS\\Linus\\桌面\\TEST', 'newest');
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').after, 'newest');
+    led.rebaseBefore('c:/Users/Linus/桌面/test', 'baseline');
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').before, 'baseline');
+    const kept = led.keep('c:\\Users\\linus\\桌面\\test');
+    assert.equal(kept.id, 'e1');
+    assert.equal(led.size, 0);
+});
+test('load() keys case-variant persisted paths to the same entry', { skip: process.platform !== 'win32' }, () => {
+    const led = new EditLedger();
+    led.load({ version: 1, seq: 3, entries: [{ path: 'C:\\Users\\Linus\\桌面\\test', kind: 'modify', before: 'x', after: 'y' }] });
+    assert.equal(led.get('c:\\users\\linus\\桌面\\test').after, 'y');
 });
 // ---- planUndo --------------------------------------------------------------
 const entry = (over) => ({

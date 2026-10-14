@@ -23,11 +23,17 @@ This is explicitly an experiment. Stable participant registration works in VS Co
 - Returning files holds a gate across the confirmation and document-loading interval; new tracking cannot start during it. Failed file reads retain ownership. Subsequent explicitly started native review for a saved owned file remains supported.
 - 62 local review checks and syntax checks passed. This run captured no new screenshots and performed no independent Copilot pixel comparison. Existing dark/light/long-deletion screenshots remain historical visual evidence, not proof of pixel equivalence.
 
-## Current display verification (2026-10-12)
-- 67 local checks pass, including rejection of incomplete original lines, an unsettled theme, or an obscured native overlay. These synthetic checks validate the observer only; actual screenshots remain required.
-- Fresh dark/light/long-deletion screenshots were inspected under `docs/reference/display-clean-runtime/dev-extension/docs/reference/`. All show native review through the extension's `nativeReviewShow` entry; the right-bottom overlay is unobscured. The long original zone contains all eight Chinese lines (351 rendered characters).
-- The initial `display-runtime/` capture is not accepted as unobscured evidence because a VS Code test notification covered the overlay. Only the independent test window used `notifications.clearAll`; no user notifications were changed.
-- The independent test profile has no GitHub sign-in session; the installed Copilot 0.69.0 manifest alone is not a Copilot-generated edit reference. No credentials were copied and no Copilot inference was requested. Independent pixel comparison remains false. See `docs/native-review-visual-verification.md` for the matched-observation checklist.
+## Current display verification (2026-10-13)
+
+- 默认稳定路径已在独立 VS Code 1.141.0 宿主实际检查 Default Dark+、Default Light+ 和 Default High Contrast。
+- CodeLens 的 Keep/Undo 通过真实鼠标点击执行；无改动保存后按钮仍有效；连续已核验文件工具写入后 fresh Undo 恢复正确内容。
+- 深色主题下使用 `$(undo)` 的 Undo 入口可辨认；绿色新内容和红色旧文字可见。
+- 完整 8 行中文删除在 Compare with original diff 中保留；实际 Undo 恢复精确 CRLF 内容。
+- fresh 截图和结构化 DOM 证据：Proma 会话工作台 `stable-ui-2/screenshots/`。截图仅证明本扩展稳定路径在该宿主和固定 fixture 下可用，不声称与独立 Copilot 像素一致。
+
+### Automatic native caveat
+
+本轮额外验证了自动 `response.externalEdit`：首次事务能取得 snapshot、显示完整旧行和深/浅/高对比 Keep/Undo，并可点击 Keep。但同一文件 Keep 后再次启动 externalEdit，当前 VS Code 1.141.0 的原生 entry/lifecycle 没有稳定生成第二轮 Undo 控件。因此自动 native 选项默认关闭，不能把这个实验当作默认交付；用户可明确开启 `dsh-tui-vscode.editReview.native` 自行接受宿主兼容风险。手动 native tracking 仍保持原实验的显式 Start/Finish 流程。
 
 ## Limitations
 - This is a selected-file, explicitly started experiment; it is not yet automatic or fully equivalent to Copilot's complete workflow. Native tracking observes every modification of selected files during the tracking interval, not only proven dsh-tui edits. Do not manually edit these files or run other rewriting programs during that interval. Finish explicitly after dsh-tui completes; a quiet filesystem alone does not establish completion.

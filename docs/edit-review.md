@@ -1,81 +1,73 @@
-# 实时变更审阅（插件内实现）
+# AI 编辑审阅修复说明
 
-## 当前交付
+## 默认行为（本次修复）
 
-本轮续作（2026-10-13，GMT+8）已完成未完成的宿主验收与安全修补；本地源码仍未安装到日常 VS Code。
+默认审阅现在只接受**经过扩展与 DSH 文件工具事务桥核验的写入**：
 
-仅修改 `dsh-tui-vscode`，不修改 DSH、dsh-tui 或 VS Code。本地增强版版本号仍为 0.7.6，未发布 Marketplace。可维护源码放在当前 Proma 项目的 `dsh-tui-vscode/`。
+1. DSH `write`、`edit`、`str_replace_editor` 等支持的文件工具在真正写入前发送 `edit/begin`。
+2. 扩展校验调用身份、工作区路径、符号链接、原稿、编辑器 dirty 状态和同路径并发状态。
+3. 工具执行成功后发送 `edit/end`，扩展再次校验磁盘内容，再建立待审 entry。
+4. 普通终端命令、Git、脚本、其他编辑器和无法证明来源的文件系统事件只更新普通 settled baseline，**不会因为 DeepSeek 终端存在而标记为 AI 改动**。
 
-### 默认自动审阅
+桥接通道使用单独的随机 token，只通过本机 loopback WebSocket 传输；token 不写入 lock 文件、日志或文档。桥接加载使用本次扩展启动命令携带的一次性 `--patch`，不会修改 DSH 永久 profile，也不修改 DSH、dsh-tui 或 VS Code 源码。
 
-从插件启动/恢复的 DeepSeek 终端运行期间，工作区 UTF-8 文本文件的外部修改会进入 **AI Edits / AI 修改** 列表。
+设置：
 
-- **实时比较：** 新待审文件默认打开 VS Code 原生 diff 编辑器，保留终端键盘焦点。原稿在左、当前真实文件在右；Keep 某处后原稿侧自动更新。
-- **逐块 Keep / Undo：** 每个变更处的 CodeLens 或鼠标悬浮提供独立按钮；Keep 只提升该块为原稿，Undo 只恢复该块。
-- **逐行 Keep / Undo：** 将光标放到改动行，右键选择 `dsh-tui: Keep current line change` / `Undo current line change`。连续多行即使合并成一个 diff 块，也能单行决定。纯删除以删除间隙附近的存活行作为锚点；多条删除共用锚点时弹出选择列表。
-- **整文件：** 编辑器标题栏或侧栏文件行的 Keep / Undo；CodeLens 首行也提供文件级操作。
-- **全部文件：** AI Edits 视图标题栏的 Keep All / Undo All。
-- **待审入口：** 状态栏 `dsh: N pending` 打开待审文件选择。
+- `dsh-tui-vscode.editReview.bridge`：默认 `true`。关闭后不建立已核验 AI 文件事务，普通外部写入不会伪装成 AI。
+- `dsh-tui-vscode.editReview.native`：默认 `false`。原生 `response.externalEdit` 自动路径仍属于宿主兼容实验，且本机宿主实测连续 Keep 后再次写入的原生控件生命周期不稳定，因此不作为默认路径。
+- `dsh-tui-vscode.editReview.autoShowDiff`：控制新待审 entry 是否自动打开 `vscode.diff`，不影响审阅 entry 和按钮。
 
-关闭自动弹出 diff：设置 `dsh-tui-vscode.editReview.autoShowDiff = false`。这不关闭内联操作、列表或手动 Compare。CodeLens 可见性遵循用户已有 `editor.codeLens`，插件不改 VS Code 设置。
+## Keep / Undo 状态修复
 
-## 与 Copilot 原生 UI 的关系
+- CodeLens、Hover、侧栏和命令现在使用同一个 after 快照和 hash；实际生成的按钮参数会绑定 entry、before/after hash 和精确 hunk 偏移。
+- 无内容变化的保存、空 `contentChanges`、编辑器同步事件不会再把按钮永久标记为过期。
+- 非重叠的用户修改会被重基到 before/after 两侧，用户内容保留且不被归类为 AI；与 AI 变更重叠或无法唯一映射时暂停块按钮并显示 Compare，不静默覆盖。
+- 保存参与者改变 Undo 结果时保留原稿、保留当前文件，并标记明确冲突。
+- 同路径 AI 工具调用串行；上一笔事务完成后，下一笔重新读取原稿和磁盘状态。
+- Undo 仍保留 BOM、dirty buffer、路径越界、符号链接、原稿缺失和写后校验等安全拒绝条件，但不再用一个永久 `userTouched` 标志阻断所有可安全执行的操作。
 
-查阅并核验了本机 VS Code 1.141.0 的 Chat Editing 源码：
+## 删除行和主题显示
 
-- [ChatEditingSession 外部修改前后快照](https://github.com/microsoft/vscode/blob/2a59476c9bfcb90b3ddc372c36762471b7dfad1c/src/vs/workbench/contrib/chat/browser/chatEditing/chatEditingSession.ts)
-- [ChatEditingTextModelChangeService Keep/Undo](https://github.com/microsoft/vscode/blob/2a59476c9bfcb90b3ddc372c36762471b7dfad1c/src/vs/workbench/contrib/chat/browser/chatEditing/chatEditingTextModelChangeService.ts)
-- [ChatEditingCodeEditorIntegration 原生视图区域和按钮](https://github.com/microsoft/vscode/blob/2a59476c9bfcb90b3ddc372c36762471b7dfad1c/src/vs/workbench/contrib/chat/browser/chatEditing/chatEditingCodeEditorIntegration.ts)
-- [Copilot ExternalEditTracker](https://github.com/microsoft/vscode/blob/2a59476c9bfcb90b3ddc372c36762471b7dfad1c/extensions/copilot/src/extension/chatSessions/common/externalEditTracker.ts)
+- 删除旧文字 decoration 已修正为 VS Code 要求的：
 
-实现采用相同的决策语义：Keep 将选中修改提升为原稿，Undo 把原稿选中部分写回当前文件。**自动路径不是把 Copilot 的内部浮层复制出来**，而是稳定扩展 API 提供的 CodeLens、Hover、Decoration、TreeView 与 `vscode.diff`。原生多行旧稿显示在 diff 编辑器中；普通编辑器内的 ghost text 为简短预览，不承诺像素一致。
-
-### 可选原生实验
-
-保留已安装插件的 `Start native review for current/open files (experimental)` 入口：
-
-1. 在 DSH 修改前选择已有、已保存文件并确认风险说明。
-2. 进入外部编辑 callback 后，让 DSH 修改这些文件。
-3. 点击 `Finish native review`。
-4. 使用 VS Code 原生 Keep / Undo 和旧行显示。
-
-`response.externalEdit` 目前属于 proposed API 的兼容实现细节；本机版本直接调用未设 proposal gate，不代表未来版本稳定承诺。追踪期间原生编辑器可能只读，完整审阅需 Finish 后使用。callback/`snapshotReady` 单独不证明原生条目实际创建。需要可用 Chat 环境，即使本 participant 不调用模型。不会启用 proposal 参数、伪装 Copilot 身份或修改宿主。
-
-## 数据保护与范围
-
-- 启动先捕获已打开文档和有界工作区原稿；从插件开启新会话前等待初始化并刷新已知原稿。
-- 单文件最大 256 KiB；启动扫描上限 5000 文件、48 MiB。binary、非 UTF-8、排除目录和符号链接不进入普通审阅。
-- 工作区目录清单可以确认新文件；未捕获原稿的既有文件拒绝 Undo，不猜测原稿或误删文件。
-- 行/块按钮绑定 entry id、前后稿 hash 和位置；过期按钮不匹配最近一块。文件级 CodeLens 也绑定 hash。
-- dirty buffer 或编辑器与磁盘不一致时拒绝 Undo；待审期间用户编辑/保存会标记冲突，逐块撤销拒绝、整文件撤销必须明确确认。非模态拒绝提示不会阻塞同路径操作队列。
-- UTF-8 BOM 以磁盘前导字节保留在基线和保存屏蔽中，避免普通保存生成虚假待审；由于 VS Code `TextDocument` 正文不含编码 BOM，当前版本对包含 BOM 的待审恢复安全拒绝，不能对这类文件使用 Undo。
-- 携带版本 hint 的文件级 Keep 会校验磁盘/干净编辑器内容仍与待审 after 一致；无 hint 的标题/命令入口表示接受当前已保存内容，在已标记 userTouched 的混合修改时允许接受该当前版本而不写盘。侧栏条目携带版本 hint，旧按钮不会接受后来写入。保存参与者改写会保留原稿并将当前内容标为用户冲突，不回滚参与者结果。
-- 关闭扩展时会等待已开始的同路径决定、初始化和最终 workspace storage flush；storage 临时文件使用进程/随机后缀。
-- 新文件部分 Keep 后接受其存在性，后续整文件 Undo 恢复已 Keep 部分，而不是删除文件。删除未接受的新文件必须确认，使用回收站（宿主支持时）。
-- 同路径事件与命令串行；恢复已删除文件使用独占创建，已有新文件时拒绝覆盖；写后核对保存参与者是否改变内容，失败保留原稿。
-- 待审状态按 VS Code workspace storage 隔离，有序原子替换写入；从旧 global storage 迁移时只载入当前工作区内容。
-- 原生实验追踪的文件删除后不会自动重建或假装已解决；可对确认缺失的单个 native-owned 文件执行“Return current resolved file to ordinary review”，停止该路径保护而不写回文件；其余路径 ownership 不受影响。
-
-**剩余边界：** 普通文件系统事件不携带写入进程身份，不能证明每一项都来自 DSH。同时运行格式化、构建、Git 切换或其他外部写入工具会混入审阅；请勿将该列表当作可信的进程归因。UTF-8 BOM 文件的自动恢复仍未支持，当前以安全拒绝替代；原生实验对已删除文件只提供显式放弃保护的出口。普通文件系统没有跨进程内容 compare-and-swap；即使插件队列和前后校验可缩小风险，也不能保证与任意外部进程同时写同一文件绝对安全。建议待 DSH 停止写该文件后操作 Undo。同一 workspace storage 的唯一临时文件避免临时文件相撞，但不提供多窗口/多 writer 状态合并；正常 deactivate 会等待 flush，强制结束进程或宿主关闭超时仍可能丢失未落盘状态。所有操作不是 Git 暂存，不修改 Git 索引。
-
-## 验证
-
-- `npm run typecheck`
-- `npm test`（原有插件测试及新增审阅检查）
-- 独立 VS Code 1.141.0 扩展宿主：实际 watcher 存底、扁平 CodeLens、每块按钮、逐行 Keep / Undo、实时原稿刷新、CRLF/无末尾换行、保存后 2 秒内外部重写、整文件撤销、Keep All、新文件接受及删除恢复。
-- 独立安全审查指出的问题已补回归测试；没有请求 Copilot/DSH 推理或复制登录凭据。
-
-最新实际宿主结果保存在 `docs/review-host-result.json`。2026-10-13 完整检查：TypeScript 通过，160 项原有测试 + 90 项审阅测试 = 250 项通过；最终扩展宿主在两个独立 profile 中完整成功。宿主新增 dirty/saved 用户编辑、过期控件、新文件部分 Keep、批量 Undo、BOM 安全拒绝及保存屏蔽、保存参与者改写和 awaited shutdown 验证。原生 `externalEdit` UI、本轮 native missing 出口仅有 Node 检查，不以此声明原生 UI 的 fresh 验收。历史原生截图证据来自此前已安装插件的 `docs/`，本次不把它们当作新拍截图，也不声称独立 Copilot 像素对照完成。
-
-### 复跑与安装包
-
-Windows PowerShell（使用已有 VS Code，不下载、不安装）：
-
-```powershell
-$env:VSCODE_EXECUTABLE = "D:\Microsoft VS Code\Code.exe"
-npm run test:review:host
+```javascript
+{
+  range,
+  renderOptions: { before: oldTextDecoration }
+}
 ```
 
-`DSH_REVIEW_ARTIFACT_ROOT` 可指定隔离 profile 和证据输出目录；默认 `.scratch/review-host/`。每个运行有阶段/命令超时及 90 秒外层上限，只终止该运行器创建的独立进程树。不会重载日常窗口、复制凭据或执行 DSH 推理。
+- 普通编辑器中的旧文字是短预览；完整多行删除内容使用 Compare with original 的 VS Code diff 编辑器显示。
+- Diff 编辑器使用 VS Code 主题的 inserted/deleted 配色。Undo 入口使用 `$(undo)` 图标，不再使用在深色主题下难以识别的 `$(discard)`。
+- 实际隔离宿主截图已检查 Default Dark+、Default Light+、Default High Contrast：稳定路径的 Keep/Undo CodeLens、绿色新行、红色旧文字，以及 8 行中文完整删除的 diff 显示均可见。
 
-本地包为 `dsh-tui-vscode-0.7.6-edit-review.vsix`，与正式版默认产物名区分。`npm run package` 和 `npm run install:local` 共用该命名逻辑；同名版本安装会替换当前 `baobaolaodie.dsh-tui-vscode`，必须先确认；本轮未安装、未发布。文档和测试不进入 VSIX。
+## 和 Copilot 的边界
+
+Copilot 的核心顺序是“具体编辑事务 → 原稿快照 → 用户编辑重基 → 宿主原生 view zone 和 Keep/Undo”。本次默认路径复用了其中的数据一致性原则和操作语义，但扩展没有伪装 Copilot 身份，也没有注入工作台 DOM：
+
+- 可靠来源来自 DSH 文件工具事务，而不是终端存在状态。
+- 稳定 UI 使用公开扩展 API：CodeLens、Hover、Decoration、TreeView 和 `vscode.diff`。
+- 原生 `externalEdit` 保留为手动实验入口；自动 native 选项默认关闭，只有用户明确打开并接受宿主兼容限制时才尝试。
+
+## 验证记录（2026-10-13，GMT+8）
+
+- `npm run typecheck`：通过。
+- `npm test`：160 项通用/功能测试、103 项审阅测试、3 项 VSIX 命名测试通过，共 266 项。
+- 稳定路径隔离 VS Code 1.141.0 宿主：通过普通外部写入不归因、实际 CodeLens/Keep/Undo、无改动保存、连续工具写入、非重叠/重叠用户编辑、8 行中文删除、BOM、保存参与者和 shutdown 持久化。
+- 视觉宿主结果：
+  - `C:\Users\linus\.proma\agent-workspaces\vscode-dsh-tui\4fdc334b-8643-40f9-ad53-b61de0f6399f\stable-ui-2\screenshots\`
+  - 含 Dark、Light、高对比的 inline 与 diff PNG/JSON。
+  - 实际鼠标点击 Keep/Undo 通过，结果写入和恢复内容核验通过。
+- 真实 DSH 生产桥隔离验证：
+  - `write`、`edit`、`str_replace_editor`、`insert`、`create`，中文、CRLF、无 EOF、并行不同文件和失败调用矩阵通过。
+  - 20/20 场景通过，14 个事务 commit、28 个 begin/end 请求。
+  - observer fiber dispose 后 edit socket 从 1 降为 0；token 文件泄漏检查为 false。
+  - 证据：`C:\Users\linus\.proma\agent-workspaces\vscode-dsh-tui\4fdc334b-8643-40f9-ad53-b61de0f6399f\probe-dsh\production-bridge-20261013\`。
+- 原生自动路径额外测试确认：首次 externalEdit 能显示完整红色旧行和深/浅/高对比 Keep/Undo，但连续 Keep 后再次写入的原生 lifecycle 在当前宿主上不稳定。因此该选项默认关闭，不能把实验截图当作默认交付。
+
+## 未覆盖范围
+
+- 任意 shell 写入没有可靠的 DSH 工具事务身份，默认不会标 AI。
+- 同一文件被未知外部进程在事务期间并发写入时，扩展会保守拒绝或保留冲突；不承诺跨进程绝对 compare-and-swap。
+- UTF-8 BOM 文件的自动恢复仍安全拒绝。
+- 本地 VSIX 尚未安装到用户日常 VS Code，也未发布 Marketplace。生成包前需要再次运行 `npm run package`；安装会替换同名扩展，需另行确认。

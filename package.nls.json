@@ -37,9 +37,11 @@
   "command.dsh-tui-vscode.editKeepAll.title": "Keep all AI edits",
   "command.dsh-tui-vscode.editUndoAll.title": "Undo all AI edits",
   "view.dsh-tui-vscode.editReview.name": "AI Edits",
-  "view.dsh-tui-vscode.editReview.welcome": "No pending AI edits yet.\n\nFiles changed by a dsh-tui session show up here; each one can be kept (Keep) or reverted (Undo), and the editor marks every pending line.",
-  "config.dsh-tui-vscode.editReview.enabled.description": "Track file changes made by dsh-tui sessions: mark pending lines in the editor and offer Keep / Undo (see the AI Edits view). Observed entirely from the plugin layer; the TUI is not modified.",
+  "view.dsh-tui-vscode.editReview.welcome": "No verified file-tool edits pending.\n\nSupported DSH file-tool transactions appear here with Keep / Undo. Ordinary external writes are not attributed to AI; older captured entries are marked source unverified.",
+  "config.dsh-tui-vscode.editReview.enabled.description": "Review verified DSH file-tool transactions with Keep / Undo. The extension loads its own observer through a temporary launch patch; it never infers AI authorship from a terminal or a filesystem event.",
   "config.dsh-tui-vscode.editReview.exclude.description": "Glob patterns excluded from AI edit tracking (no marks and no baseline capture).",
   "command.dsh-tui-vscode.editNextHunk.title": "Next pending edit",
-  "command.dsh-tui-vscode.editPrevHunk.title": "Previous pending edit"
+  "command.dsh-tui-vscode.editPrevHunk.title": "Previous pending edit",
+  "config.dsh-tui-vscode.editReview.bridge.description": "Use an authenticated DSH file-tool transaction bridge. Unverified shell and external writes are never marked as AI edits.",
+  "config.dsh-tui-vscode.editReview.native.description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review."
 }

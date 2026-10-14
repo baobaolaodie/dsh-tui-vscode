@@ -1,6 +1,8 @@
 import * as vscode from 'vscode'
 import { homedir } from 'node:os'
 import { randomBytes } from 'node:crypto'
+import { promises as fsp } from 'node:fs'
+import { join, basename } from 'node:path'
 import { SessionsTreeProvider } from './sessions-view'
 import { SessionStatusBar } from './status'
 import { relativeTime } from './relative-time'
@@ -41,6 +43,7 @@ import {
 import { IdeServer, selectionLineRange } from './ide/server'
 import { EditReview } from './edit-review'
 import { NativeReview } from './native-review'
+import { EditTransactions } from './edit-transaction-core'
 
 const TERMINAL_NAME = 'DeepSeek'
 let shutdownReview: (() => Promise<void>) | undefined
@@ -56,6 +59,8 @@ interface Settings {
   editorCommand: string
   dshHome: string
   terminalLocation: string
+  editReviewBridge: boolean
+  editReviewNative: boolean
 }
 
 function readSettings(): Settings {
@@ -77,6 +82,8 @@ function readSettings(): Settings {
     editorCommand: cfg.get<string>('editorCommand', 'code -w'),
     dshHome: cfg.get<string>('dshHome', ''),
     terminalLocation: cfg.get<string>('terminalLocation', 'editor'),
+    editReviewBridge: cfg.get<boolean>('editReview.bridge', true),
+    editReviewNative: cfg.get<boolean>('editReview.native', false),
   }
 }
 
@@ -88,6 +95,7 @@ export interface ExtensionApi {
   getNativeReviewStatus(): Record<string, unknown>
   getNativeReviewTestBridge(): unknown
   getEditReviewTestBridge(): unknown
+  getEditTransactionsTestBridge(): unknown
   /**
    * E2E seam (test-only): write the persistent "image setup prompt already
    * shown" marker directly.
@@ -154,7 +162,25 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const editReview = new EditReview(context, { terminalName: TERMINAL_NAME })
   context.subscriptions.push(editReview)
   const nativeReview = new NativeReview(context, editReview)
+  const transactions = new EditTransactions({
+    document: (path: string) => {
+      const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === path && !d.isClosed)
+      return doc ? { isDirty: doc.isDirty, text: editReview.documentSnapshot(doc) } : undefined
+    },
+    validatePath: (path: string) => editReview.assertSafePath(path),
+    before: (operation: { path: string; before: string | null }) => {
+      if (!editReview.beginVerifiedTransaction(operation)) throw Error('Review baseline changed before AI edit')
+    },
+    nativeBegin: (operation: { path: string; before: string | null }) =>
+      vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.native', false)
+        ? nativeReview.beginOperation(operation) : Promise.resolve(null),
+    commit: (operation: { path: string }) => editReview.endVerifiedTransaction(operation),
+    release: (operation: { path: string }) => editReview.cancelVerifiedTransaction(operation),
+  })
+  context.subscriptions.push({ dispose: () => { void transactions.shutdown() } })
+  const editToken = randomBytes(32).toString('hex')
   shutdownReview = async () => {
+    await transactions.shutdown()
     await Promise.all([editReview.shutdown(), nativeReview.shutdown()])
   }
   // Re-point the tree (and the commands that resolve through it) when the
@@ -226,6 +252,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     token: randomBytes(16).toString('hex'),
     workspaceFolders: () =>
       (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath),
+    editToken,
+    onEdit: async (owner, method, params) => {
+      if (!editReview.enabled() || !vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.bridge', true)) throw Error('Review bridge is disabled')
+      if (method === 'edit/begin') return transactions.begin(owner, params)
+      if (method === 'edit/end') return transactions.end(owner, params)
+      throw Error('Unknown edit method')
+    },
+    onEditDisconnect: owner => { void transactions.disconnect(owner) },
   })
   // 记录启动 promise：start() 是异步的。若扩展在它落定前就停用，stop() 会因为
   // 内部 wss 仍为 null 而直接返回，随后 listen 成功的那一次再也没有人接管
@@ -247,7 +281,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   })
 
   /** Terminal env pair for the IDE channel ({} while the server is down). */
-  const ideEnvPairs = (): Record<string, string> => ideServer.envForTerminal()
+  const ideEnvPairs = (): Record<string, string> => ({
+    ...ideServer.envForTerminal(),
+    DSH_VSCODE_EDIT_ROOT: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+  })
 
   /** Push one selection snapshot to connected dsh-tui sessions. */
   const broadcastSelection = (
@@ -562,6 +599,26 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // tells us whether a Windows path must be converted for Git Bash/WSL.
     const resolved = resolveLaunchCommand(command, isWindows, shellKind)
     const parts = [formatLaunchPath(resolved ?? command, shellKind, isWindows)]
+    // Host-owned flags must precede every TUI/app argument. Custom command
+    // wrappers and WSL are not presumed to support a Windows runtime plugin.
+    const commandBase = basename(command).replace(/\.(?:cmd|exe|ps1)$/i, '').toLowerCase()
+    // Best-effort review integration must never prevent the terminal launching.
+    if (cfg.editReviewBridge && editReview.enabled() && context.storageUri && shellKind !== 'wsl' && commandBase === 'dsh-tui') {
+      try {
+        await ideServerStartup
+        if (ideServer.running) {
+          const patch = join(context.storageUri.fsPath, 'edit-review-bridge.patch.json')
+          await fsp.mkdir(context.storageUri.fsPath, { recursive: true })
+          await fsp.writeFile(patch, JSON.stringify([{ insert: [{
+            id: 'dsh-vscode-edit-observer', name: join(context.extensionPath, 'bridge', 'dsh-edit-observer.cjs'),
+          }] }]), { encoding: 'utf8', mode: 0o600 })
+          parts.push('--patch', formatWorkspaceTargetArg(patch, shellKind).trim())
+        }
+      } catch (error) {
+        console.error('[dsh-tui-vscode] File review bridge could not be prepared:', error)
+        void vscode.window.showWarningMessage('File-tool review bridge could not start. The session will continue without AI edit attribution.')
+      }
+    }
     for (const arg of cfg.extraArgs) parts.push(arg)
     // Missing-@mention fix: pin the session cwd to THIS workspace
     // root via a trailing positional arg — the launcher turns it into
@@ -1006,6 +1063,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     getEditReviewTestBridge: () => {
       if (context.extensionMode !== vscode.ExtensionMode.Test) throw Error('Test mode only')
       return editReview
+    },
+    getEditTransactionsTestBridge: () => {
+      if (context.extensionMode !== vscode.ExtensionMode.Test) throw Error('Test mode only')
+      return transactions
     },
     // `await`ed rather than fire-and-forget: the caller is the e2e suite, and a
     // rejected write there must fail the case instead of passing it vacuously

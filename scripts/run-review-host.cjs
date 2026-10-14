@@ -21,6 +21,7 @@ fs.writeFileSync(path.join(workspace, 'batch-b.txt'), 'batch B original');
 fs.writeFileSync(path.join(workspace, '.vscode/settings.json'), JSON.stringify({
     'dsh-tui-vscode.editReview.exclude': ['**/.vscode/**', '**/host-result.json', '**/host-result.json.tmp'],
     'dsh-tui-vscode.editReview.autoShowDiff': false,
+    'dsh-tui-vscode.editReview.native': false,
     'window.title': 'dsh-tui review isolated test',
     'telemetry.telemetryLevel': 'off',
     'update.mode': 'none',

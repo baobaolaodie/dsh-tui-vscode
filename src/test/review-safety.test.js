@@ -43,12 +43,12 @@ test('stale decision completes and releases its path queue without dismissing a 
         assert.equal(o.fileQueues.size, 0);
     } finally { mock.window.showWarningMessage = previous; }
 });
-test('unscanned existing change is never treated as new file deletion', async()=>{
+test('unscanned ordinary external change updates the settled baseline but is never treated as AI', async()=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-review-test-'));
     try {
         const file=path.join(root,'existing.txt');await fs.writeFile(file,'valuable\n');
         const o=owner(); await o.processFsEvent(mock.Uri.file(file),'change');
-        const entry=o.ledger.get(file);assert.equal(entry.kind,'modify');assert.equal(entry.beforeMissing,true);assert.equal(planUndo(entry,true,entry.after).action,'blocked');
+        assert.equal(o.ledger.get(file),null); assert.equal(o.settled.get(file),'valuable\n');
     } finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 test('partial keep of created file accepts its existence, whole undo restores kept content',()=>{
@@ -70,9 +70,9 @@ test('persisted missing baseline is blocked rather than restored to empty',()=>{
     const led=new EditLedger();led.load({version:1,entries:[{path:'f',kind:'modify',after:'valuable',beforeMissing:false}]});
     assert.equal(planUndo(led.get('f'),true,'valuable').action,'blocked');
 });
-test('strict UTF-8 observation preserves BOM',async()=>{
+test('strict UTF-8 observation keeps BOM changes outside the AI ledger',async()=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-review-test-'));
-    try { const file=path.join(root,'bom.txt');await fs.writeFile(file,'\uFEFFnew\r\n');const o=owner();o.settled.set(file,'\uFEFFold\r\n');await o.processFsEvent(mock.Uri.file(file),'change');assert.equal(o.ledger.get(file).after,'\uFEFFnew\r\n'); }
+    try { const file=path.join(root,'bom.txt');await fs.writeFile(file,'\uFEFFnew\r\n');const o=owner();o.settled.set(file,'\uFEFFold\r\n');await o.processFsEvent(mock.Uri.file(file),'change');assert.equal(o.ledger.get(file),null);assert.equal(o.settled.get(file),'\uFEFFnew\r\n'); }
     finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 test('file text cannot inject trusted hover command links',()=>{

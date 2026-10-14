@@ -37,9 +37,11 @@
   "command.dsh-tui-vscode.editKeepAll.title": "保留全部 AI 改动",
   "command.dsh-tui-vscode.editUndoAll.title": "撤销全部 AI 改动",
   "view.dsh-tui-vscode.editReview.name": "AI 改动待审",
-  "view.dsh-tui-vscode.editReview.welcome": "还没有待审的 AI 改动。\n\ndsh-tui 会话改动过的文件会出现在这里，可逐个保留 Keep 或撤销 Undo；编辑器里也会标出待审的行。",
-  "config.dsh-tui-vscode.editReview.enabled.description": "跟踪 dsh-tui 会话对文件的改动：在编辑器里标出待审的行，并提供保留 Keep / 撤销 Undo（见「AI 改动待审」视图）。完全在插件层旁观文件变化，不改动 TUI。",
+  "view.dsh-tui-vscode.editReview.welcome": "还没有经过核验的文件工具改动。\n\n受支持的 DSH 文件工具事务会出现在这里，可执行 Keep / Undo；普通外部写入不会归因于 AI，历史未核验条目会明确标注来源未核验。",
+  "config.dsh-tui-vscode.editReview.enabled.description": "审阅经过核验的 DSH 文件工具事务并提供 Keep / Undo。扩展通过一次性启动补丁加载自己的 observer，不会根据终端存在或文件系统事件推断 AI 作者。",
   "config.dsh-tui-vscode.editReview.exclude.description": "不参与 AI 改动跟踪的 glob 模式（不标注、也不存原稿）。",
   "command.dsh-tui-vscode.editNextHunk.title": "下一处待审改动",
-  "command.dsh-tui-vscode.editPrevHunk.title": "上一处待审改动"
+  "command.dsh-tui-vscode.editPrevHunk.title": "上一处待审改动",
+  "config.dsh-tui-vscode.editReview.bridge.description": "使用经过认证的 DSH 文件工具事务桥。无法核验来源的 shell 或外部写入不会标记为 AI 改动。",
+  "config.dsh-tui-vscode.editReview.native.description": "实验性自动原生审阅，默认关闭：在部分宿主中 Keep 后连续编辑的控件生命周期仍不可靠。请使用稳定 diff 审阅。"
 }
