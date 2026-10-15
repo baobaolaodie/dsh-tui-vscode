@@ -18,9 +18,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **Review comparisons open as the stacked inline diff**: Keep / Undo comparisons (including the automatic one after a new pending edit) now align VS Code's own diff view mode — the same mechanism as the diff editor's Inline View button — so removed lines show as red rows and added lines as green rows in one column, exactly like the editor's inline diff. New setting `dsh-tui-vscode.editReview.diffView`: `inline` (default), `sideBySide`, or `auto` (leave VS Code untouched).
+- **Editor review marks now read like a git diff**: changed text highlights snap to the whole element — word / identifier / number / file token — instead of per-character shards, old fragments that attach to the same anchor column join into one strikethrough string in original order, and a modified block whose line counts differ pairs old and new lines by content similarity (the surviving line pairs with its rewrite; genuinely deleted lines show as their own struck text, not blended into an unrelated line).
 - **Session launch path**: dsh-tui sessions started by the extension (default `dsh-tui` command, non-WSL) additionally receive a temporary review-bridge `--patch` file and an edit token through the environment; custom commands and WSL are untouched.
 
 ### Fixed
+
+- **Paused (conflicted) reviews stay actionable**: a review that later/overlapping edits paused now offers `Keep (accept current file)` in the review bar — whole-file Keep never writes, so accepting the current file safely closes the stale review instead of leaving it stuck. The sidebar and title-bar Keep/Undo paths no longer fail with the misleading "button is out of date" warning for such entries (Undo routes to its confirmation prompt instead).
 
 ## [0.7.6] - 2026-10-06
 

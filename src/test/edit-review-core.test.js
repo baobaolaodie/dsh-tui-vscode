@@ -5,7 +5,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { EditLedger, diffLines, diffWords, applyHunkKeep, applyHunkRevert, planUndo, formatCounts, canonicalPathKey } = require('../edit-review-core');
+const { EditLedger, diffLines, diffWords, elementChanges, pairLines, applyHunkKeep, applyHunkRevert, planUndo, formatCounts, canonicalPathKey } = require('../edit-review-core');
 // ---- diffLines -------------------------------------------------------------
 test('identical texts produce no hunks and zero counts', () => {
     const d = diffLines('a\nb\nc', 'a\nb\nc');
@@ -70,6 +70,79 @@ test('diffWords reports [] for identical lines and pure deletion spans', () => {
     assert.deepEqual(diffWords('keep drop keep', 'keep keep'), [
         { oStart: 5, oEnd: 9, nStart: 5, nEnd: 5 },
     ]);
+});
+// ---- elementChanges (git-diff-like element spans for the editor marks) -----
+// The editor marks must never shard an edit into per-character pieces; the
+// changed ELEMENT (word / identifier / number / file token) is one span.
+test('elementChanges keeps a mid-word edit as one whole word', () => {
+    assert.deepEqual(elementChanges('the cat sat', 'the dogs sat'), [
+        { oStart: 4, oEnd: 7, nStart: 4, nEnd: 8 },
+    ]);
+    assert.deepEqual(elementChanges('cats', 'cat'), [{ oStart: 0, oEnd: 4, nStart: 0, nEnd: 0 }]);
+    assert.deepEqual(elementChanges('hold', 'holds'), [{ oStart: 0, oEnd: 0, nStart: 0, nEnd: 5 }]);
+});
+test('elementChanges leaves an inserted word between words as its own span', () => {
+    assert.deepEqual(elementChanges('a b', 'a new b'), [
+        { oStart: 2, oEnd: 2, nStart: 2, nEnd: 5 },
+    ]);
+});
+test('elementChanges collapses a scrambled rewrite into element-level spans', () => {
+    assert.deepEqual(elementChanges('* 5. real GDP, three sectors', '* 5. GDP_first'), [
+        { oStart: 5, oEnd: 9, nStart: 5, nEnd: 5 },
+        { oStart: 13, oEnd: 28, nStart: 5, nEnd: 14 },
+    ]);
+});
+test('elementChanges grows to the token but stops at path separators', () => {
+    const oldLine = '* data\\excel\\VA\\VA1-3.xlsx hold the finished 1993-price sectoral levels: 31 rows';
+    const newLine = '* data\\excel\\VA\\VA1.xlsx holds the finished 1993-price level for the primary';
+    assert.deepEqual(elementChanges(oldLine, newLine), [
+        { oStart: 16, oEnd: 26, nStart: 16, nEnd: 16 },
+        { oStart: 25, oEnd: 25, nStart: 25, nEnd: 30 },
+        { oStart: 56, oEnd: 80, nStart: 61, nEnd: 76 },
+    ]);
+});
+test('elementChanges keeps CJK runs together instead of per-character shards', () => {
+    assert.deepEqual(elementChanges('这是测试内容', '这是新内容'), [
+        { oStart: 0, oEnd: 6, nStart: 0, nEnd: 5 },
+    ]);
+});
+test('elementChanges drops pure whitespace reshuffles and identical lines', () => {
+    assert.deepEqual(elementChanges('  indented', '    indented'), []);
+    assert.deepEqual(elementChanges('same', 'same'), []);
+});
+// ---- pairLines (content-aligned pairing inside one modified block) ---------
+test('pairLines keeps index order for equal, similar blocks', () => {
+    assert.deepEqual(pairLines(['a', 'b'], ['a1', 'b1']), {
+        pairs: [{ oldIndex: 0, newIndex: 0 }, { oldIndex: 1, newIndex: 1 }],
+        unpairedOld: [], unpairedNew: [],
+    });
+});
+test('pairLines matches an unequal block by content, not by index', () => {
+    const oldLines = ['Foreach s in 1 2 3 {', '  import excel using "VA`s\'.xlsx"'];
+    const newLines = ['import excel using "VA1.xlsx"'];
+    const result = pairLines(oldLines, newLines);
+    assert.deepEqual(result.pairs, [{ oldIndex: 1, newIndex: 0 }]);
+    assert.deepEqual(result.unpairedOld, [0]);
+    assert.deepEqual(result.unpairedNew, []);
+});
+test('pairLines reports a purely deleted middle line as unpaired', () => {
+    const result = pairLines(['a', 'b', 'c'], ['a', 'c']);
+    assert.deepEqual(result.pairs, [{ oldIndex: 0, newIndex: 0 }, { oldIndex: 2, newIndex: 1 }]);
+    assert.deepEqual(result.unpairedOld, [1]);
+});
+test('pairLines bounds very large blocks by keeping index order', () => {
+    const oldLines = Array.from({ length: 80 }, (_, i) => `line ${i}`);
+    const newLines = Array.from({ length: 79 }, (_, i) => `line ${i < 40 ? i : i + 1}`);
+    const result = pairLines(oldLines, newLines);
+    assert.equal(result.pairs.length, 79);
+    assert.deepEqual(result.pairs[0], { oldIndex: 0, newIndex: 0 });
+    assert.deepEqual(result.pairs[78], { oldIndex: 78, newIndex: 78 });
+    assert.deepEqual(result.unpairedOld, [79]);
+    assert.deepEqual(result.unpairedNew, []);
+});
+test('pairLines handles an empty side without inventing pairs', () => {
+    assert.deepEqual(pairLines([], ['a', 'b']), { pairs: [], unpairedOld: [], unpairedNew: [0, 1] });
+    assert.deepEqual(pairLines(['a'], []), { pairs: [], unpairedOld: [0], unpairedNew: [] });
 });
 // ---- per-edit Keep / Undo (Copilot's per-change decisions) -----------------
 test('applyHunkKeep folds exactly one edit into the baseline', () => {

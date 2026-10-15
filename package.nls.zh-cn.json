@@ -43,5 +43,9 @@
   "command.dsh-tui-vscode.editNextHunk.title": "下一处待审改动",
   "command.dsh-tui-vscode.editPrevHunk.title": "上一处待审改动",
   "config.dsh-tui-vscode.editReview.bridge.description": "使用经过认证的 DSH 文件工具事务桥。无法核验来源的 shell 或外部写入不会标记为 AI 改动。",
-  "config.dsh-tui-vscode.editReview.native.description": "实验性自动原生审阅，默认关闭：在部分宿主中 Keep 后连续编辑的控件生命周期仍不可靠。请使用稳定 diff 审阅。"
+  "config.dsh-tui-vscode.editReview.native.description": "实验性自动原生审阅，默认关闭：在部分宿主中 Keep 后连续编辑的控件生命周期仍不可靠。请使用稳定 diff 审阅。",
+  "config.dsh-tui-vscode.editReview.diffView.description": "审阅对比的打开方式。「inline」（默认）显示上下叠放的红/绿行 diff——会像 diff 编辑器的 Inline View 按钮一样对齐 VS Code 的 diff 视图模式；「sideBySide」强制左右并排；「auto」完全保留 VS Code 自身设置。",
+  "config.dsh-tui-vscode.editReview.diffView.enum.inline": "上下叠放（红/绿行）",
+  "config.dsh-tui-vscode.editReview.diffView.enum.sideBySide": "左右并排",
+  "config.dsh-tui-vscode.editReview.diffView.enum.auto": "跟随 VS Code 设置"
 }

@@ -88,6 +88,19 @@ function globToRegex(glob) {
 function normalizeSlashes(p) {
     return p.replace(/\\/g, '/');
 }
+/** Join same-line old fragments into one readable strikethrough run. */
+function joinGhostParts(parts) {
+    let out = '';
+    for (const part of parts) {
+        if (!out)
+            out = part;
+        else if (part.startsWith(' ') || /^[,.;:!?)\]}]/.test(part) || out.endsWith(' '))
+            out += part;
+        else
+            out += ' ' + part;
+    }
+    return out;
+}
 function isDirPrunable(name) {
     // Hidden dirs, package/build caches, and AppData (huge per-user program
     // data: it would eat the whole scan budget in a home-dir workspace).
@@ -617,38 +630,60 @@ class EditReview {
                 ghost.push(deletedTextDecoration(anchorRange, this.ghostText(h.removedTexts)));
                 continue;
             }
-            // Inserted / rewritten lines — core's recipe, span by span:
+            // Inserted / rewritten lines — element-level marks:
             // whole-line green (line-insert) on every live line; for a rewrite
-            // the CHANGED WORDS get the stronger green (char-insert) and the
-            // replaced words ride along as red strikethrough ghosts AT THEIR
-            // ORIGINAL POSITION (core: before:{content: <old span>} on each
-            // inner-change range).
+            // the CHANGED ELEMENTS get the stronger green (char-insert) and the
+            // replaced elements ride along as red strikethrough ghosts AT THEIR
+            // ORIGINAL POSITION. Element-level, not per-character: a small edit
+            // inside a word highlights the whole word (git-diff-like), never a
+            // single-character shard (`holds` -> `s`, `VA1-3` -> `-3`).
             const start = Math.max(0, Math.min(h.startLine, maxLine));
             const count = Math.max(h.lineCount, 1);
-            const pairs = Math.min(count, h.removedTexts.length);
+            // Line counts often differ (a delete inside a rewritten block).
+            // Align by content so each old line pairs with the line it really
+            // became; leftovers render as their own struck/inserted text.
+            const alignment = (0, edit_review_core_1.pairLines)(h.removedTexts, h.addedTexts);
+            const oldIndexByNew = new Map(alignment.pairs.map(p => [p.newIndex, p.oldIndex]));
             for (let j = 0; j < count; j++) {
                 const line = Math.min(start + j, maxLine);
                 added.push({ range: new vscode.Range(line, 0, line, 0), hoverMessage: hover });
-                if (j < pairs) {
-                    const oldLine = h.removedTexts[j];
+                const oldIndex = oldIndexByNew.get(j);
+                if (oldIndex !== undefined) {
+                    const oldLine = h.removedTexts[oldIndex];
                     const newLine = h.addedTexts[j] ?? '';
-                    for (const e of (0, edit_review_core_1.diffWords)(oldLine, newLine)) {
+                    // One ghost entry per anchor column: several old fragments
+                    // attaching to the same spot must read as one red strike
+                    // string in original order, not as overlapping piles
+                    // (attachment order at equal positions is not controllable).
+                    const ghostsByAnchor = new Map();
+                    for (const e of (0, edit_review_core_1.elementChanges)(oldLine, newLine)) {
                         const colStart = Math.max(0, Math.min(e.nStart, newLine.length));
                         const colEnd = Math.max(colStart, Math.min(e.nEnd, newLine.length));
                         if (colEnd > colStart)
                             insSpan.push({ range: new vscode.Range(line, colStart, line, colEnd), hoverMessage: hover });
-                        if (e.oEnd > e.oStart)
-                            ghost.push(deletedTextDecoration(
-                                new vscode.Range(line, colStart, line, Math.max(colEnd, colStart + 1)),
-                                this.ghostText([oldLine.slice(e.oStart, e.oEnd)]),
-                            ));
+                        if (e.oEnd > e.oStart) {
+                            const entry = ghostsByAnchor.get(colStart) ?? { end: colEnd, texts: [] };
+                            entry.end = Math.max(entry.end, colEnd, colStart + 1);
+                            entry.texts.push({ at: e.oStart, text: oldLine.slice(e.oStart, e.oEnd) });
+                            ghostsByAnchor.set(colStart, entry);
+                        }
+                    }
+                    for (const [colStart, entry] of [...ghostsByAnchor].sort((a, b) => a[0] - b[0])) {
+                        entry.texts.sort((a, b) => a.at - b.at);
+                        // A space keeps the struck old text from fusing with the
+                        // live text that starts exactly at the anchor column.
+                        const glued = colStart < newLine.length && newLine[colStart] !== ' ';
+                        ghost.push(deletedTextDecoration(
+                            new vscode.Range(line, colStart, line, entry.end),
+                            this.ghostText([joinGhostParts(entry.texts.map(t => t.text)) + (glued ? ' ' : '')]),
+                        ));
                     }
                 }
             }
-            if (h.removedTexts.length > pairs) {
+            if (alignment.unpairedOld.length) {
                 const line = Math.min(start + Math.max(count - 1, 0), maxLine);
                 ghost.push(deletedTextDecoration(
-                    new vscode.Range(line, 0, line, 1), this.ghostText(h.removedTexts.slice(pairs)),
+                    new vscode.Range(line, 0, line, 1), this.ghostText(alignment.unpairedOld.map(i => h.removedTexts[i])),
                 ));
             }
         }
@@ -732,7 +767,38 @@ class EditReview {
             ? vscode.Uri.file(path)
             : vscode.Uri.parse(`${SCHEME}:original?side=after&${q}`);
         const name = node_path_1.basename(path);
-        return vscode.commands.executeCommand('vscode.diff', left, right, vscode.l10n.t('Original \u2194 AI edit: {0}', name), { preview: true, preserveFocus });
+        return vscode.commands.executeCommand('vscode.diff', left, right, vscode.l10n.t('Original \u2194 AI edit: {0}', name), { preview: true, preserveFocus })
+            .then(() => this.alignDiffView(right));
+    }
+    /**
+     * Review comparisons should LOOK like the VS Code diff the user asked for:
+     * stacked red/green rows (inline view). `vscode.diff` cannot take a view
+     * mode, so right after opening we align VS Code's own diff view mode with
+     * the `diffEditor.setViewMode.*` command — the exact command behind the
+     * diff editor's Inline View button. Delayed a beat so the editor exists.
+     */
+    alignDiffView(modified) {
+        const mode = vscode.workspace.getConfiguration('dsh-tui-vscode').get('editReview.diffView', 'inline');
+        if (mode !== 'inline' && mode !== 'sideBySide')
+            return;
+        setTimeout(() => {
+            if (this.disposed || this.closing)
+                return;
+            try {
+                const config = vscode.workspace.getConfiguration('diffEditor', modified);
+                const current = config.get('renderSideBySide', true);
+                const spaceLimited = config.get('useInlineViewWhenSpaceIsLimited', true);
+                const settled = mode === 'inline' ? current === false : current === true && spaceLimited === false;
+                if (settled)
+                    return;
+                const command = mode === 'inline' ? 'diffEditor.setViewMode.inline' : 'diffEditor.setViewMode.sideBySide';
+                void Promise.resolve(vscode.commands.executeCommand(command, modified)).catch(() => { });
+            }
+            catch {
+                // Older hosts may not expose the diff view-mode commands; the
+                // comparison still opens with VS Code's own default layout.
+            }
+        }, 350);
     }
     // ---- Keep / Undo -------------------------------------------------------
     resolvePath(target) {
@@ -956,7 +1022,9 @@ class EditReview {
         const modelMatches = !doc || current !== null && (doc.getText() === current || current.startsWith('\uFEFF') && doc.getText() === current.slice(1));
         if (doc?.isDirty || !modelMatches) return this.warn('Save or resolve editor changes before Keep. The pending review was retained.');
         if (this.ledger.get(path) !== entry || precise.digest(entry.before) !== beforeHash || precise.digest(entry.after) !== afterHash) return this.staleWarning();
-        if ((fileHint || !entry.userTouched) && current !== entry.after) return this.staleWarning();
+        // Whole-file Keep never writes. A conflicted (paused) review accepts the
+        // current file as-is, so later/overlapping edits must not block it.
+        if (!entry.userTouched && current !== entry.after) return this.staleWarning();
         this.ledger.keep(path);
         if (current === null) this.settled.delete(path);
         else this.settled.set(path, current);
@@ -990,7 +1058,9 @@ class EditReview {
             currentExists = false;
         }
         if (this.bomUnsupported(entry, currentText)) return this.warn('Undo for UTF-8 BOM files is not supported yet. No restoration was applied; use version control.');
-        if (fileHint && currentText !== entry.after) return this.staleWarning();
+        // A conflicted review goes to the confirmation prompt below instead of
+        // the misleading "out of date" warning (the modal guards the restore).
+        if (fileHint && !entry.userTouched && currentText !== entry.after) return this.staleWarning();
         const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === path && !d.isClosed);
         if (doc?.isDirty || (doc && currentExists && doc.getText() !== currentText)) {
             return this.warn('Save or resolve your editor changes before Undo. No user edits were overwritten.');
@@ -1091,11 +1161,25 @@ class ReviewBarProvider {
     provideCodeLenses(doc) {
         const entry = this.owner.ledger.get(doc.uri.fsPath);
         if (!entry || this.owner.nativeReview?.owns(entry.path)) return [];
-        if (!this.owner.reviewSnapshot(entry, doc))
-            return entry ? [new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
-                title: entry.userTouched ? 'Review paused: overlapping or later edits · Compare original' : 'Review synchronizing · Compare original',
+        if (!this.owner.reviewSnapshot(entry, doc)) {
+            if (!entry)
+                return [];
+            const at = new vscode.Range(0, 0, 0, 0);
+            const lenses = [new vscode.CodeLens(at, {
+                title: entry.userTouched
+                    ? vscode.l10n.t('Review paused: overlapping or later edits · Compare original')
+                    : vscode.l10n.t('Review synchronizing · Compare original'),
                 command: DIFF_CMD, arguments: [entry.path],
-            })] : [];
+            })];
+            // Whole-file Keep never writes: accepting the current file is the
+            // safe way out of a review that later/overlapping edits paused.
+            if (entry.userTouched)
+                lenses.push(new vscode.CodeLens(at, {
+                    title: `$(check) ${vscode.l10n.t('Keep (accept current file)')}`,
+                    command: KEEP_CMD, arguments: [entry.path],
+                }));
+            return lenses;
+        }
         const { hunks } = precise.reviewDiff(entry.before ?? '', entry.after);
         if (hunks.length === 0)
             return [];

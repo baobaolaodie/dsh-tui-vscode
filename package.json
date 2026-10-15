@@ -456,6 +456,21 @@
           "type": "boolean",
           "default": false,
           "description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review."
+        },
+        "dsh-tui-vscode.editReview.diffView": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "sideBySide",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "%config.dsh-tui-vscode.editReview.diffView.enum.inline%",
+            "%config.dsh-tui-vscode.editReview.diffView.enum.sideBySide%",
+            "%config.dsh-tui-vscode.editReview.diffView.enum.auto%"
+          ],
+          "default": "inline",
+          "description": "%config.dsh-tui-vscode.editReview.diffView.description%"
         }
       }
     }

@@ -23,6 +23,8 @@ exports.canonicalPathKey = exports.EditLedger = exports.MAX_DIFF_DP_LINES = void
 exports.splitLines = splitLines;
 exports.diffLines = diffLines;
 exports.diffWords = diffWords;
+exports.elementChanges = elementChanges;
+exports.pairLines = pairLines;
 exports.applyHunkKeep = applyHunkKeep;
 exports.applyHunkRevert = applyHunkRevert;
 exports.planUndo = planUndo;
@@ -261,6 +263,226 @@ function diffWords(oldLine, newLine) {
         edits.push({ oStart, oEnd: oi, nStart, nEnd: ni });
     }
     return edits;
+}
+/** Max characters an element span may grow away from its raw edge. */
+const MAX_ELEMENT_GROWTH = 60;
+/** True for characters that belong to a word/identifier/number-like element. */
+function isElementChar(c) {
+    return c !== undefined && /[\p{L}\p{N}_.~-]/u.test(c);
+}
+/**
+ * Element-level review spans for one changed line pair.
+ *
+ * `diffWords` works character by character, so a small edit inside a word
+ * arrives as single-character shards (`holds` -> `s`, `VA1-3.xlsx` -> `-3`,
+ * a rewritten tail -> several fragments). The editor marks should read like a
+ * git diff instead: the changed ELEMENT (word / identifier / number / file
+ * token) highlighted as one span, not per-character confetti.
+ *
+ * This expands every raw span across its surrounding element characters on
+ * the SAME side and then unions overlapping groups, so each returned span is
+ * one contiguous element-level change (optionally one deleted element paired
+ * with the inserted element that replaced it).
+ * @returns {Array<{oStart: number, oEnd: number, nStart: number, nEnd: number}>}
+ *   spans in the same shape as `diffWords`; a pure insertion has
+ *   oStart===oEnd, a pure deletion nStart===nEnd.
+ */
+function elementChanges(oldLine, newLine) {
+    const raw = diffWords(oldLine, newLine);
+    if (raw.length === 0)
+        return raw;
+    const groups = [];
+    for (const e of raw) {
+        const oldSpan = e.oEnd > e.oStart ? expandElementSpan(oldLine, e.oStart, e.oEnd) : null;
+        const newSpan = e.nEnd > e.nStart ? expandElementSpan(newLine, e.nStart, e.nEnd) : null;
+        if (oldSpan || newSpan)
+            groups.push({ oldSpan, newSpan });
+    }
+    // Union groups that overlap, touch, or sit on both sides of a short
+    // whitespace-only gap (a rewritten phrase stays ONE mark per side instead
+    // of one per word). Repeat until stable so chains merge transitively.
+    const bridge = (a, b, line) => {
+        if (!a || !b)
+            return false;
+        if (overlapsOrTouches(a, b))
+            return true;
+        const [l, r] = a.start <= b.start ? [a, b] : [b, a];
+        const gap = r.start - l.end;
+        if (gap <= 0 || gap > 2)
+            return false;
+        return /^\s+$/.test(line.slice(l.end, r.start));
+    };
+    const connects = (g, m) => bridge(g.oldSpan, m.oldSpan, oldLine) || bridge(g.newSpan, m.newSpan, newLine);
+    let merged = [];
+    for (let pass = 0; pass <= groups.length; pass++) {
+        const next = [];
+        let joined = false;
+        for (const g of merged.concat(pass === 0 ? groups : [])) {
+            const hit = next.find(m => connects(g, m));
+            if (!hit)
+                next.push(g);
+            else {
+                hit.oldSpan = unionSpan(hit.oldSpan, g.oldSpan);
+                hit.newSpan = unionSpan(hit.newSpan, g.newSpan);
+                joined = true;
+            }
+        }
+        merged = next;
+        if (!joined)
+            break;
+    }
+    const spans = [];
+    for (const g of merged) {
+        const oldSpan = g.oldSpan ? trimSpan(oldLine, g.oldSpan) : null;
+        const newSpan = g.newSpan ? trimSpan(newLine, g.newSpan) : null;
+        if (!oldSpan && !newSpan)
+            continue;
+        const oStart = oldSpan ? oldSpan.start : (newSpan.start);
+        const oEnd = oldSpan ? oldSpan.end : oStart;
+        const nStart = newSpan ? newSpan.start : Math.min(oStart, newLine.length);
+        const nEnd = newSpan ? newSpan.end : nStart;
+        spans.push({ oStart, oEnd, nStart, nEnd });
+    }
+    return spans;
+}
+/** Grow a raw span across the element characters touching both of its edges. */
+function expandElementSpan(line, start, end) {
+    let s = start, e = end, steps = 0;
+    while (s > 0 && steps < MAX_ELEMENT_GROWTH && isElementChar(line[s - 1]) && isElementChar(line[s])) {
+        s--;
+        steps++;
+    }
+    steps = 0;
+    while (e < line.length && steps < MAX_ELEMENT_GROWTH && isElementChar(line[e - 1]) && isElementChar(line[e])) {
+        e++;
+        steps++;
+    }
+    return { start: s, end: e };
+}
+function trimSpan(line, span) {
+    let { start, end } = span;
+    while (start < end && /\s/.test(line[start]))
+        start++;
+    while (end > start && /\s/.test(line[end - 1]))
+        end--;
+    return start < end ? { start, end } : null;
+}
+function overlapsOrTouches(a, b) {
+    if (!a || !b)
+        return false;
+    return a.start <= b.end && b.start <= a.end;
+}
+function unionSpan(a, b) {
+    if (!a)
+        return b;
+    if (!b)
+        return a;
+    return { start: Math.min(a.start, b.start), end: Math.max(a.end, b.end) };
+}
+const MAX_ALIGNMENT_CELLS = 4096;
+/**
+ * Pair the old and new lines of a modified hunk by content similarity.
+ *
+ * The hunk counts often differ (a delete plus a rewrite inside one block),
+ * and index order then pairs unrelated lines ("Foreach s in 1 2 3 {"
+ * against an import line), which renders as a nonsense end-to-end span. A
+ * monotone best-similarity alignment pairs the lines that actually
+ * correspond; leftovers stay unpaired and show as pure deletions/insertions.
+ * Very large blocks skip the alignment and keep index order (bounded cost).
+ * @returns {{pairs: Array<{oldIndex: number, newIndex: number}>, unpairedOld: number[], unpairedNew: number[]}}
+ */
+function pairLines(oldLines, newLines) {
+    const ra = oldLines.length, rb = newLines.length;
+    const pairs = [], unpairedOld = [], unpairedNew = [];
+    if (!ra || !rb)
+        return { pairs, unpairedOld: oldLines.map((_, i) => i), unpairedNew: newLines.map((_, i) => i) };
+    if (ra * rb > MAX_ALIGNMENT_CELLS) {
+        const k = Math.min(ra, rb);
+        for (let n = 0; n < k; n++)
+            pairs.push({ oldIndex: n, newIndex: n });
+        for (let n = k; n < ra; n++)
+            unpairedOld.push(n);
+        for (let n = k; n < rb; n++)
+            unpairedNew.push(n);
+        return { pairs, unpairedOld, unpairedNew };
+    }
+    const sim = [];
+    for (let i = 0; i < ra; i++) {
+        sim.push([]);
+        for (let j = 0; j < rb; j++)
+            sim[i].push(lineSimilarity(oldLines[i], newLines[j]));
+    }
+    // Best monotone alignment: pair (i, j) adds similarity, leaving a line
+    // unpaired costs nothing, a tiny bias keeps index-order pairing when all
+    // similarities are equal (the classic rewritten-block look).
+    const BIAS = 1e-6;
+    const width = rb + 1;
+    const dp = new Float64Array((ra + 1) * width);
+    const from = new Uint8Array((ra + 1) * width); // 0 skip old, 1 skip new, 2 pair
+    for (let i = 1; i <= ra; i++) {
+        for (let j = 1; j <= rb; j++) {
+            const skipOld = dp[(i - 1) * width + j];
+            const skipNew = dp[i * width + (j - 1)];
+            const paired = dp[(i - 1) * width + (j - 1)] + sim[i - 1][j - 1] + BIAS;
+            if (paired >= skipOld && paired >= skipNew) {
+                dp[i * width + j] = paired;
+                from[i * width + j] = 2;
+            }
+            else if (skipOld >= skipNew) {
+                dp[i * width + j] = skipOld;
+                from[i * width + j] = 0;
+            }
+            else {
+                dp[i * width + j] = skipNew;
+                from[i * width + j] = 1;
+            }
+        }
+    }
+    let i = ra, j = rb;
+    while (i > 0 && j > 0) {
+        const step = from[i * width + j];
+        if (step === 2) {
+            pairs.push({ oldIndex: i - 1, newIndex: j - 1 });
+            i--;
+            j--;
+        }
+        else if (step === 0) {
+            unpairedOld.push(--i);
+        }
+        else {
+            unpairedNew.push(--j);
+        }
+    }
+    while (i > 0) { unpairedOld.push(--i); }
+    while (j > 0) { unpairedNew.push(--j); }
+    pairs.reverse();
+    unpairedOld.reverse();
+    unpairedNew.reverse();
+    return { pairs, unpairedOld, unpairedNew };
+}
+/** Cheap 0..1 content similarity for two lines (prefix + suffix + bag overlap). */
+function lineSimilarity(a, b) {
+    if (a === b)
+        return 1;
+    const n = Math.min(a.length, b.length);
+    let p = 0;
+    while (p < n && a[p] === b[p])
+        p++;
+    let s = 0;
+    while (s < n - p && a[a.length - 1 - s] === b[b.length - 1 - s])
+        s++;
+    const bag = new Map();
+    for (let k = 0; k < a.length; k++)
+        bag.set(a[k], (bag.get(a[k]) ?? 0) + 1);
+    let overlap = 0;
+    for (let k = 0; k < b.length; k++) {
+        const left = bag.get(b[k]);
+        if (left > 0) {
+            bag.set(b[k], left - 1);
+            overlap++;
+        }
+    }
+    return (p + s + overlap) / (a.length + b.length || 1);
 }
 /**
  * Per-edit Keep: fold exactly THIS edit into the baseline. The other edits

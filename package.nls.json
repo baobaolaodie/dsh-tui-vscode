@@ -43,5 +43,9 @@
   "command.dsh-tui-vscode.editNextHunk.title": "Next pending edit",
   "command.dsh-tui-vscode.editPrevHunk.title": "Previous pending edit",
   "config.dsh-tui-vscode.editReview.bridge.description": "Use an authenticated DSH file-tool transaction bridge. Unverified shell and external writes are never marked as AI edits.",
-  "config.dsh-tui-vscode.editReview.native.description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review."
+  "config.dsh-tui-vscode.editReview.native.description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review.",
+  "config.dsh-tui-vscode.editReview.diffView.description": "How the review comparison opens. \"inline\" (default) shows the stacked red/green diff — the extension aligns VS Code's diff view mode the same way the diff editor's Inline View button does; \"sideBySide\" forces the two-pane layout; \"auto\" leaves VS Code's own preference untouched.",
+  "config.dsh-tui-vscode.editReview.diffView.enum.inline": "Inline (stacked red/green)",
+  "config.dsh-tui-vscode.editReview.diffView.enum.sideBySide": "Side by side",
+  "config.dsh-tui-vscode.editReview.diffView.enum.auto": "Follow the VS Code setting"
 }
