@@ -5,8 +5,9 @@
  * (dsh-session-persistence-jsonl). Roots are scanned in priority order — the
  * `$DSH_TUI_SESSION_ROOT` override, `<dshHome>/sessions`, then the legacy
  * `~/.dsh-tui/sessions` — and log names are generation-tagged
- * (`session.jsonl` / `session.v<N>.jsonl`, optionally `.zstd`; DSH 0.1.5's
- * Session V3 writes `session.v3.jsonl`), the newest generation winning with
+ * (`session.jsonl` / `session.v<N>.jsonl`, optionally `.zstd`), where `<N>`
+ * tracks the DSH session format version (V3 under 0.1.5, V4 under 0.2.0-rc.2),
+ * the newest generation winning with
  * the compressed twin preferred on a tie. Each log is a CHAIN of zstd frames — one per
  * durable flush — decoded frame-by-frame below (a whole-buffer decompress
  * fails or truncates on multi-frame logs). Titles follow the TUI's contract

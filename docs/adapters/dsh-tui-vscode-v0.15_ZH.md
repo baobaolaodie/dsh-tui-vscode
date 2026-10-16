@@ -66,6 +66,8 @@ dsh-tui-vscode 是 dsh-TUI 的 VS Code companion 扩展。它在 dsh 生态里�
 
 - **2026-10-03 上游状态复核（试点未变，上游动得多）**：dsh-TUI 已到 **0.12.0**（2026-09-30 发布），而上方宿主侧证据采于 **0.8.8**。对**留档 pin**（spec HEAD `d406de4` + vendored `dsh-std` @ `614dfa1`，两者均未变）重跑原官方入口：`npm run validate:manifest -- --manifest ./dsh-plugin.json --host registry/host-descriptor.tui.example.json` → `{"valid":true,"decision":"compatible","missingOptional":[]}`，exit 0。**但上游仓库自身已重构**（提交 `4ec6933`，2026-09-09，「生态入口」布局）：旧 `conformance/`、根 `package.json`（即上面用的 `validate:manifest` 入口）与 `adapters/` **均已不在 main**，dsh-std 挂载改指 `T-Auto/dsh-std`（提交 `5517a42`，2026-10-02）。两点后果：(a) 上文「官方入口一键复现」与「已并入上游 `adapters/`」描述的是**当时**状态，下次复核前必须按新布局重新定位入口与 Note 归宿；(b) 宿主侧（0.8.8）证据**尚未**在 0.12.0 上复验——这就是下一次复核动作。观察触发器未触发：PR #8（RFC 0009）仍 open，Gap 3 亦未观察到上游裁决。
 
+- **2026-10-16 复核（dsh-TUI 0.13.0 → 0.15.0）：变的是复核手法，不是 manifest。** dsh-TUI 已到 **0.15.0**（2026-10-13），0.14.0 于 2026-10-07 发布。两处上游变动牵动本 Note：(a) **`/plugins` 已更名为 `/plugin`，且无弃用别名**（上游 #1504）——上文记录的每一次 `/plugins check` 都是在 0.8.8 上跑的，作为**那个版本**的留档依然成立，但在 0.15.0 上复核必须改用 `/plugin check <manifest>`；(b) 上游 #1256 把 TUI 准入规范内联进仓库内的 `tui-profile/` 并撤掉了 `dsh-ecosystem-spec` 子模块挂载，`registry/profiles.json`（2026-10-02）现仅有唯一一条 `tui-admission-015`（owner `ccch1mneyyy/dsh-TUI`，取自 `tui-profile/registry/registry-0.15.json` @ `e1beaa1`）。本仓库**未**登记在 `registry/profiles.json` 或 `registry/implementations.json` 中，因此本试点仍是「声明」而非「已登记 profile」。观察触发器：**新增**——`tui.dsh/v1alpha1` 版本冻结（#1477/#1502）与 `/plugin` 更名；**未变**——PR #8（RFC 0009）自 2026-08-21 起无动静仍 open，Gap 3 仍未观察到上游裁决。
+
 ## 收敛计划
 
 1. ✅ 2026-08-23 完成：真实宿主 `/plugins check` 协商 `compatible`（headless 复刻链先行预测一致，均已留档）；
