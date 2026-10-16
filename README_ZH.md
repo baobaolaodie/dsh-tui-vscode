@@ -12,7 +12,7 @@
   <a href="https://github.com/baobaolaodie/dsh-tui-vscode/actions/workflows/ci.yml"><img src="https://github.com/baobaolaodie/dsh-tui-vscode/actions/workflows/ci.yml/badge.svg" alt="CI 状态" /></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=baobaolaodie.dsh-tui-vscode"><img src="https://img.shields.io/badge/Marketplace-Install-4D6BFE?style=flat&logo=visualstudiocode&logoColor=white" alt="从 VS Code Marketplace 安装" /></a>
   <a href="https://github.com/baobaolaodie/dsh-tui-vscode/releases"><img src="https://img.shields.io/github/v/release/baobaolaodie/dsh-tui-vscode?style=flat&color=4D6BFE" alt="最新 Release" /></a>
-  <a href="https://github.com/baobaolaodie/dsh-tui-vscode/stargazers"><img src="https://img.shields.io/github/stars/baobaolaodie/dsh-tui-vscode?style=flat&color=4D6BFE" alt="GitHub Star 数" /></a>
+  <a href="https://github.com/baobaolaodie/dsh-tui-vscode"><img src="https://img.shields.io/github/stars/baobaolaodie/dsh-tui-vscode?style=flat&color=4D6BFE" alt="GitHub Star 数" /></a>
 </p>
 
 <p align="center">
