@@ -45,6 +45,12 @@ The sidebar lists the sessions of the workspace you have open, with titles and r
   <img src="media/readme/session-history.png" alt="The Session History sidebar listing the current workspace's sessions with relative times, and the archive and rename actions revealed on hover; the session titles are pixelated" width="374" />
 </p>
 
+And selecting code in the editor reaches the running session without copy-paste. Here the editor reports a selection in VS Code's status bar, and the TUI answers with the line count it received:
+
+<p align="center">
+  <img src="media/readme/selection-context.png" alt="VS Code's status bar showing an editor selection, above the dsh-TUI status line reading 16 lines selected and the project it belongs to" width="100%" />
+</p>
+
 ## Install
 
 **1 — Install the CLI and the TUI.** Both are npm packages; the first launch bootstraps the dsh-tui profile and needs [`pnpm`](https://pnpm.io/) on `PATH`:

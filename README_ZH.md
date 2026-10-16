@@ -45,6 +45,12 @@
   <img src="media/readme/session-history.png" alt="会话历史侧边栏列出当前工作区的会话与相对时间，并显示悬停时的归档与重命名动作；会话标题已打码" width="374" />
 </p>
 
+而在编辑器里选中代码，无需复制粘贴就能抵达运行中的会话。下图里 VS Code 状态栏报告了编辑器侧的选区，TUI 则以它收到的行数回应：
+
+<p align="center">
+  <img src="media/readme/selection-context.png" alt="上半部分是 VS Code 状态栏显示的编辑器选区，下半部分是 dsh-TUI 的状态行，写着 16 lines selected 及其所属项目" width="100%" />
+</p>
+
 ## 安装
 
 **1 — 安装 CLI 与 TUI。** 两者都是 npm 包；首次启动会初始化 dsh-tui profile，且需要 `PATH` 上有 [`pnpm`](https://pnpm.io/)：
