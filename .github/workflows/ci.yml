@@ -114,6 +114,9 @@ jobs:
                    ('CODE_OF_CONDUCT.md','CODE_OF_CONDUCT_ZH.md'),
                    ('docs/at-mention-design.md','docs/at-mention-design_ZH.md'),
                    ('docs/gap-reports.md','docs/gap-reports_ZH.md'),
+                   ('docs/terminal-images.md','docs/terminal-images_ZH.md'),
+                   ('docs/session-history.md','docs/session-history_ZH.md'),
+                   ('docs/ide-selection-channel.md','docs/ide-selection-channel_ZH.md'),
                    ('docs/adapters/dsh-tui-vscode-v0.15.md','docs/adapters/dsh-tui-vscode-v0.15_ZH.md')]
           for en, zh in pairs:
               if not os.path.isfile(en) or not os.path.isfile(zh):
