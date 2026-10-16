@@ -1,0 +1,292 @@
+"use strict";
+/**
+ * Unit tests for the AI edit review data layer (no vscode needed).
+ * Run: node --test out/test/edit-review-core.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { EditLedger, diffLines, diffWords, elementChanges, pairLines, applyHunkKeep, applyHunkRevert, planUndo, formatCounts, canonicalPathKey } = require('../edit-review-core');
+// ---- diffLines -------------------------------------------------------------
+test('identical texts produce no hunks and zero counts', () => {
+    const d = diffLines('a\nb\nc', 'a\nb\nc');
+    assert.equal(d.hunks.length, 0);
+    assert.equal(d.addedLines, 0);
+    assert.equal(d.removedLines, 0);
+});
+test('an appended block is one added hunk at the right lines', () => {
+    const d = diffLines('a\nb', 'a\nb\nc\nd');
+    assert.equal(d.addedLines, 2);
+    assert.equal(d.removedLines, 0);
+    assert.deepEqual(d.hunks, [{ startLine: 2, lineCount: 2, added: 2, removed: 0, beforeStart: 2, afterInsert: 2, removedTexts: [], addedTexts: ['c', 'd'], kind: 'added' }]);
+});
+test('a removed block anchors on the nearest surviving line', () => {
+    const d = diffLines('a\nb\nc\nd', 'a\nd');
+    assert.equal(d.addedLines, 0);
+    assert.equal(d.removedLines, 2);
+    assert.equal(d.hunks.length, 1);
+    assert.equal(d.hunks[0].kind, 'removed');
+    assert.equal(d.hunks[0].lineCount, 0);
+    assert.equal(d.hunks[0].startLine, 1); // 'd' is now line index 1
+    assert.equal(d.hunks[0].beforeStart, 1);
+    assert.equal(d.hunks[0].afterInsert, 1);
+    assert.deepEqual(d.hunks[0].removedTexts, ['b', 'c']);
+    assert.deepEqual(d.hunks[0].addedTexts, []);
+});
+test('a rewritten line counts as one added and one removed', () => {
+    const d = diffLines('a\nold\nc', 'a\nnew\nc');
+    assert.deepEqual(d.hunks, [{ startLine: 1, lineCount: 1, added: 1, removed: 1, beforeStart: 1, afterInsert: 1, removedTexts: ['old'], addedTexts: ['new'], kind: 'modified' }]);
+    assert.equal(formatCounts(d.addedLines, d.removedLines), '+1 \u22121');
+});
+test('new file (empty before) reports every line as added', () => {
+    const d = diffLines('', 'x\ny\nz');
+    assert.equal(d.addedLines, 3);
+    assert.equal(d.removedLines, 0);
+    assert.equal(d.hunks.length, 1);
+});
+test('two separate edits produce two hunks with correct coordinates', () => {
+    const d = diffLines('a\nb\nc\nd\ne', 'a\nB\nc\nd\nE');
+    assert.equal(d.hunks.length, 2);
+    assert.deepEqual(d.hunks[0], { startLine: 1, lineCount: 1, added: 1, removed: 1, beforeStart: 1, afterInsert: 1, removedTexts: ['b'], addedTexts: ['B'], kind: 'modified' });
+    assert.deepEqual(d.hunks[1], { startLine: 4, lineCount: 1, added: 1, removed: 1, beforeStart: 4, afterInsert: 4, removedTexts: ['e'], addedTexts: ['E'], kind: 'modified' });
+});
+test('CRLF input is handled like LF', () => {
+    const d = diffLines('a\r\nb\r\n', 'a\r\nb\r\nc');
+    assert.equal(d.addedLines, 1);
+    assert.equal(d.removedLines, 0);
+});
+// ---- diffWords (word-level spans, Copilot's inner-changes pass) ------------
+test('diffWords finds an inserted span inside a line', () => {
+    assert.deepEqual(diffWords('hello world', 'hello brave world'), [
+        { oStart: 6, oEnd: 6, nStart: 6, nEnd: 11 },
+    ]);
+});
+test('diffWords pairs a replaced word as one span', () => {
+    assert.deepEqual(diffWords('the cat sat', 'the dog sat'), [
+        { oStart: 4, oEnd: 7, nStart: 4, nEnd: 7 },
+    ]);
+});
+test('diffWords reports [] for identical lines and pure deletion spans', () => {
+    assert.deepEqual(diffWords('same', 'same'), []);
+    assert.deepEqual(diffWords('keep drop keep', 'keep keep'), [
+        { oStart: 5, oEnd: 9, nStart: 5, nEnd: 5 },
+    ]);
+});
+// ---- elementChanges (git-diff-like element spans for the editor marks) -----
+// The editor marks must never shard an edit into per-character pieces; the
+// changed ELEMENT (word / identifier / number / file token) is one span.
+test('elementChanges keeps a mid-word edit as one whole word', () => {
+    assert.deepEqual(elementChanges('the cat sat', 'the dogs sat'), [
+        { oStart: 4, oEnd: 7, nStart: 4, nEnd: 8 },
+    ]);
+    assert.deepEqual(elementChanges('cats', 'cat'), [{ oStart: 0, oEnd: 4, nStart: 0, nEnd: 0 }]);
+    assert.deepEqual(elementChanges('hold', 'holds'), [{ oStart: 0, oEnd: 0, nStart: 0, nEnd: 5 }]);
+});
+test('elementChanges leaves an inserted word between words as its own span', () => {
+    assert.deepEqual(elementChanges('a b', 'a new b'), [
+        { oStart: 2, oEnd: 2, nStart: 2, nEnd: 5 },
+    ]);
+});
+test('elementChanges collapses a scrambled rewrite into element-level spans', () => {
+    assert.deepEqual(elementChanges('* 5. real GDP, three sectors', '* 5. GDP_first'), [
+        { oStart: 5, oEnd: 9, nStart: 5, nEnd: 5 },
+        { oStart: 13, oEnd: 28, nStart: 5, nEnd: 14 },
+    ]);
+});
+test('elementChanges grows to the token but stops at path separators', () => {
+    const oldLine = '* data\\excel\\VA\\VA1-3.xlsx hold the finished 1993-price sectoral levels: 31 rows';
+    const newLine = '* data\\excel\\VA\\VA1.xlsx holds the finished 1993-price level for the primary';
+    assert.deepEqual(elementChanges(oldLine, newLine), [
+        { oStart: 16, oEnd: 26, nStart: 16, nEnd: 16 },
+        { oStart: 25, oEnd: 25, nStart: 25, nEnd: 30 },
+        { oStart: 56, oEnd: 80, nStart: 61, nEnd: 76 },
+    ]);
+});
+test('elementChanges keeps CJK runs together instead of per-character shards', () => {
+    assert.deepEqual(elementChanges('这是测试内容', '这是新内容'), [
+        { oStart: 0, oEnd: 6, nStart: 0, nEnd: 5 },
+    ]);
+});
+test('elementChanges drops pure whitespace reshuffles and identical lines', () => {
+    assert.deepEqual(elementChanges('  indented', '    indented'), []);
+    assert.deepEqual(elementChanges('same', 'same'), []);
+});
+// ---- pairLines (content-aligned pairing inside one modified block) ---------
+test('pairLines keeps index order for equal, similar blocks', () => {
+    assert.deepEqual(pairLines(['a', 'b'], ['a1', 'b1']), {
+        pairs: [{ oldIndex: 0, newIndex: 0 }, { oldIndex: 1, newIndex: 1 }],
+        unpairedOld: [], unpairedNew: [],
+    });
+});
+test('pairLines matches an unequal block by content, not by index', () => {
+    const oldLines = ['Foreach s in 1 2 3 {', '  import excel using "VA`s\'.xlsx"'];
+    const newLines = ['import excel using "VA1.xlsx"'];
+    const result = pairLines(oldLines, newLines);
+    assert.deepEqual(result.pairs, [{ oldIndex: 1, newIndex: 0 }]);
+    assert.deepEqual(result.unpairedOld, [0]);
+    assert.deepEqual(result.unpairedNew, []);
+});
+test('pairLines reports a purely deleted middle line as unpaired', () => {
+    const result = pairLines(['a', 'b', 'c'], ['a', 'c']);
+    assert.deepEqual(result.pairs, [{ oldIndex: 0, newIndex: 0 }, { oldIndex: 2, newIndex: 1 }]);
+    assert.deepEqual(result.unpairedOld, [1]);
+});
+test('pairLines bounds very large blocks by keeping index order', () => {
+    const oldLines = Array.from({ length: 80 }, (_, i) => `line ${i}`);
+    const newLines = Array.from({ length: 79 }, (_, i) => `line ${i < 40 ? i : i + 1}`);
+    const result = pairLines(oldLines, newLines);
+    assert.equal(result.pairs.length, 79);
+    assert.deepEqual(result.pairs[0], { oldIndex: 0, newIndex: 0 });
+    assert.deepEqual(result.pairs[78], { oldIndex: 78, newIndex: 78 });
+    assert.deepEqual(result.unpairedOld, [79]);
+    assert.deepEqual(result.unpairedNew, []);
+});
+test('pairLines handles an empty side without inventing pairs', () => {
+    assert.deepEqual(pairLines([], ['a', 'b']), { pairs: [], unpairedOld: [], unpairedNew: [0, 1] });
+    assert.deepEqual(pairLines(['a'], []), { pairs: [], unpairedOld: [0], unpairedNew: [] });
+});
+// ---- per-edit Keep / Undo (Copilot's per-change decisions) -----------------
+test('applyHunkKeep folds exactly one edit into the baseline', () => {
+    const d = diffLines('a\nold\nc\nd', 'a\nnew\nc\nd');
+    const kept = applyHunkKeep('a\nold\nc\nd', d.hunks[0]);
+    assert.equal(kept, 'a\nnew\nc\nd');
+    assert.equal(diffLines(kept, 'a\nnew\nc\nd').hunks.length, 0);
+});
+test('applyHunkRevert reverts exactly one edit in the live text', () => {
+    const d = diffLines('a\nold\nc\nd', 'a\nnew\nc\nd');
+    assert.equal(applyHunkRevert('a\nnew\nc\nd', d.hunks[0]), 'a\nold\nc\nd');
+});
+test('per-edit keep and undo compose without touching other edits', () => {
+    const before = 'a\nb\nc\nd\ne';
+    const after = 'a\nB\nc\nd\nE';
+    const d = diffLines(before, after);
+    const kept = applyHunkKeep(before, d.hunks[0]); // keep the FIRST edit
+    assert.equal(kept, 'a\nB\nc\nd\ne');
+    const d2 = diffLines(kept, after);
+    assert.equal(d2.hunks.length, 1); // second edit still pending
+    assert.equal(applyHunkRevert(after, d2.hunks[0]), 'a\nB\nc\nd\ne');
+});
+test('hunk splices preserve CRLF endings and the trailing newline', () => {
+    const d = diffLines('a\r\nold\r\n', 'a\r\nnew\r\n');
+    assert.equal(applyHunkRevert('a\r\nnew\r\n', d.hunks[0]), 'a\r\nold\r\n');
+    assert.equal(applyHunkKeep('a\r\nold\r\n', d.hunks[0]), 'a\r\nnew\r\n');
+});
+// ---- EditLedger merge rules -----------------------------------------------
+test('record keeps one entry per file and preserves the first before image', () => {
+    const led = new EditLedger();
+    led.record('/w/f', 'modify', 'v1', false, 'v2');
+    led.record('/w/f', 'modify', 'ignored', false, 'v3');
+    assert.equal(led.size, 1);
+    const e = led.get('/w/f');
+    assert.equal(e.before, 'v1');
+    assert.equal(e.after, 'v3');
+});
+test('create then modify stays a create (undo deletes the file)', () => {
+    const led = new EditLedger();
+    led.record('/w/new', 'create', null, false, 'one');
+    led.record('/w/new', 'modify', 'one', false, 'two');
+    assert.equal(led.get('/w/new').kind, 'create');
+    assert.equal(led.get('/w/new').before, null);
+    assert.equal(led.get('/w/new').after, 'two');
+});
+test('create then delete cancels out entirely', () => {
+    const led = new EditLedger();
+    led.record('/w/new', 'create', null, false, 'one');
+    const result = led.record('/w/new', 'delete', 'one', false, null);
+    assert.equal(result, null);
+    assert.equal(led.size, 0);
+});
+test('delete then recreate becomes a modify keeping the original before', () => {
+    const led = new EditLedger();
+    led.record('/w/f', 'delete', 'old', false, null);
+    led.record('/w/f', 'create', null, false, 'new');
+    const e = led.get('/w/f');
+    assert.equal(e.kind, 'modify');
+    assert.equal(e.before, 'old');
+    assert.equal(e.after, 'new');
+});
+test('keep drops the entry and notifies listeners once', () => {
+    const led = new EditLedger();
+    let calls = 0;
+    led.onChange(() => calls++);
+    led.record('/w/f', 'modify', 'a', false, 'b');
+    assert.equal(calls, 1);
+    const dropped = led.keep('/w/f');
+    assert.equal(dropped.path, '/w/f');
+    assert.equal(led.size, 0);
+    assert.equal(calls, 2);
+});
+test('toJSON/load round-trips the ledger', () => {
+    const led = new EditLedger();
+    led.record('/w/f', 'modify', 'a', false, 'b');
+    led.record('/w/g', 'modify', null, true, 'x');
+    const led2 = new EditLedger();
+    led2.load(JSON.parse(JSON.stringify(led.toJSON())));
+    assert.equal(led2.size, 2);
+    assert.equal(led2.get('/w/f').before, 'a');
+    assert.equal(led2.get('/w/g').beforeMissing, true);
+    const led3 = new EditLedger();
+    led3.load({ version: 99, entries: 'nonsense' });
+    assert.equal(led3.size, 0);
+});
+// ---- path keying (tool path vs VS Code document path) ----------------------
+test('canonicalPathKey folds separators and case on win32 only', () => {
+    assert.equal(canonicalPathKey('C:/Users/Linus/File.TXT', 'win32'), 'c:\\users\\linus\\file.txt');
+    assert.equal(canonicalPathKey('C:\\Users\\Linus\\File.TXT', 'win32'), 'c:\\users\\linus\\file.txt');
+    assert.equal(canonicalPathKey('C:/Users/Linus', 'linux'), 'C:/Users/Linus');
+    assert.equal(canonicalPathKey('C:\\Users\\Linus', 'darwin'), 'C:\\Users\\Linus');
+    assert.equal(canonicalPathKey('', 'win32'), '');
+});
+test('ledger lookups survive drive-letter and separator case differences', { skip: process.platform !== 'win32' }, () => {
+    // The DSH tool reports e.g. "C:\\Users\\..."; VS Code document paths use
+    // the workspace URI casing (lowercase drive). Both must be one file.
+    const led = new EditLedger();
+    led.record('C:\\Users\\Linus\\桌面\\test', 'modify', 'old', false, 'new', 'file-tool-v1');
+    assert.equal(led.get('c:\\Users\\Linus\\桌面\\test').after, 'new');
+    assert.equal(led.get('c:/users/linus/桌面/test').after, 'new');
+    assert.equal(led.size, 1);
+    led.record('c:\\users\\linus\\桌面\\test', 'modify', 'ignored', false, 'newer', 'file-tool-v1');
+    assert.equal(led.size, 1);
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').after, 'newer');
+    led.setAfter('c:\\USERS\\Linus\\桌面\\TEST', 'newest');
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').after, 'newest');
+    led.rebaseBefore('c:/Users/Linus/桌面/test', 'baseline');
+    assert.equal(led.get('C:\\Users\\Linus\\桌面\\test').before, 'baseline');
+    const kept = led.keep('c:\\Users\\linus\\桌面\\test');
+    assert.equal(kept.id, 'e1');
+    assert.equal(led.size, 0);
+});
+test('load() keys case-variant persisted paths to the same entry', { skip: process.platform !== 'win32' }, () => {
+    const led = new EditLedger();
+    led.load({ version: 1, seq: 3, entries: [{ path: 'C:\\Users\\Linus\\桌面\\test', kind: 'modify', before: 'x', after: 'y' }] });
+    assert.equal(led.get('c:\\users\\linus\\桌面\\test').after, 'y');
+});
+// ---- planUndo --------------------------------------------------------------
+const entry = (over) => ({
+    id: 'e1', path: '/w/f', kind: 'modify', before: 'v1', beforeMissing: false,
+    after: 'v2', firstTs: 0, lastTs: 0, ...over,
+});
+test('undo of a clean modify restores the before image', () => {
+    assert.deepEqual(planUndo(entry(), true, 'v2'), { action: 'restore-content' });
+});
+test('undo blocks when no baseline was captured', () => {
+    assert.deepEqual(planUndo(entry({ beforeMissing: true }), true, 'v2'), { action: 'blocked', reason: 'missing-baseline' });
+});
+test('undo asks first when the user hand-edited after the AI', () => {
+    assert.deepEqual(planUndo(entry(), true, 'v2-user'), {
+        action: 'confirm', fallback: 'restore-content', reason: 'hand-edited',
+    });
+});
+test('undo of a clean create deletes the file', () => {
+    assert.deepEqual(planUndo(entry({ kind: 'create', before: null }), true, 'v2'), { action: 'delete-file' });
+});
+test('undo of a vanished create just drops the entry', () => {
+    assert.deepEqual(planUndo(entry({ kind: 'create', before: null }), false, null), { action: 'drop' });
+});
+test('undo of a clean delete recreates the file', () => {
+    assert.deepEqual(planUndo(entry({ kind: 'delete', after: null }), false, null), { action: 'restore-file' });
+});
+test('undo of a delete whose file was recreated asks first', () => {
+    assert.deepEqual(planUndo(entry({ kind: 'delete', after: null }), true, 'user'), {
+        action: 'confirm', fallback: 'restore-file', reason: 'recreated',
+    });
+});

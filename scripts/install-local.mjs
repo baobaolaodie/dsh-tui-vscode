@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // 本地安装打包产物：node scripts/install-local.mjs（由 `npm run install:local` 调用）。
-// 设计：vsce 默认产物名为 <name>-<version>.vsix，这里从 package.json 动态读取
-// name/version 拼接——版本升级时无需同步任何硬编码文件名（曾硬编码 0.5.1 导致
-// 版本升到 0.6.0 后 install:local 找不到旧文件而失败）。
+// 设计：打包与安装共享带 -edit-review 后缀的产物名；版本从 manifest 读取，
+// 不会回退安装相同版本号的正式版默认文件名。
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { getVsixFileName } from './vsix-artifact.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
-const vsix = `${pkg.name}-${pkg.version}.vsix`
+const vsix = getVsixFileName(pkg)
 
 execSync(`code --install-extension ${vsix} --force`, { cwd: ROOT, stdio: 'inherit' })

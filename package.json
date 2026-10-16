@@ -46,6 +46,10 @@
         {
           "id": "dsh-tui-vscode.sessions",
           "name": "%view.dsh-tui-vscode.sessions.name%"
+        },
+        {
+          "id": "dsh-tui-vscode.editReview",
+          "name": "%view.dsh-tui-vscode.editReview.name%"
         }
       ]
     },
@@ -53,6 +57,10 @@
       {
         "view": "dsh-tui-vscode.sessions",
         "contents": "%view.dsh-tui-vscode.sessions.welcome%"
+      },
+      {
+        "view": "dsh-tui-vscode.editReview",
+        "contents": "%view.dsh-tui-vscode.editReview.welcome%"
       }
     ],
     "menus": {
@@ -60,13 +68,43 @@
         {
           "command": "dsh-tui-vscode.open",
           "group": "navigation"
+        },
+        {
+          "command": "dsh-tui-vscode.editKeep",
+          "when": "dshEditReview.activePending",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dsh-tui-vscode.editUndo",
+          "when": "dshEditReview.activePending",
+          "group": "navigation@3"
         }
       ],
       "editor/context": [
         {
+          "command": "dsh-tui-vscode.nativeReviewShow",
+          "when": "resourceScheme == file",
+          "group": "navigation@4"
+        },
+        {
+          "command": "dsh-tui-vscode.nativeReviewCurrent",
+          "when": "resourceScheme == file",
+          "group": "navigation@3"
+        },
+        {
           "command": "dsh-tui-vscode.insertAtMention",
           "when": "editorTextFocus",
           "group": "navigation@2"
+        },
+        {
+          "command": "dsh-tui-vscode.editKeepLine",
+          "when": "dshEditReview.activePending && resourceScheme == file",
+          "group": "dsh_review@1"
+        },
+        {
+          "command": "dsh-tui-vscode.editUndoLine",
+          "when": "dshEditReview.activePending && resourceScheme == file",
+          "group": "dsh_review@2"
         }
       ],
       "view/item/context": [
@@ -84,10 +122,96 @@
           "command": "dsh-tui-vscode.deleteSession",
           "when": "view == dsh-tui-vscode.sessions && viewItem == dshSession",
           "group": "2_destructive@1"
+        },
+        {
+          "command": "dsh-tui-vscode.editKeep",
+          "when": "view == dsh-tui-vscode.editReview && viewItem == dshEdit",
+          "group": "inline@1"
+        },
+        {
+          "command": "dsh-tui-vscode.editUndo",
+          "when": "view == dsh-tui-vscode.editReview && viewItem == dshEdit",
+          "group": "inline@2"
+        },
+        {
+          "command": "dsh-tui-vscode.editShowDiff",
+          "when": "view == dsh-tui-vscode.editReview && viewItem == dshEdit",
+          "group": "1_review@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "dsh-tui-vscode.editKeepAll",
+          "when": "view == dsh-tui-vscode.editReview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dsh-tui-vscode.editUndoAll",
+          "when": "view == dsh-tui-vscode.editReview",
+          "group": "navigation@2"
         }
       ]
     },
+    "chatParticipants": [
+      {
+        "id": "dsh-tui-vscode.nativeReview",
+        "name": "dsh-review",
+        "fullName": "dsh-tui Native File Review (Experimental)",
+        "description": "Track selected external file edits using VS Code native review; no model calls.",
+        "commands": [
+          {
+            "name": "track",
+            "description": "Begin explicitly prepared native file tracking"
+          }
+        ]
+      }
+    ],
     "commands": [
+      {
+        "command": "dsh-tui-vscode.nativeReviewOpen",
+        "title": "Start native review for open files (experimental)",
+        "category": "dsh-tui",
+        "icon": "$(diff-multiple)"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewCurrent",
+        "title": "Start native review for current file (experimental)",
+        "category": "dsh-tui",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewStart",
+        "title": "Start native file review (experimental)",
+        "category": "dsh-tui",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewShow",
+        "title": "Show native review controls (experimental)",
+        "category": "dsh-tui",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewFinish",
+        "title": "Finish native file tracking",
+        "category": "dsh-tui",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewReleaseCurrent",
+        "title": "Return current resolved file to ordinary review",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewRelease",
+        "title": "Return resolved native files to ordinary tracking",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.nativeReviewStatus",
+        "title": "Show native review compatibility status",
+        "category": "dsh-tui"
+      },
       {
         "command": "dsh-tui-vscode.open",
         "title": "%command.dsh-tui-vscode.open.title%",
@@ -153,6 +277,58 @@
         "title": "%command.dsh-tui-vscode.deleteSession.title%",
         "category": "dsh-tui",
         "icon": "$(trash)"
+      },
+      {
+        "command": "dsh-tui-vscode.editKeep",
+        "title": "%command.dsh-tui-vscode.editKeep.title%",
+        "category": "dsh-tui",
+        "icon": "$(check)"
+      },
+      {
+        "command": "dsh-tui-vscode.editUndo",
+        "title": "%command.dsh-tui-vscode.editUndo.title%",
+        "category": "dsh-tui",
+        "icon": "$(undo)"
+      },
+      {
+        "command": "dsh-tui-vscode.editShowDiff",
+        "title": "%command.dsh-tui-vscode.editShowDiff.title%",
+        "category": "dsh-tui",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "dsh-tui-vscode.editKeepAll",
+        "title": "%command.dsh-tui-vscode.editKeepAll.title%",
+        "category": "dsh-tui",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "dsh-tui-vscode.editUndoAll",
+        "title": "%command.dsh-tui-vscode.editUndoAll.title%",
+        "category": "dsh-tui",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "dsh-tui-vscode.editNextHunk",
+        "title": "%command.dsh-tui-vscode.editNextHunk.title%",
+        "category": "dsh-tui",
+        "icon": "$(chevron-down)"
+      },
+      {
+        "command": "dsh-tui-vscode.editPrevHunk",
+        "title": "%command.dsh-tui-vscode.editPrevHunk.title%",
+        "category": "dsh-tui",
+        "icon": "$(chevron-up)"
+      },
+      {
+        "command": "dsh-tui-vscode.editKeepLine",
+        "title": "Keep current line change",
+        "category": "dsh-tui"
+      },
+      {
+        "command": "dsh-tui-vscode.editUndoLine",
+        "title": "Undo current line change",
+        "category": "dsh-tui"
       }
     ],
     "keybindings": [
@@ -243,6 +419,58 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.dsh-tui-vscode.autoInsertMention.description%"
+        },
+        "dsh-tui-vscode.editReview.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.dsh-tui-vscode.editReview.enabled.description%"
+        },
+        "dsh-tui-vscode.editReview.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.svn/**",
+            "**/.hg/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/__pycache__/**",
+            "**/.vscode/**"
+          ],
+          "description": "%config.dsh-tui-vscode.editReview.exclude.description%"
+        },
+        "dsh-tui-vscode.editReview.autoShowDiff": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open a live VS Code comparison when a new pending file is observed; keep terminal keyboard focus. Disable to use inline controls and the AI Edits list only."
+        },
+        "dsh-tui-vscode.editReview.bridge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use an authenticated DSH file-tool transaction bridge. Unverified shell and external writes are never marked as AI edits."
+        },
+        "dsh-tui-vscode.editReview.native": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental automatic native review. Disabled by default: repeated edits after Keep are not yet reliable on all hosts. Use the stable diff review."
+        },
+        "dsh-tui-vscode.editReview.diffView": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "sideBySide",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "%config.dsh-tui-vscode.editReview.diffView.enum.inline%",
+            "%config.dsh-tui-vscode.editReview.diffView.enum.sideBySide%",
+            "%config.dsh-tui-vscode.editReview.diffView.enum.auto%"
+          ],
+          "default": "inline",
+          "description": "%config.dsh-tui-vscode.editReview.diffView.description%"
         }
       }
     }
@@ -250,10 +478,12 @@
   "scripts": {
     "compile": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js out/test/session-watchers.test.js out/test/relative-time.test.js",
+    "test": "npm run compile && node --test out/test/session.test.js out/test/sessions.test.js out/test/at-mention.test.js out/test/auto-mention.test.js out/test/ide-server.test.js out/test/session-watchers.test.js out/test/relative-time.test.js && node --test out/test/*review*.test.js out/test/native-display-evidence.test.js && node --test scripts/vsix-artifact.test.mjs",
     "test:e2e": "npm run compile && tsc -p tsconfig.test.json && node out-test/test-suite/run-tests.js",
-    "package": "npm run compile && vsce package",
-    "install:local": "npm run package && node scripts/install-local.mjs"
+    "package": "npm run compile && node scripts/package-local.mjs",
+    "install:local": "npm run package && node scripts/install-local.mjs",
+    "test:review:host": "npm run compile && node scripts/run-review-host.cjs",
+    "test:review": "npm run compile && node --test out/test/*review*.test.js out/test/native-display-evidence.test.js"
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",

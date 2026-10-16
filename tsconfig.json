@@ -3,7 +3,9 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "out",
     "rootDir": "src",
     "strict": true,
@@ -11,8 +13,14 @@
     "noUnusedLocals": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "checkJs": false
   },
-  "include": ["src"],
-  "exclude": ["src/test-suite"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/test-suite"
+  ]
 }

@@ -30,5 +30,22 @@
   "config.dsh-tui-vscode.lang.enum.en": "强制使用英文界面。",
   "config.dsh-tui-vscode.imageProtocol.enum.auto": "把 DSH_TUI_IMAGE_PROTOCOL 从会话环境中移除（从 VS Code 进程或 shell profile 继承来的同名值因此不会漏进去），由 dsh-tui 自行判定。作为上游协议判定修好后的退出路径保留。",
   "config.dsh-tui-vscode.imageProtocol.enum.sixel": "固定 Sixel 协议：terminal.integrated.enableImages 为 true（开启后需重载窗口）且 terminal.integrated.gpuAcceleration 为 auto 或 on 时显示真实栅格图，否则退成半块字符画。默认值。",
-  "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它；该档位下扩展也不再弹终端图片的启用引导。"
+  "config.dsh-tui-vscode.imageProtocol.enum.none": "从不使用栅格图，始终渲染半块字符画。偏好纯文本输出时选它；该档位下扩展也不再弹终端图片的启用引导。",
+  "command.dsh-tui-vscode.editKeep.title": "保留 AI 改动",
+  "command.dsh-tui-vscode.editUndo.title": "撤销 AI 改动",
+  "command.dsh-tui-vscode.editShowDiff.title": "对比原稿",
+  "command.dsh-tui-vscode.editKeepAll.title": "保留全部 AI 改动",
+  "command.dsh-tui-vscode.editUndoAll.title": "撤销全部 AI 改动",
+  "view.dsh-tui-vscode.editReview.name": "AI 改动待审",
+  "view.dsh-tui-vscode.editReview.welcome": "还没有经过核验的文件工具改动。\n\n受支持的 DSH 文件工具事务会出现在这里，可执行 Keep / Undo；普通外部写入不会归因于 AI，历史未核验条目会明确标注来源未核验。",
+  "config.dsh-tui-vscode.editReview.enabled.description": "审阅经过核验的 DSH 文件工具事务并提供 Keep / Undo。扩展通过一次性启动补丁加载自己的 observer，不会根据终端存在或文件系统事件推断 AI 作者。",
+  "config.dsh-tui-vscode.editReview.exclude.description": "不参与 AI 改动跟踪的 glob 模式（不标注、也不存原稿）。",
+  "command.dsh-tui-vscode.editNextHunk.title": "下一处待审改动",
+  "command.dsh-tui-vscode.editPrevHunk.title": "上一处待审改动",
+  "config.dsh-tui-vscode.editReview.bridge.description": "使用经过认证的 DSH 文件工具事务桥。无法核验来源的 shell 或外部写入不会标记为 AI 改动。",
+  "config.dsh-tui-vscode.editReview.native.description": "实验性自动原生审阅，默认关闭：在部分宿主中 Keep 后连续编辑的控件生命周期仍不可靠。请使用稳定 diff 审阅。",
+  "config.dsh-tui-vscode.editReview.diffView.description": "审阅对比的打开方式。「inline」（默认）显示上下叠放的红/绿行 diff——会像 diff 编辑器的 Inline View 按钮一样对齐 VS Code 的 diff 视图模式；「sideBySide」强制左右并排；「auto」完全保留 VS Code 自身设置。",
+  "config.dsh-tui-vscode.editReview.diffView.enum.inline": "上下叠放（红/绿行）",
+  "config.dsh-tui-vscode.editReview.diffView.enum.sideBySide": "左右并排",
+  "config.dsh-tui-vscode.editReview.diffView.enum.auto": "跟随 VS Code 设置"
 }
