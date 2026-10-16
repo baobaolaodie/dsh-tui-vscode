@@ -76,7 +76,7 @@ npm run install:local
 ## Features
 
 - **A real terminal, not an emulation** — sessions run in the VS Code integrated terminal with your default shell, so shell integration, Ctrl+C, copy/paste, fonts and theme all behave natively.
-- **Beside by default** — a new column next to the one you are working in, never on top of it. `dsh-tui-vscode.terminalLocation` switches to the current column (`active`) or the bottom panel (`panel`).
+- **Beside by default** — a new column next to the one you are working in (`ViewColumn.Beside`), never on top of it. `dsh-tui-vscode.terminalLocation` switches to the current column (`active`) or the bottom panel (`panel`).
 - **As many concurrent sessions as you want** — each start opens a new terminal; nothing is reused and nothing is killed for you.
 - **A session sidebar that knows your workspace** — titles, relative times, and one click to resume; hover to archive or rename, right-click to delete permanently.
 - **Your selection, without copy-paste** — select code and it reaches the running TUI over the IDE selection channel, or press `Ctrl+Alt+K` to insert an explicit `@relative/path#L12-14` reference.
