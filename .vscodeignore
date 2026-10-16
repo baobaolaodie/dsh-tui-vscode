@@ -19,6 +19,7 @@ package-lock.json
 *.log
 .gh-log/
 docs/**
+media/readme/source/**
 CLAUDE.md
 .scratch/
 .tmp-audit/

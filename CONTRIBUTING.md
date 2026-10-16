@@ -12,8 +12,72 @@ Thank you for considering contributing to dsh-tui-vscode! The workflow and conve
 
 - Node.js 24 (dev default; the CI test matrix runs Node 22/24); package management uses **npm** (`npm ci`).
 - The e2e "real dsh-tui resume" test needs a global `dsh` CLI and `dsh-tui` (skipped automatically when absent).
-- UAT that needs a real VS Code install with an isolated profile: `scripts/uat-devhost.ps1` (Windows PowerShell) — it strips the agent shell's `NO_COLOR`/`TERM` before launching (a host started from an agent shell otherwise renders the TUI in greyscale, LESSONS L-013) and prints the commit anchors the evidence must be pinned to (L-015) — it recompiles `out/` first (skip with `-SkipBuild`, which flags the anchor as not build-guaranteed) and locates the checkout and `Code.exe` without machine-specific paths (`-Repo` / `-CodeExe` / `DSH_UAT_CODE_EXE` override).
+- UAT that needs a real VS Code install with an isolated profile: `scripts/uat-devhost.ps1` (Windows PowerShell) — it strips the agent shell's `NO_COLOR`/`TERM` before launching (a host started from an agent shell otherwise renders the TUI in greyscale) and prints the commit anchors the evidence must be pinned to — it recompiles `out/` first (skip with `-SkipBuild`, which flags the anchor as not build-guaranteed) and locates the checkout and `Code.exe` without machine-specific paths (`-Repo` / `-CodeExe` / `DSH_UAT_CODE_EXE` override).
 - Install the local hook for development: `node scripts/install-commit-hook.mjs` (blocks fast-to-revert issues like commit-message format).
+
+## Source layout
+
+```
+dsh-tui-vscode/
+├── src/
+│   ├── extension.ts         # Activation: command registration, createTerminal, image-setup prompts
+│   ├── session.ts           # Launch-command resolution (host PATH), env building, terminal placement
+│   ├── sessions.ts          # Session data layer (multi-frame zstd, bounded reads, titles, filters, rename/delete)
+│   ├── sessions-view.ts     # Session History TreeView
+│   ├── session-watchers.ts  # fs.watch over the session roots
+│   ├── relative-time.ts     # Compact relative timestamps
+│   ├── at-mention.ts        # @-mention text generation
+│   ├── auto-mention.ts      # Selection-push decisions
+│   ├── status.ts            # Status-bar item
+│   ├── ide/server.ts        # Loopback IDE selection-channel server
+│   ├── test/                # node:test unit tests (session, sessions, at-mention, auto-mention, ide-server, session-watchers, relative-time)
+│   └── test-suite/          # Real extension-host e2e (@vscode/test-electron)
+├── media/                   # Icons and README imagery (packaged into the vsix)
+├── l10n/                    # Runtime strings for vscode.l10n
+├── scripts/                 # install-commit-hook, install-local, uat-devhost
+├── .githooks/               # pre-commit / commit-msg
+├── .github/                 # CI workflows, PR template, issue forms
+├── docs/                    # Design notes (excluded from the vsix)
+└── package.nls*.json        # Contribution-point strings (commands, views, settings)
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+  classDef ext fill:#4D6BFE22,stroke:#4D6BFE
+  classDef data fill:#2ea04322,stroke:#2ea043
+
+  subgraph host["VS Code extension host"]
+    CMD["Entry: editor-title whale button · command palette · welcome view"]:::ext
+    TERM["createTerminal{ name, cwd, location, env, iconPath, isTransient }"]:::ext
+    IDE["Loopback WebSocket server (protocol v2)"]:::ext
+    SESS["Session History TreeView"]:::ext
+    WATCH["fs.watch over session roots"]:::ext
+  end
+
+  CMD -->|launch command, resolved against the host PATH| TERM
+  TERM -->|send once the shell is ready| SHELL["Default shell (Windows: PowerShell)"]
+  SHELL -->|node dsh-tui| TUI["dsh-tui process"]
+  IDE -.->|DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN| TERM
+  TUI -.->|ide/hello, then selection_changed| IDE
+  TUI -->|append-only writes| STORE["session logs: multi-frame zstd JSONL"]:::data
+  TUI -->|last-used map| MRU["~/.dsh-tui/last-used.json"]:::data
+  SESS -->|bounded window reads| STORE
+  SESS -->|titles: per-session ledger, then the flat one| LEDGER["dsh storage ledger"]:::data
+  SESS -->|archive set| ARCH["storages/workspace.json"]:::data
+  SESS -->|rename: append a title frame · delete: remove the directory| STORE
+  SESS -->|last-used order| MRU
+  WATCH -->|debounced refresh| SESS
+```
+
+Key points:
+
+- **Session = real terminal.** The extension calls `createTerminal` and sends the launch command; the process, its signals, its scrollback and its clipboard belong to the terminal. The command is resolved to an absolute path against the **extension host's** PATH, because a login shell rebuilds `PATH` and cannot be trusted.
+- **Specific-session resume** exports `DSH_TUI_RESUME_SESSION` for the profile's `cordis.patch.yml` to read at boot, and deliberately does not pass `--resume` — a bare `--resume` makes the launcher overwrite that variable from `~/.dsh-tui/resume.txt`.
+- **Session history sources**, from [docs/session-history.md](docs/session-history.md): bounded window reads over multi-frame zstd logs, titles from the log event, then the storage ledger, then the first human prompt, then the working-directory name; filtered to the current workspace with empty, sub-agent and archived sessions hidden; ordered by last-used.
+- **The IDE selection channel**, from [docs/ide-selection-channel.md](docs/ide-selection-channel.md): a loopback WebSocket server with a token handshake, advertised through the environment and a lock file, pushing debounced selection changes that dsh-TUI attaches verbatim.
+- **The image capability gate**, from [docs/terminal-images.md](docs/terminal-images.md): three observations decide whether a session is given `sixel`, and the settings write is judged before it happens rather than after.
 
 ## Running tests
 
@@ -54,6 +118,22 @@ npm run package          # compile + build the .vsix
 
 Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.mjs`); CI covers the rest server-side.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
+
+| Job | What it covers |
+| --- | --- |
+| `test` | Linux and Windows × Node 22 and 24: install, typecheck, unit tests |
+| `e2e` | Linux under xvfb: the real extension-host suite, then `npm run package`, then a VSIX smoke test that the `zh-cn` contribution strings and runtime bundle really are inside the package |
+| `quality` | Bilingual mirror symmetry (line counts within 10), the primary↔mirror cross links, a BOM guard, `package.nls*` and `l10n` key parity, `l10n.t` literal coverage, actionlint |
+| `pr-policy` | Conventional Commits in the PR title and in every commit, the branch prefix, the PR template's sections and checkboxes, and the honesty of the CHANGELOG self-check |
+| `release-consistency` | The five-point version match, plus a PR link (or an explicit direct-push marker) in every version section |
+| `security-scan` | A credential scan over `HEAD` and a check that no credential-like file is tracked |
+| `docs-links` | A lychee dead-link check over the root documents and `.github/` |
+
+The e2e suite covers command registration, terminal creation with environment injection, input round-trip, multiple concurrent sessions, Ctrl+C termination, `--resume`, specific-session resume over the environment channel (asserting that no `--resume` is passed), the IDE selection channel's server lifecycle and WebSocket round-trip, the settings-scope and image-gating prompt paths, `imageProtocol: auto` actually removing an inherited variable, UI localisation, and a guarded test that resumes a real dsh-tui session.
+
 ## Publishing
 
 - Current publishing flow: `npm run package` to build the vsix, then upload it at https://marketplace.visualstudio.com/manage (the official "manual publish" path — no PAT required).
@@ -67,7 +147,7 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 2. **CHANGELOG**: move the `Unreleased` content into a version section `## [x.y.z] - date`, linking the PRs merged in this batch (the release-consistency CI requires a PR link or a direct-push marker in every version section).
 3. **Five-point sync**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) — verified by CI.
 4. `npm run package` to build the vsix.
-5. **Compare the packaged size with the last release** before uploading: `gh release view <prev-tag> --json assets`. An order-of-magnitude jump means `.vscodeignore` is letting a local tool directory into the package — fix it before uploading (see LESSONS L-004 / L-018).
+5. **Compare the packaged size with the last release** before uploading: `gh release view <prev-tag> --json assets`. An order-of-magnitude jump means `.vscodeignore` is letting a local tool directory into the package — fix it before uploading.
 6. Upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
 7. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
 8. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.

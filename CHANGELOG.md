@@ -16,6 +16,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Changed
 
+- **The README was rebuilt around proof and re-derived from the code.** It now opens with a composed hero and four real captures, keeps commands, settings and compatibility in tables, and carries a troubleshooting section. Every factual claim was re-checked against `src/`, `package.nls*.json`, the unit tests and the published upstream packages instead of being carried forward, and thirteen statements did not survive it: the three quoted command invocations showed bilingual titles the palette stopped rendering in 0.7.3; the documented rebinding search term `dsh_tui` matches nothing; the sidebar was described as empty with no workspace open, while the provider passes an empty list the data layer reads as *no filter* (the code fix is tracked separately); `@bokuweb/zstd-wasm` was called the only runtime dependency; the `injectEditor` condition, the `command` resolution, the injected environment and the image-reload prompt were each described more narrowly than the code behaves; the archive and rename notes claimed a concurrency safety they do not provide; the extension-side version gates merged two different minimums into one; a combined command title was invented; and one troubleshooting row's symptom contradicted its own advice. The directory tree, the architecture diagram and the CI job list moved into `CONTRIBUTING.md`, and the terminal-image, session-history and IDE-channel reasoning moved into three new notes under `docs/`.
+- **README imagery lives in `media/readme/`**, with the hero's composition source (layout SVG, screenshot crop and build script) and the diagram's SVG under `media/readme/source/`; that directory is excluded from the vsix. The hero build script now stages its files per invocation and replaces the output atomically, so overlapping runs cannot clobber each other.
+
 ### Fixed
 
 ## [0.7.6] - 2026-10-06
