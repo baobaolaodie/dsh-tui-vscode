@@ -13,7 +13,7 @@
 扩展激活时在 `127.0.0.1` 的随机端口上起一个**回环 WebSocket 服务端**，并用两种方式公布它：
 
 - **环境变量直连。** 扩展启动的终端会拿到 `DSH_TUI_IDE_PORT` 与 `DSH_TUI_IDE_TOKEN`，无需查找即可连接。
-- **lock 文件兜底。** `~/.dsh-tui/ide/<port>.lock` 内容为 `{port, token, workspaceFolders, pid}`，让用户手动启动的 dsh-tui 能扫描该目录并按工作区匹配到服务端。目录权限 `0700`，文件 `0600`。
+- **lock 文件兜底。** `~/.dsh-tui/ide/<port>.lock` 内容为 `{port, token, workspaceFolders, pid}`，让用户手动启动的 dsh-tui 能扫描该目录并按工作区匹配到服务端。目录权限 `0700`，文件 `0600`；在 Windows 上这些 mode 位只能落到「只读」属性上，因此 token 区分的是**进程**，而不是本机账户。
 
 只使用回环地址，token 每个服务端实例一份。
 

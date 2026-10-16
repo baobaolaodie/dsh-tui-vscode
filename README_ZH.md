@@ -117,7 +117,7 @@ npm run install:local
 | `dsh-tui: 管理已归档会话` | 恢复或永久删除已归档会话 |
 | `dsh-tui: 刷新会话列表` | 重新读取会话列表 |
 
-**插入引用。** 编辑器聚焦时按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`），或用编辑器右键菜单。单行得到 `@相对路径#L12`，选区得到 `@相对路径#L12-14`，未选中则是裸相对路径；工作区之外的路径回退为绝对路径。没有运行中的会话时，引用改为进入剪贴板。dsh-TUI 在提交时按行区间切片附加内容，而不是把整个文件读进去。
+**插入引用。** 编辑器聚焦时按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`），或用编辑器右键菜单。单行得到 `@相对路径#L12`，选区得到 `@相对路径#L12-14`，未选中则是裸相对路径；工作区之外的路径回退为绝对路径。没有可键入的会话终端时，引用改为进入剪贴板。dsh-TUI 在提交时按行区间切片附加内容，而不是把整个文件读进去。
 
 ## 设置
 
@@ -128,7 +128,7 @@ npm run install:local
 | `dsh-tui-vscode.terminalLocation` | `editor` | `editor`（活动列旁新开一列）/ `active`（当前列）/ `panel`（底部面板） |
 | `dsh-tui-vscode.lang` | `""` | `""` / `zh` / `en`，导出为 `DSH_TUI_LANG` |
 | `dsh-tui-vscode.imageProtocol` | `sixel` | 导出给 `DSH_TUI_IMAGE_PROTOCOL` 的取值：`sixel`、`none`，或 `auto`（移除该变量）。见[终端图片](#终端图片)。 |
-| `dsh-tui-vscode.injectEditor` | `true` | 当 `$VISUAL` 与 `$EDITOR` 都未设置时导出 `$VISUAL` |
+| `dsh-tui-vscode.injectEditor` | `true` | 当扩展宿主看到的环境里 `$VISUAL` 与 `$EDITOR` 都未设置时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的值 |
 | `dsh-tui-vscode.dshHome` | `""` | 为会话覆盖 `$DSH_HOME`（空 = 继承） |
 | `dsh-tui-vscode.autoInsertMention` | `true` | 把编辑器选区推送给运行中的 TUI（300ms 防抖） |

@@ -117,7 +117,7 @@ Command Palette entries are grouped under **`dsh-tui`**. Titles follow your VS C
 | `dsh-tui: Manage archived sessions` | Restores or permanently deletes archived sessions |
 | `dsh-tui: Refresh sessions` | Re-reads the session list |
 
-**Inserting a reference.** With editor focus, press `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) or use the editor context menu. You get `@relative/path#L12` for one line, `@relative/path#L12-14` for a range, and a bare relative path when nothing is selected; paths outside the workspace fall back to absolute ones. With no session running, the reference goes to your clipboard instead. dsh-TUI slices the attachment to the line range at submit time rather than reading the whole file.
+**Inserting a reference.** With editor focus, press `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) or use the editor context menu. You get `@relative/path#L12` for one line, `@relative/path#L12-14` for a range, and a bare relative path when nothing is selected; paths outside the workspace fall back to absolute ones. With no session terminal to type into, the reference goes to your clipboard instead. dsh-TUI slices the attachment to the line range at submit time rather than reading the whole file.
 
 ## Settings
 
@@ -128,7 +128,7 @@ Command Palette entries are grouped under **`dsh-tui`**. Titles follow your VS C
 | `dsh-tui-vscode.terminalLocation` | `editor` | `editor` (new column beside the active one) / `active` (current column) / `panel` (bottom panel) |
 | `dsh-tui-vscode.lang` | `""` | `""` / `zh` / `en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.imageProtocol` | `sixel` | What to export as `DSH_TUI_IMAGE_PROTOCOL`: `sixel`, `none`, or `auto` (removes the variable). See [terminal images](#terminal-images). |
-| `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when neither `$VISUAL` nor `$EDITOR` is set |
+| `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when neither `$VISUAL` nor `$EDITOR` is set in the environment the extension host sees |
 | `dsh-tui-vscode.editorCommand` | `code -w` | The value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | Override `$DSH_HOME` for sessions (empty inherits it) |
 | `dsh-tui-vscode.autoInsertMention` | `true` | Push the editor selection to the running TUI (300 ms debounce) |

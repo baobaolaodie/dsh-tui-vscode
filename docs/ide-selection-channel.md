@@ -13,7 +13,7 @@ Typing an `@path#L12-14` mention works, but it costs the user a keystroke patter
 On activation the extension starts a **loopback WebSocket server** on a random `127.0.0.1` port and advertises it two ways:
 
 - **Environment, direct.** Terminals the extension launches receive `DSH_TUI_IDE_PORT` and `DSH_TUI_IDE_TOKEN`, so they can connect without looking anything up.
-- **A lock file, as fallback.** `~/.dsh-tui/ide/<port>.lock` holds `{port, token, workspaceFolders, pid}` so a dsh-tui the user started by hand can find a server by scanning the directory and matching on workspace. The directory is created `0700` and the file `0600`.
+- **A lock file, as fallback.** `~/.dsh-tui/ide/<port>.lock` holds `{port, token, workspaceFolders, pid}` so a dsh-tui the user started by hand can find a server by scanning the directory and matching on workspace. The directory is created `0700` and the file `0600`; on Windows those mode bits only reach the read-only attribute, so the token separates processes rather than local accounts.
 
 Only loopback is used, and the token is per server instance.
 

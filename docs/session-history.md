@@ -34,7 +34,7 @@ The title comes from the first source that yields one:
 4. The working-directory basename.
 5. The localised "Untitled session" placeholder.
 
-Renaming appends a `session/title` frame with `seq = maxSeq + 1`. Append-only keeps concurrent TUI writes safe, at the cost of a running TUI not seeing the new title until it re-reads the log. Logs that already carry a bare title row written by an older build are upgraded in place with an atomic replace instead, because appending more rows would not repair them.
+Renaming appends a `session/title` frame with `seq = maxSeq + 1`. Append-only means the extension never rewrites a healthy log and never blocks the TUI; it is not a claim that sequence numbers stay unique, because `maxSeq` comes from the extension's own bounded read, so a frame the TUI appends in between can take the same `seq`. What it does cost is that a running TUI does not see the new title until it re-reads the log. Logs that already carry a bare title row written by an older build are upgraded in place with an atomic replace instead, because appending more rows would not repair them.
 
 ## What the list shows
 
@@ -43,7 +43,7 @@ Filtering matches the dsh web list's default view:
 - **Current workspace only.** A session belongs to the workspace if its cwd matches a workspace root exactly or sits below it. Container directories — `$HOME`, a drive root, a UNC root — only match exactly, so opening `$HOME` does not sweep in every session underneath. Multi-root workspaces take the union.
 - **No boot-only sessions.** A session with no human prompt is hidden, which is what `hideEmpty` means. An unreadable or unknown log is never hidden on that basis: unknown means "keep".
 - **No delegated sub-agent runs** (`origin: 'subagent'`).
-- **No archived sessions.** Archive state lives in `storages/workspace.json` under `global.archivedSessionIds` — the same set the dsh web list uses. Archiving edits only that set; the log stays on disk and the session is restorable at any time.
+- **No archived sessions.** Archive state lives in `storages/workspace.json` under `global.archivedSessionIds` — the same set the dsh web list uses. The whole file is re-read and replaced rather than the set being edited in place, which is last-write-wins: a change another dsh writer makes to that file in between is lost, exactly as it would be between two dsh processes. The session's log is never touched, so unarchiving restores its position.
 
 Within a group, sessions sort by last-used time from `~/.dsh-tui/last-used.json`, then by creation time descending. A session with no last-used entry sorts below every session that has one.
 
