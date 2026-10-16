@@ -14,6 +14,9 @@
 
 ### Changed
 
+- **README 按「先证据、后解释」重建，并逐条回到代码重新推导。** 现在它以合成 hero 与真实截图开场，把命令、设置与兼容性收进表格，并新增故障排查一节。所有事实性断言都重新对照 `src/`、`package.nls*.json` 与上游已发布包核验，而不是照抄旧文，因此纠正了五处陈述：三处命令调用示例引用的是 0.7.3 起命令面板就不再渲染的双语标题（实际为 `dsh-tui: Start new session`，而非 `dsh-tui: Start new session / 启动新会话`）；文档给出的重绑搜索词 `dsh_tui` 什么都匹配不到（真实 token 是 `dsh-tui` 与 `insertAtMention`）；侧边栏被写成「未打开工作区时为空列表」，而 provider 传的空数组会被数据层读作**不过滤**，于是列出 DSH home 下的全部会话（代码修复另行跟踪）；`@bokuweb/zstd-wasm` 被称作唯一运行时依赖（第二个是 `ws`）；版本门槛、图像重载提示、`injectEditor` 条件与注入的环境变量，每一处都写得比代码实际行为更窄。目录树、架构图与 CI job 清单一并迁入 `CONTRIBUTING.md`，终端图片、会话历史与 IDE 通道的推理过程迁入 `docs/` 下三篇新文档。
+- **README 图片统一放在 `media/readme/`**，hero 的合成源（布局 SVG、截图裁切与构建脚本）放在 `media/readme/source/`；该 source 目录不进 vsix。
+
 ### Fixed
 
 ## [0.7.6] - 2026-10-06

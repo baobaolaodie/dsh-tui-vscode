@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="heroTitle heroDesc">
+  <title id="heroTitle">dsh-tui-vscode</title>
+  <desc id="heroDesc">The dsh-tui-vscode wordmark beside a real VS Code terminal running the DeepSeek Harness TUI.</desc>
+
+  <!-- Composition source for media/readme/hero.png. The screenshot layer is a
+       real capture, cropped by compose-hero.py into the reserved window below;
+       nothing in this file is generated art. Every string here is an identifier
+       or a product name, so one hero serves README.md and README_ZH.md alike. -->
+
+  <defs>
+    <clipPath id="shotClip">
+      <rect x="594" y="75" width="537" height="279" rx="11" />
+    </clipPath>
+  </defs>
+
+  <rect width="1200" height="400" rx="24" fill="#0A0C12" />
+  <rect x="0.75" y="0.75" width="1198.5" height="398.5" rx="23.25" fill="none" stroke="#1C2233" stroke-width="1.5" />
+
+  <g id="title-block">
+    <svg x="64" y="76" width="30" height="30" viewBox="0 0 50 50">
+      <path fill="#4D6BFE" d="{{WHALE}}" />
+    </svg>
+    <text x="106" y="98" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          font-size="14" letter-spacing="2.4" fill="#7C8698">DEEPSEEK HARNESS &#215; VS CODE</text>
+
+    <text x="62" y="212" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+          font-size="57" font-weight="800" letter-spacing="-1.4" fill="#F2F5FA">dsh-tui<tspan fill="#4D6BFE">-vscode</tspan></text>
+
+    <rect x="64" y="244" width="76" height="4" rx="2" fill="#4D6BFE" />
+
+    <text x="64" y="308" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          font-size="15" fill="#6C7689">createTerminal &#8594; ViewColumn.Beside</text>
+  </g>
+
+  <!-- The split between the editor column and the terminal column is the
+       product's own mechanism, so it is the composition's dividing rule. -->
+  <g id="split">
+    <line x1="556" y1="44" x2="556" y2="356" stroke="#232A3D" stroke-width="1.5" />
+    <rect x="551.5" y="39.5" width="9" height="9" rx="2" fill="#0A0C12" stroke="#39435C" stroke-width="1.5" />
+    <rect x="551.5" y="351.5" width="9" height="9" rx="2" fill="#0A0C12" stroke="#39435C" stroke-width="1.5" />
+  </g>
+
+  <g id="terminal-window">
+    <rect x="592" y="44" width="540" height="312" rx="14" fill="#0E1119" stroke="#232A3D" stroke-width="1.5" />
+    <path d="M592 58 a14 14 0 0 1 14 -14 h512 a14 14 0 0 1 14 14 v16 h-540 z" fill="#12161F" />
+    <rect x="604" y="51" width="112" height="26" rx="7" fill="#1A2233" />
+    <text x="616" y="69" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          font-size="13" fill="#D5DBE7">DeepSeek</text>
+    <text x="692" y="69" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          font-size="13" fill="#6C7689">&#215;</text>
+    <line x1="592" y1="74" x2="1132" y2="74" stroke="#232A3D" stroke-width="1.5" />
+  </g>
+
+  <image x="594" y="75" width="537" height="279" preserveAspectRatio="none"
+         clip-path="url(#shotClip)" href="{{SHOT_DATA}}" />
+</svg>
