@@ -12,6 +12,10 @@ in, and GitHub will draw the same file the same way.
 
     python media/readme/source/compose-hero.py [output.png]
 
+Requirements: Python 3.9+, Pillow (`pip install Pillow`), and any Chromium-based
+browser. Nothing else in the repository needs Pillow; this build script is the
+only consumer.
+
 Environment:
     CHROME_PATH  override the browser executable
 """
@@ -26,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from uuid import uuid4
 from pathlib import Path
 
 from PIL import Image
@@ -109,28 +114,37 @@ def main() -> None:
     ):
         svg = svg.replace(token, value)
 
-    staged = HERE / "hero-render.svg"
-    staged.write_text(svg, encoding="utf-8")
-
-    # Chromium insists on a profile directory; keep it out of the repository.
-    with tempfile.TemporaryDirectory(prefix="hero-render-") as profile:
-        subprocess.run(
-            [
-                find_chrome(),
-                "--headless",
-                "--disable-gpu",
-                "--hide-scrollbars",
-                f"--force-device-scale-factor={SCALE}",
-                "--default-background-color=00000000",
-                f"--user-data-dir={profile}",
-                f"--screenshot={out}",
-                f"--window-size={WIDTH},{HEIGHT}",
-                staged.as_uri(),
-            ],
-            check=True,
-            capture_output=True,
-        )
-    staged.unlink(missing_ok=True)
+    # Unique staging paths, and a temp output replaced into place atomically:
+    # two overlapping runs must not share the SVG one of them is still handing
+    # to Chromium, or the PNG the other is halfway through writing. The temp
+    # output has to sit beside the destination — os.replace cannot cross
+    # filesystems, and the system temp directory is often on another drive.
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pending = out.with_name(f".{out.stem}-{uuid4().hex}.png")
+    try:
+        with tempfile.TemporaryDirectory(prefix="hero-render-") as work:
+            work_dir = Path(work)
+            staged = work_dir / "hero-render.svg"
+            staged.write_text(svg, encoding="utf-8")
+            subprocess.run(
+                [
+                    find_chrome(),
+                    "--headless",
+                    "--disable-gpu",
+                    "--hide-scrollbars",
+                    f"--force-device-scale-factor={SCALE}",
+                    "--default-background-color=00000000",
+                    f"--user-data-dir={work_dir / 'profile'}",
+                    f"--screenshot={pending}",
+                    f"--window-size={WIDTH},{HEIGHT}",
+                    staged.as_uri(),
+                ],
+                check=True,
+                capture_output=True,
+            )
+        os.replace(pending, out)
+    finally:
+        pending.unlink(missing_ok=True)
     print(f"wrote {out} ({out.stat().st_size} bytes)")
 
 

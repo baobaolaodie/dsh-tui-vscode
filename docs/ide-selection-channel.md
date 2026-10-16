@@ -39,7 +39,7 @@ Turning `dsh-tui-vscode.autoInsertMention` off does not simply stop pushing: it 
 
 ## When the channel is unavailable
 
-The extension falls back to typing `@relative/path#Lstart-end` into the running session's terminal. That fallback has its own precondition: there must be a running session terminal owned by this extension. With neither a client nor a terminal, nothing is typed.
+The extension falls back to typing `@relative/path#Lstart-end` into the running session's terminal. That fallback has its own precondition: an extension-owned session terminal must exist. The terminal is matched by name, so it still counts after dsh-tui has exited inside it — the reference goes to the terminal rather than to the clipboard, and a shell sitting at a prompt simply receives the text. With neither a client nor a terminal, nothing is typed.
 
 ## Lifecycle
 

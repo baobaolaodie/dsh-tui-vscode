@@ -53,4 +53,4 @@ The tree refreshes on directory changes with a 500 ms debounce. `fs.watch` is no
 
 The provider's own comment says that with no workspace open there is nothing to attribute sessions to, so the welcome view greets instead. The data layer disagrees: it treats an empty `workspaceDirs` array as "no filter", and the provider passes exactly that when no folder is open.
 
-So a window with no folder open lists **every** session under the DSH home rather than none, and the start/resume welcome view never appears. The README documents this actual behaviour; the comment describes the intended one, and the fix belongs in its own change.
+So a window with no folder open lists **every** session under the DSH home rather than none, and the start/resume welcome view appears only when that list is empty too. The README documents this actual behaviour; the comment describes the intended one, and the fix belongs in its own change.

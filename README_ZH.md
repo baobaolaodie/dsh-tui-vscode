@@ -86,7 +86,7 @@ npm run install:local
 | 引用里的 `@路径#L12-14` 行区间 | dsh-tui **≥ 0.9.1** —— 更旧的版本会提示文件未找到 |
 | 终端内真实栅格图（`sixel`、`none`） | dsh-tui **≥ 0.10.0**；见[终端图片](#终端图片) |
 | 选区自动上下文（IDE 选区通道，协议 v2） | dsh-tui **≥ 0.11.0** |
-| 上面两条的扩展侧一半 | dsh-tui-vscode **≥ 0.7.5** —— 更早的版本根本不会设置 `DSH_TUI_IMAGE_PROTOCOL` |
+| 上述能力的扩展侧 | 选区通道需 dsh-tui-vscode **≥ 0.7.0**，图像协议变量需 **≥ 0.7.5** |
 
 除了最低版本，dsh-tui 可以自由前进：上面这两个接口已针对 0.15.0 复核过，自上述版本以来没有变化。
 
@@ -111,13 +111,13 @@ npm run install:local
 | `dsh-tui: 打开 dsh-TUI` | 编辑器标签栏按钮；等同于启动一个会话 |
 | `dsh-tui: 聚焦会话面板` | 把最近的会话终端调到前台，没有则新启一个 |
 | `dsh-tui: 恢复会话` | 恢复侧边栏中选中的那个会话 |
-| `dsh-tui: 插入 @文件引用` | 把当前文件或选区送进运行中的 TUI 输入框 |
+| `dsh-tui: 插入 @文件引用` | 把当前文件或选区键入会话终端——没有会话终端时改为复制到剪贴板 |
 | `dsh-tui: 终止会话` | 向最近的会话终端发送 Ctrl+C |
-| `dsh-tui: 重命名 / 归档 / 永久删除会话` | 会话侧边栏动作 |
+| `dsh-tui: 重命名会话` / `归档会话` / `永久删除会话` | 会话侧边栏动作 |
 | `dsh-tui: 管理已归档会话` | 恢复或永久删除已归档会话 |
 | `dsh-tui: 刷新会话列表` | 重新读取会话列表 |
 
-**插入引用。** 编辑器聚焦时按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`），或用编辑器右键菜单。单行得到 `@相对路径#L12`，选区得到 `@相对路径#L12-14`，未选中则是裸相对路径；工作区之外的路径回退为绝对路径。没有可键入的会话终端时，引用改为进入剪贴板。dsh-TUI 在提交时按行区间切片附加内容，而不是把整个文件读进去。
+**插入引用。** 编辑器聚焦时按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`），或用编辑器右键菜单。单行得到 `@相对路径#L12`，选区得到 `@相对路径#L12-14`，未选中则是裸相对路径；工作区之外的路径回退为绝对路径。没有可键入的会话终端时，引用改为进入剪贴板；而比 dsh-tui 活得更久的会话终端仍会收到它。dsh-TUI 在提交时按行区间切片附加内容，而不是把整个文件读进去。
 
 ## 设置
 
@@ -133,13 +133,13 @@ npm run install:local
 | `dsh-tui-vscode.dshHome` | `""` | 为会话覆盖 `$DSH_HOME`（空 = 继承） |
 | `dsh-tui-vscode.autoInsertMention` | `true` | 把编辑器选区推送给运行中的 TUI（300ms 防抖） |
 
-会话拿到的环境变量不止这些：`DSH_TUI_IMAGE_PROTOCOL` 始终注入，选区通道可用时还有 `DSH_TUI_IDE_PORT` 与 `DSH_TUI_IDE_TOKEN`，恢复指定会话时还有 `DSH_TUI_RESUME_SESSION`（以及 `DSH_CC_RESUME_SESSION`）。
+会话拿到的环境变量不止这些：`DSH_TUI_IMAGE_PROTOCOL`（除非 `imageProtocol` 为 `auto`——那会移除它），选区通道可用时还有 `DSH_TUI_IDE_PORT` 与 `DSH_TUI_IDE_TOKEN`，恢复指定会话时还有 `DSH_TUI_RESUME_SESSION`（以及 `DSH_CC_RESUME_SESSION`）。
 
 ## 终端图片
 
 吉祥物立绘与图片预览，只有**同时**满足下列条件时才渲染为真实栅格图：
 
-1. **`terminal.integrated.enableImages` 为 `true`**（VS Code 默认 `false`）。某次会话启动时若该设置未开，扩展会提供一次「启用并重载窗口」的一键路径，且绝不在未经确认时改写你的设置。若你的工作区或文件夹设置已固定该值，扩展不会去硬碰——它会给出手动指引。
+1. **`terminal.integrated.enableImages` 为 `true`**（VS Code 默认 `false`）。某次会话启动时若该设置未开，扩展会提供一次「启用并重载窗口」的一键路径——但若你把 `imageProtocol` 设为 `none`，或 `gpuAcceleration` 已使 WebGL 渲染器不可用，则不提供：这两种情况都不是打开它就能解决的。扩展绝不在未经确认时改写你的设置；若你的工作区或文件夹设置已固定该值，它也不去硬碰，而是给出手动指引。
 2. **`terminal.integrated.gpuAcceleration` 不能使 WebGL 渲染器不可用** —— 留在 `auto`（默认）或设为 `on`。图像 addon 只挂在 WebGL 渲染器上，所以 `off` 时无论怎么改都出不了图。
 3. **dsh-tui 为 0.10.0 或更新**，这是它能识别 `DSH_TUI_IMAGE_PROTOCOL` 的起点。更旧的版本会静默忽略该变量。在 Windows 上，VS Code 自己的描述还补了一条：图像协议需要 ConPTY v2 或更新，而它随 Windows 一同提供。
 

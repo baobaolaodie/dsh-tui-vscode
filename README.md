@@ -86,7 +86,7 @@ The extension is a thin companion; the features below live in dsh-tui itself, so
 | `@path#L12-14` line ranges in mentions | dsh-tui **≥ 0.9.1** — older builds report the file as missing |
 | Raster images in the terminal (`sixel`, `none`) | dsh-tui **≥ 0.10.0**; see [terminal images](#terminal-images) |
 | Automatic selection context (IDE selection channel, protocol v2) | dsh-tui **≥ 0.11.0** |
-| The extension-side half of both of the above | dsh-tui-vscode **≥ 0.7.5** — earlier versions never set `DSH_TUI_IMAGE_PROTOCOL` |
+| The extension side of the above | dsh-tui-vscode **≥ 0.7.0** for the selection channel, **≥ 0.7.5** for the image protocol variable |
 
 Beyond its minimum, dsh-tui is free to move: these two interfaces were re-checked against 0.15.0 and had not changed since the versions above.
 
@@ -111,13 +111,13 @@ Command Palette entries are grouped under **`dsh-tui`**. Titles follow your VS C
 | `dsh-tui: Open dsh-TUI` | The editor-title-bar button; same as starting a session |
 | `dsh-tui: Focus session panel` | Brings the most recent session terminal to the front, starting one if there is none |
 | `dsh-tui: Resume session` | Resumes the session selected in the sidebar |
-| `dsh-tui: Insert @-mention` | Puts the current file or selection into the running TUI's input |
+| `dsh-tui: Insert @-mention` | Types the current file or selection into the session terminal — or copies it, if there is no session terminal |
 | `dsh-tui: Terminate session` | Sends Ctrl+C to the most recent session terminal |
-| `dsh-tui: Rename / Archive / Delete session permanently` | Session sidebar actions |
+| `dsh-tui: Rename session` / `Archive session` / `Delete session permanently` | Session sidebar actions |
 | `dsh-tui: Manage archived sessions` | Restores or permanently deletes archived sessions |
 | `dsh-tui: Refresh sessions` | Re-reads the session list |
 
-**Inserting a reference.** With editor focus, press `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) or use the editor context menu. You get `@relative/path#L12` for one line, `@relative/path#L12-14` for a range, and a bare relative path when nothing is selected; paths outside the workspace fall back to absolute ones. With no session terminal to type into, the reference goes to your clipboard instead. dsh-TUI slices the attachment to the line range at submit time rather than reading the whole file.
+**Inserting a reference.** With editor focus, press `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) or use the editor context menu. You get `@relative/path#L12` for one line, `@relative/path#L12-14` for a range, and a bare relative path when nothing is selected; paths outside the workspace fall back to absolute ones. With no session terminal to type into, the reference goes to your clipboard instead; a session terminal that outlives dsh-tui still receives it. dsh-TUI slices the attachment to the line range at submit time rather than reading the whole file.
 
 ## Settings
 
@@ -133,13 +133,13 @@ Command Palette entries are grouped under **`dsh-tui`**. Titles follow your VS C
 | `dsh-tui-vscode.dshHome` | `""` | Override `$DSH_HOME` for sessions (empty inherits it) |
 | `dsh-tui-vscode.autoInsertMention` | `true` | Push the editor selection to the running TUI (300 ms debounce) |
 
-Sessions get more than these: `DSH_TUI_IMAGE_PROTOCOL` always, `DSH_TUI_IDE_PORT` and `DSH_TUI_IDE_TOKEN` while the selection channel is up, and `DSH_TUI_RESUME_SESSION` (plus `DSH_CC_RESUME_SESSION`) when resuming a specific session.
+Sessions get more than these: `DSH_TUI_IMAGE_PROTOCOL` unless `imageProtocol` is `auto` (which removes it), `DSH_TUI_IDE_PORT` and `DSH_TUI_IDE_TOKEN` while the selection channel is up, and `DSH_TUI_RESUME_SESSION` (plus `DSH_CC_RESUME_SESSION`) when resuming a specific session.
 
 ## Terminal images
 
 The mascot artwork and image previews render as real raster images only when **all** of these hold:
 
-1. **`terminal.integrated.enableImages` is `true`** (VS Code defaults to `false`). The extension offers a one-click "enable and reload" the first time a session starts without it, and never edits your settings without asking. If your workspace or folder settings pin the value, the extension will not fight them — you get manual instructions instead.
+1. **`terminal.integrated.enableImages` is `true`** (VS Code defaults to `false`). The extension offers a one-click "enable and reload" the first time a session starts without it — unless you chose `imageProtocol: none`, or `gpuAcceleration` rules the WebGL renderer out, since neither can be fixed by turning this on. It never edits your settings without asking, and if your workspace or folder settings pin the value it does not fight them: you get manual instructions instead.
 2. **`terminal.integrated.gpuAcceleration` leaves the WebGL renderer possible** — leave it at `auto` (the default) or set it to `on`. The image addon only attaches to the WebGL renderer, so `off` disables images no matter what else you change.
 3. **dsh-tui is 0.10.0 or newer**, which is where `DSH_TUI_IMAGE_PROTOCOL` is understood. Older builds ignore the variable silently. On Windows, VS Code's own description adds that image protocols need ConPTY v2 or newer, which ships with Windows itself.
 
@@ -168,7 +168,7 @@ Enabling `enableImages` only affects a window that is reloaded afterwards, so **
 | Images show as block characters | `enableImages` is off, or the window was not reloaded after turning it on, or `gpuAcceleration` is `off`. See [terminal images](#terminal-images). |
 | The sidebar is empty | Every session belongs to another workspace. Open the folder the sessions were started in. |
 | The sidebar lists sessions from everywhere | No folder is open, so there is nothing to scope the list to. Open a folder. |
-| No sessions at all after renaming | A running TUI does not see a new title until it re-reads the log; reopen the session. |
+| The title did not change after renaming | A running TUI does not see a new title until it re-reads the log; reopen the session. |
 | A session I deleted is still on disk | Deleting removes the session directory. Archived sessions keep their logs; restore them with `dsh-tui: Manage archived sessions`. |
 
 ## UI language
