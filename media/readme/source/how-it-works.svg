@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="hiwTitle hiwDesc">
+  <!-- Editable source for media/readme/how-it-works.png. See README.md in this
+       directory for the rebuild command; the PNG exists because vsce refuses to
+       package a README that references a local SVG. -->
   <title id="hiwTitle">How dsh-tui-vscode works</title>
   <desc id="hiwDesc">Four steps: the whale button asks the extension host to resolve dsh-tui against its own PATH and environment, which opens a real terminal in the column beside the editor and runs dsh-tui in your shell. dsh-tui appends to the zstd JSONL session logs, and the Session History view reads them back, filtered to the current workspace.</desc>
 
