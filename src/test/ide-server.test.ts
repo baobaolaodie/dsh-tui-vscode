@@ -342,7 +342,6 @@ test('hello handshake: valid token+version gets hello_ack; wrong token or protoc
       text: 'l1\nl2\nl3',
       documentVersion: 4,
     })
-
     socket.close()
     await server.stop()
   } finally {
@@ -460,30 +459,34 @@ test('stop is safe to call twice and before start', async () => {
 
 test('replays the most recent non-empty selection right after hello_ack (AC-7)', async () => {
   const lockRoot = makeLockRoot()
+  const token = 'tok-replay'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => ['D:/ws'] })
+  let socket: { close(): void } | undefined
   try {
-    const token = 'tok-replay'
-    const server = new IdeServer({ token, lockRoot, workspaceFolders: () => ['D:/ws'] })
     await server.start()
     const selectionFrame = selection()
     // 无客户端时广播返回 false（既有语义不变），但帧必须被记住，供稍后连上的
     // 客户端恢复徽标与可附加状态。
     assert.equal(server.broadcastSelection(selectionFrame), false, 'no clients means no delivery')
-    const { socket, frames } = await connectAuthenticated(server, token)
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    const frames = connected.frames
     await waitUntil(() => frames.length >= 2)
     assert.deepEqual(frames.map(frame => frame.method), ['ide/hello_ack', 'selection_changed'])
     assert.deepEqual(frames[1].params, selectionFrame)
-    socket.close()
-    await server.stop()
   } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
 
 test('does not replay a frame whose fingerprint is suppressed — a duplicate broadcast must not un-suppress it (AC-8)', async () => {
   const lockRoot = makeLockRoot()
+  const token = 'tok-suppress'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
   try {
-    const token = 'tok-suppress'
-    const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
     await server.start()
     const typed = selection()
     assert.equal(server.broadcastSelection(typed), false)
@@ -492,64 +495,73 @@ test('does not replay a frame whose fingerprint is suppressed — a duplicate br
     // shouldBroadcastSelection 对 duplicate 也返回 true：同一帧的重复广播不得
     // 抹掉抑制（这正是 ADR-009 弃用布尔标记的原因）。
     assert.equal(server.broadcastSelection(typed), false)
-    const { socket, frames } = await connectAuthenticated(server, token)
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    const frames = connected.frames
     await settle()
     assert.deepEqual(frames.map(frame => frame.method), ['ide/hello_ack'])
-    socket.close()
-    await server.stop()
   } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
 
 test('an empty selection clears the remembered frame, so a later client gets no replay', async () => {
   const lockRoot = makeLockRoot()
+  const token = 'tok-empty'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
   try {
-    const token = 'tok-empty'
-    const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
     await server.start()
     assert.equal(server.broadcastSelection(selection()), false)
     assert.equal(
       server.broadcastSelection(selection({ startLine: 0, endLine: 0, isEmpty: true, text: '' })),
       false,
     )
-    const { socket, frames } = await connectAuthenticated(server, token)
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    const frames = connected.frames
     await settle()
     assert.deepEqual(frames.map(frame => frame.method), ['ide/hello_ack'])
-    socket.close()
-    await server.stop()
   } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
 
 test('a different frame is still replayed while another fingerprint is suppressed', async () => {
   const lockRoot = makeLockRoot()
+  const token = 'tok-different'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
   try {
-    const token = 'tok-different'
-    const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
     await server.start()
     const suppressed = selection()
     const current = selection({ startLine: 6, endLine: 8, documentVersion: 10 })
     server.broadcastSelection(suppressed)
     server.markReplaySuppressed(selectionFingerprint(suppressed))
     server.broadcastSelection(current)
-    const { socket, frames } = await connectAuthenticated(server, token)
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    const frames = connected.frames
     await waitUntil(() => frames.length >= 2)
     assert.deepEqual(frames.map(frame => frame.method), ['ide/hello_ack', 'selection_changed'])
     assert.deepEqual(frames[1].params, current)
-    socket.close()
-    await server.stop()
   } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
 
 test('stop clears the remembered selection and the suppression fingerprint', async () => {
   const lockRoot = makeLockRoot()
+  const token = 'tok-stop-replay'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  const sockets: Array<{ close(): void }> = []
   try {
-    const token = 'tok-stop-replay'
-    const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
     await server.start()
     const frame = selection()
     server.broadcastSelection(frame)
@@ -559,6 +571,7 @@ test('stop clears the remembered selection and the suppression fingerprint', asy
     // ① 记忆被清：重启后的服务器在新客户端连上时不补推旧帧。
     await server.start()
     const afterMemoryReset = await connectAuthenticated(server, token)
+    sockets.push(afterMemoryReset.socket)
     await settle()
     assert.deepEqual(afterMemoryReset.frames.map(frame => frame.method), ['ide/hello_ack'])
     afterMemoryReset.socket.close()
@@ -568,6 +581,7 @@ test('stop clears the remembered selection and the suppression fingerprint', asy
     //    指纹，这一帧会被永久抑制）。
     assert.equal(server.broadcastSelection(frame), false)
     const afterSuppressionReset = await connectAuthenticated(server, token)
+    sockets.push(afterSuppressionReset.socket)
     await waitUntil(() => afterSuppressionReset.frames.length >= 2)
     assert.deepEqual(afterSuppressionReset.frames.map(frame => frame.method), [
       'ide/hello_ack',
@@ -575,8 +589,11 @@ test('stop clears the remembered selection and the suppression fingerprint', asy
     ])
     assert.deepEqual(afterSuppressionReset.frames[1].params, frame)
     afterSuppressionReset.socket.close()
-    await server.stop()
   } finally {
+    for (const s of sockets) {
+      try { s.close() } catch { /* already closed */ }
+    }
+    await server.stop()
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
