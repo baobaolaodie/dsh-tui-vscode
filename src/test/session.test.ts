@@ -1091,7 +1091,7 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
 // createTerminal」退化成跨分支的文本比较(先执行的 await 在文本上照样更靠前);
 // 只写一份却写进第一个 if 分支时,后续分支的 createTerminal 在文件里更靠后,条件
 // ③ 同样沉默。只有「函数体的一级语句」能保证这次等待支配所有分支。
-// 「一级语句」还不够(REVIEW R-04):在 await 之前调用一个外部 helper,把
+// 「一级语句」还不够:在 await 之前调用一个外部 helper,把
 // readSettings / env 求值 / createTerminal 藏进 helper 体内,条件②③④ 只看
 // runCommand 自身作用域,照样全绿——这正是 ADR-008 要防的回归换了个写法。
 // 首语句判据让「await 之前」连一条语句都不存在,helper 也就无处安放。
@@ -1163,7 +1163,7 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
   // ②b `await ideServerStartup.then` 也算进 ② 的「最左标识符」判据,但它 await 的是
   // **函数值**而不是那个 promise——非 thenable 会立即 resolve,服务器仍在绑定,env
   // 照样是空的。所以被 await 的表达式必须是**裸标识符**本身(允许括号/非空断言包裹),
-  // 不得再取属性或调用(review C5 / CodeRabbit)。
+  // 不得再取属性或调用。
   let awaited: ts.Expression = wait.expression
   while (ts.isParenthesizedExpression(awaited) || ts.isNonNullExpression(awaited)) {
     awaited = awaited.expression
@@ -1183,7 +1183,7 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
       waitStatement.parent === runCommand.body,
     'the wait must be a top-level runCommand statement: nested in one launch branch it leaves the other branches unguarded',
   )
-  // ② 的最终判据(REVIEW R-04):必须是函数体的第一条语句。只要求「一级语句」时,
+  // ② 的最终判据:必须是函数体的第一条语句。只要求「一级语句」时,
   // 在 await 之前调用一个外部 helper 仍能通过——护栏只看 runCommand 自身作用域,
   // helper 体内的 env 求值与 createTerminal 在另一处,条件③④ 看不见。首语句
   // 判据把「await 之前」压成空集:没有语句,就没有可以提前求值的地方。
@@ -1225,5 +1225,110 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
       .map(call => lineOf(extensionFile, call)),
     [],
     'the IDE env must be read after the wait: evaluating it earlier is the exact race this guard exists for',
+  )
+  // ⑤ 默认参数在函数体之前求值 —— 包括 await 之前。把 env 调用写进形参默认值，
+  // 只要还有一个分支留着内联调用，②③④ 就全部满足，而默认参数里的那份恒为空。
+  const parameterDefaults = runCommand.parameters.flatMap(parameter =>
+    parameter.initializer === undefined ? [] : [parameter.initializer],
+  )
+  assert.deepEqual(
+    parameterDefaults
+      .filter(initializer => /Env|Startup/.test(initializer.getText(extensionFile)))
+      .map(initializer => lineOf(extensionFile, initializer)),
+    [],
+    'a default parameter is evaluated BEFORE the body, so the IDE env must never be read there',
+  )
+  // ⑥ 读到的 env 必须真的被用掉。`void ideEnvPairs()` 这种丢弃式调用能满足
+  // ③④ 的位置判据，真正送进终端的那份却可以来自 await 之前。
+  assert.deepEqual(
+    ownScope
+      .filter(node => ts.isVoidExpression(node) && /Env|Startup/.test(node.getText(extensionFile)))
+      .map(node => lineOf(extensionFile, node)),
+    [],
+    'a discarded env read satisfies the position checks without doing anything',
+  )
+  // ⑦ env 求值必须是 buildEnv(...) 的实参（允许被对象字面量/展开包裹）。
+  // 否则「先存到变量、再交给 buildEnv」能绕过 ④ 的位置判据。
+  const feedsBuildEnv = (call: ts.CallExpression): boolean => {
+    let node: ts.Node = call
+    while (node.parent !== undefined) {
+      const parent: ts.Node = node.parent
+      if (ts.isCallExpression(parent)) return calledName(parent) === 'buildEnv'
+      if (
+        ts.isExpressionStatement(parent) ||
+        ts.isVariableStatement(parent) ||
+        ts.isReturnStatement(parent) ||
+        ts.isBlock(parent) ||
+        ts.isFunctionLike(parent) ||
+        ts.isSourceFile(parent)
+      ) {
+        return false
+      }
+      node = parent
+    }
+    return false
+  }
+  assert.deepEqual(
+    envEvals.filter(call => !feedsBuildEnv(call)).map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env must be passed straight into buildEnv(), not stored and forwarded',
+  )
+  // ⑧ 整个文件里，env 只允许在 runCommand 的等待之后读一次。把
+  // `ideServer.envForTerminal()` 挪到 activate() 期捕获，runCommand 里看不到它，
+  // ②-⑦ 全部满足，而那份值在服务器绑定前就已确定为空。
+  const ownScopeSet = new Set<ts.Node>(ownScope)
+  // `ideEnvPairs` 只是 `ideServer.envForTerminal()` 的一行包装，它自己当然要在
+  // 模块作用域里定义——所以「允许的位置」= runCommand 自己的作用域 + 这个包装体。
+  const nearestFunction = (node: ts.Node): ts.Node | undefined => {
+    let current: ts.Node | undefined = node.parent
+    while (current !== undefined) {
+      if (ts.isFunctionLike(current)) return current
+      current = current.parent
+    }
+    return undefined
+  }
+  const isEnvWrapperBody = (call: ts.CallExpression): boolean => {
+    const enclosing = nearestFunction(call)
+    if (enclosing === undefined) return false
+    const parent: ts.Node | undefined = enclosing.parent
+    return (
+      parent !== undefined &&
+      ts.isVariableDeclaration(parent) &&
+      ts.isIdentifier(parent.name) &&
+      parent.name.text === 'ideEnvPairs'
+    )
+  }
+  const envCallsEverywhere: ts.CallExpression[] = []
+  const collectEnvCalls = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && TERMINAL_ENV_EVALS.includes(calledName(node) ?? '')) {
+      envCallsEverywhere.push(node)
+    }
+    node.forEachChild(collectEnvCalls)
+  }
+  collectEnvCalls(extensionFile)
+  assert.deepEqual(
+    envCallsEverywhere
+      .filter(call => !ownScopeSet.has(call) && !isEnvWrapperBody(call))
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env may only be read inside runCommand after the wait — a value captured anywhere else is stale by construction',
+  )
+  // ⑨ 被等待的那个 promise 必须是服务器自己的 start()。换成 Promise.resolve()
+  // 之类的「已完成」占位，②-⑧ 全绿，等待形同虚设。
+  const startupDeclarations = new Map<string, ts.VariableDeclaration>()
+  const collectDeclarations = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      startupDeclarations.set(node.name.text, node)
+    }
+    node.forEachChild(collectDeclarations)
+  }
+  collectDeclarations(extensionFile)
+  const startupDeclaration = startupDeclarations.get(IDE_SERVER_STARTUP_WAIT)
+  assert.ok(startupDeclaration !== undefined, `${IDE_SERVER_STARTUP_WAIT} must be declared at module scope`)
+  const startupInitText = (startupDeclaration?.initializer?.getText(extensionFile) ?? '')
+    .split(' ').join('').split('\n').join('').split('\r').join('')
+  assert.ok(
+    startupInitText.includes('ideServer.start('),
+    `${IDE_SERVER_STARTUP_WAIT} must be the result of ideServer.start(): a placeholder that is already resolved makes the wait a no-op`,
   )
 })
