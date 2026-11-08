@@ -1081,12 +1081,15 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
 // 把 env 求值提前到 await 之前、或把 await 藏进嵌套 async 回调——形状上「有等待」,
 // env 仍是空的。因此四个条件必须同时成立:
 //   ① runCommand 是 async;
-//   ② 它自身作用域(非嵌套函数/回调)内有 `await ideServerStartup`;
+//   ② 它自身作用域(非嵌套函数/回调)内有 `await ideServerStartup`,且它是函数体
+//      的一级语句——藏在某个启动分支里时,其他分支就没有等待;
 //   ③ 该 await 早于它内部每一个 createTerminal(...) 调用;
 //   ④ 也早于每一个 ideEnvPairs() / envForTerminal() 调用——env 必须在等待之后求值。
-// 「恰好一个 await」不是风格偏好:三个启动分支(新开 / --resume / 指定会话)必须共用
-// 同一次等待;每分支各写一份 await 时,漏掉的那个分支正是这条护栏要拦的回归
-// (只写一份在某个分支里,则它晚于其他分支的 createTerminal,③ 也会红)。
+// 「恰好一个」与「一级语句」都不是风格偏好:三个启动分支(新开 / --resume / 指定
+// 会话)必须共用同一次等待。每个分支各写一份 await,会让「早于每一个
+// createTerminal」退化成跨分支的文本比较(先执行的 await 在文本上照样更靠前);
+// 只写一份却写进第一个 if 分支时,后续分支的 createTerminal 在文件里更靠后,条件
+// ③ 同样沉默。只有「函数体的一级语句」能保证这次等待支配所有分支。
 // 锚点(findFunction / createTerminal / env 求值)找不到时显式失败,不静默放行。
 const IDE_SERVER_STARTUP_WAIT = 'ideServerStartup'
 const TERMINAL_ENV_EVALS = ['ideEnvPairs', 'envForTerminal']
@@ -1152,6 +1155,16 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
   )
   const wait = waits[0]
   if (wait === undefined) assert.fail('unreachable: the await count was asserted above')
+  // ② 的加强:等待必须是函数体的一级语句。藏在某个启动分支里时,后续分支的
+  // createTerminal 在文件中更靠后,条件③的文本比较看不出「其他分支没有等待」。
+  // await 的直接父节点是 ExpressionStatement,所以要看「语句」是不是函数体的一级。
+  const waitStatement = wait.parent
+  assert.ok(
+    waitStatement !== undefined &&
+      ts.isExpressionStatement(waitStatement) &&
+      waitStatement.parent === runCommand.body,
+    'the wait must be a top-level runCommand statement: nested in one launch branch it leaves the other branches unguarded',
+  )
   const waitAt = wait.getStart(extensionFile)
   // ③ 每一个终端都在等待之后创建
   const terminalCalls = ownScope.filter(
