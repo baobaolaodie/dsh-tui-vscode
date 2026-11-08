@@ -111,15 +111,18 @@ export function buildSelectionChanged(selection: SelectionBroadcast): {
 }
 
 /**
- * Stable identity of one selection frame — the key used for replay suppression.
+ * Frame key used to decide whether a replay is suppressed.
  *
- * `text` participates through a cheap digest rather than verbatim: suppressing
- * replay is a promise about *this* selection, and two selections that share a
- * path / line range / document version can still carry different text (a
- * re-selection inside the same lines, an edit that kept the version stale).
- * Leaving text out made those compare equal and silently suppressed the newer
- * one (review S5 / CodeRabbit). `isEmpty` stays out — an empty frame has no text
- * and clears the memory instead of being suppressed.
+ * `text` participates through a cheap digest rather than verbatim: two
+ * selections can share a path, a line range and a document version and still
+ * carry different text (a re-selection inside the same lines, or an edit that
+ * left the version stale). Leaving the text out made those compare equal and
+ * silently suppressed the newer one. A digest collision is harmless in the same
+ * direction: two different frames would look the same and the replay would be
+ * skipped, which loses a badge rather than duplicating context.
+ *
+ * `isEmpty` stays out — an empty frame carries no text and means "retract",
+ * which clears the memory instead of being suppressed.
  * Format: `path|startLine|endLine|documentVersion|textLength|textDigest`.
  */
 export function selectionFingerprint(
@@ -190,9 +193,9 @@ export class IdeServer {
   private readonly handshakeTimeoutMs: number
   private wss: WebSocketServer | null = null
   private sockets = new Set<WsSocket>()
-  /** Latest non-empty frame, replayed to clients that connect later (D6). */
+  /** Latest non-empty frame, replayed to clients that connect later. */
   private lastSelection: SelectionBroadcast | null = null
-  /** Fingerprint of the frame already typed as a mention fallback (D7). */
+  /** Fingerprint of the frame already typed as a mention fallback. */
   private suppressedFingerprint: string | null = null
   private env: Record<string, string> | null = null
   private lockPath: string | null = null
@@ -251,7 +254,7 @@ export class IdeServer {
   async stop(): Promise<void> {
     // Replay state belongs to the running instance: a restarted server must not
     // replay a frame from the previous one, and a suppression must not outlive
-    // the frame it was recorded for (ADR-009).
+    // the frame it was recorded for.
     this.lastSelection = null
     this.suppressedFingerprint = null
     this.clearLock()
@@ -277,20 +280,16 @@ export class IdeServer {
    */
   broadcastSelection(selection: SelectionBroadcast): boolean {
     // Remember the latest NON-empty frame even with no client connected: a
-    // client that completes the handshake later must still get it (AC-7). An
-    // empty frame means "nothing selected" and clears the memory; the delivery
-    // semantics below are unchanged.
+    // client that completes the handshake later must still get it. An empty
+    // frame means "retract" and clears the memory; the delivery semantics below
+    // are unchanged.
     this.lastSelection = selection.isEmpty ? null : { ...selection }
-    // A suppression is a statement about ONE frame. Once the editor moves to a
-    // different frame (new lines, different text, or an empty selection), the
-    // typed fallback no longer describes the current state, so the next
-    // handshake must replay it again (review S6). A re-broadcast of the SAME
-    // frame keeps the suppression — that is the duplicate case the suppression
-    // exists for (review S3).
-    if (this.suppressedFingerprint !== null) {
-      const current = selection.isEmpty ? null : selectionFingerprint(selection)
-      if (current !== this.suppressedFingerprint) this.suppressedFingerprint = null
-    }
+    // A suppression says "this frame is already in the terminal input". Moving
+    // the selection elsewhere does not take that text back out of the input, so
+    // only a retraction (or a restart) ends it. Clearing it whenever the
+    // selection moved would replay the typed frame the moment the user selects
+    // the same lines again — the duplicate this suppression exists to prevent.
+    if (selection.isEmpty) this.suppressedFingerprint = null
     if (this.sockets.size === 0) return false
     let delivered = false
     const frame = JSON.stringify(buildSelectionChanged(selection))
@@ -315,10 +314,34 @@ export class IdeServer {
    * for that frame: replaying the same frame on the later handshake would give
    * the TUI two copies of the same context (mention text + attached-file
    * block). Only that exact fingerprint is suppressed — another frame still
-   * replays on connect (D7).
+   * replays on connect.
    */
   markReplaySuppressed(fingerprint: string): void {
     this.suppressedFingerprint = fingerprint
+  }
+
+  /**
+   * Forget the remembered frame if it came from `path`.
+   *
+   * Closing an editor produces no selection change, so without this the server
+   * keeps handing a closed file's lines to the next client that connects. The
+   * path guard is what makes it safe to call on every close: the server only
+   * remembers one frame, and a close of some other file must not retract it.
+   * Connected clients still receive the empty frame, so a badge for that file
+   * clears too.
+   *
+   * @returns True when the frame was retracted and a client received it.
+   */
+  retractSelection(path: string): boolean {
+    if (this.lastSelection === null || this.lastSelection.path !== path) return false
+    return this.broadcastSelection({
+      path,
+      startLine: 0,
+      endLine: 0,
+      isEmpty: true,
+      text: '',
+      documentVersion: 0,
+    })
   }
 
   private listen(port = 0): Promise<number> {

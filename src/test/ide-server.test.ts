@@ -597,3 +597,97 @@ test('stop clears the remembered selection and the suppression fingerprint', asy
     rmSync(lockRoot, { recursive: true, force: true })
   }
 })
+
+test('selectionFingerprint separates frames that differ only in the selected text', () => {
+  // path / line range / document version identical: only the text differs. The
+  // typed-fallback suppression must not swallow the newer frame.
+  const a = selection()
+  const b = selection({ text: 'const a = 1\nconst b = 2\nconst c = 4' })
+  assert.equal(a.path, b.path)
+  assert.equal(a.startLine, b.startLine)
+  assert.equal(a.endLine, b.endLine)
+  assert.equal(a.documentVersion, b.documentVersion)
+  assert.notEqual(selectionFingerprint(a), selectionFingerprint(b))
+  // Same frame twice is the duplicate case the suppression exists for.
+  assert.equal(selectionFingerprint(a), selectionFingerprint({ ...a }))
+})
+
+test('a typed frame stays suppressed when the selection moves away and comes back', async () => {
+  const lockRoot = makeLockRoot()
+  const token = 'tok-retype'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
+  try {
+    await server.start()
+    const typed = selection()
+    server.broadcastSelection(typed)
+    server.markReplaySuppressed(selectionFingerprint(typed))
+    // Moving the selection elsewhere does not remove the @mention that was
+    // already typed into the terminal input.
+    server.broadcastSelection(selection({ startLine: 6, endLine: 8, text: 'elsewhere' }))
+    // Back on the same lines: replaying now would attach the same lines twice.
+    server.broadcastSelection(typed)
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    await settle()
+    assert.deepEqual(connected.frames.map(frame => frame.method), ['ide/hello_ack'])
+  } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
+
+test('retractSelection forgets the frame for the closed path and clears connected clients', async () => {
+  const lockRoot = makeLockRoot()
+  const token = 'tok-retract'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
+  try {
+    await server.start()
+    const frame = selection({ path: 'src/closed.ts' })
+    assert.equal(server.broadcastSelection(frame), false, 'no clients means no delivery')
+    // A connected client sees the retraction as an empty frame, so a badge for
+    // the closed file does not survive the close.
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    await waitUntil(() => connected.frames.length >= 2)
+    assert.deepEqual(connected.frames.map(f => f.method), ['ide/hello_ack', 'selection_changed'])
+    assert.equal(server.retractSelection(frame.path), true, 'connected client receives the retraction')
+    await waitUntil(() => connected.frames.length >= 3)
+    const retracted = connected.frames[2].params as Record<string, unknown>
+    assert.equal(retracted.isEmpty, true)
+    assert.equal(retracted.path, 'src/closed.ts')
+    // Nothing is remembered any more: a later client gets no replay.
+    const later = await connectAuthenticated(server, token)
+    socket = later.socket
+    await settle()
+    assert.deepEqual(later.frames.map(f => f.method), ['ide/hello_ack'])
+  } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
+
+test('retractSelection leaves the remembered frame alone when another file closes', async () => {
+  const lockRoot = makeLockRoot()
+  const token = 'tok-retract-other'
+  const server = new IdeServer({ token, lockRoot, workspaceFolders: () => [] })
+  let socket: { close(): void } | undefined
+  try {
+    await server.start()
+    const kept = selection({ path: 'src/open.ts' })
+    assert.equal(server.broadcastSelection(kept), false)
+    assert.equal(server.retractSelection('src/other.ts'), false, 'a different path must not retract')
+    const connected = await connectAuthenticated(server, token)
+    socket = connected.socket
+    await waitUntil(() => connected.frames.length >= 2)
+    assert.deepEqual(connected.frames.map(f => f.method), ['ide/hello_ack', 'selection_changed'])
+    assert.deepEqual(connected.frames[1].params, kept)
+  } finally {
+    try { socket?.close() } catch { /* already closed */ }
+    await server.stop()
+    rmSync(lockRoot, { recursive: true, force: true })
+  }
+})
