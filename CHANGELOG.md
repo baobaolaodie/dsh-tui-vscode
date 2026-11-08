@@ -21,6 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Fixed
 
+- **The IDE selection channel now survives the window's startup race, and a client that connects late still gets the current selection**: a session terminal used to be created before the loopback IDE server was listening, so a click in a freshly opened window could produce a terminal without `DSH_TUI_IDE_PORT` / `DSH_TUI_IDE_TOKEN` — the TUI then fell back to scanning `~/.dsh-tui/ide/*.lock`, and with two windows on the same workspace it could connect to the other window's server. The command now waits for the server to be ready (a startup failure still lets the terminal open) before it resolves the environment passed to `createTerminal`. On the server side, the last non-empty selection is remembered and replayed to a client immediately after `hello_ack`, so a session that connects after the user selected code still shows the `⧉` badge and attaches that selection to the next message; when the frame has already been typed into the terminal as an `@path#L…` mention, the extension records its fingerprint and the replay is skipped, so one message never carries the context twice. The protocol stays v2 — no fields change. The upstream half — a dsh-tui that retries its first dial within a bounded window instead of giving up for the whole session — needs a dsh-tui build that includes it; see the compatibility table.
+
 ## [0.7.6] - 2026-10-06
 
 > via PR [#42](https://github.com/baobaolaodie/dsh-tui-vscode/pull/42)

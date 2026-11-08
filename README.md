@@ -92,6 +92,7 @@ The extension is a thin companion; the features below live in dsh-tui itself, so
 | `@path#L12-14` line ranges in mentions | dsh-tui **≥ 0.9.1** — older builds report the file as missing |
 | Raster images in the terminal (`sixel`, `none`) | dsh-tui **≥ 0.10.0**; see [terminal images](#terminal-images) |
 | Automatic selection context (IDE selection channel, protocol v2) | dsh-tui **≥ 0.11.0** |
+| Startup recovery of a failed first connection (connect-phase retry) | a dsh-tui build that includes the upstream startup retry — **none released yet**; older builds dial once and give up for the session |
 | The extension side of the above | dsh-tui-vscode **≥ 0.7.0** for the selection channel, **≥ 0.7.5** for the image protocol variable |
 
 Beyond its minimum, dsh-tui is free to move: these two interfaces were re-checked against 0.15.0 and had not changed since the versions above.
