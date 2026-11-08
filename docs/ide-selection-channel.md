@@ -25,16 +25,16 @@ The workspace folder list only narrows the candidates. When several VS Code wind
 
 ## Connecting at startup
 
-Sessions the extension launches know where to go: the port and token come from the environment, and their own window's server is dialed first. The extension creates the terminal only after that server is listening (and creates it anyway if startup failed), so a click on a freshly opened window still gets a terminal that points at its own window rather than one that can only be found by scanning.
+Sessions the extension launches know where to go: the port and token come from the environment, and their own window's server is dialed first. The extension creates the terminal only after that server is listening (and creates it anyway if startup failed), so a click on a freshly opened window still gets a terminal whose environment names its own window's server rather than one that can only be found by scanning.
 
-A session started by hand does have to scan, and its first dial can lose to a stall: loading the DSH kernel blocks the main thread for hundreds of milliseconds to several seconds, while the per-attempt budget is 300 ms. A dsh-tui build that includes the upstream connect-phase retry keeps trying — four further attempts with a 0.5 s / 1.5 s / 3 s / 6 s backoff, each still under 300 ms, which bounds the whole window at roughly 10–12 seconds. Every attempt rescans `~/.dsh-tui/ide/`, so a lock file written after the TUI started still counts, and a successful handshake cancels whatever is pending.
+A session started by hand does have to scan, and its first dial can lose to a stall: loading the DSH kernel blocks the main thread for hundreds of milliseconds to several seconds, while the per-attempt budget is 300 ms. A dsh-tui build that includes the upstream connect-phase retry keeps trying — four further attempts with a 0.5 s / 1.5 s / 3 s / 6 s backoff, each still under 300 ms, which bounds the whole window at about 12.5 seconds at the upper end (the first attempt plus four retries, each under 300 ms, plus 11 s of backoff). Every attempt rescans `~/.dsh-tui/ide/`, so a lock file written after the TUI started still counts, and a successful handshake cancels whatever is pending.
 
 The retry stops at the first successful connection. After a connection drops, the channel still degrades silently: the cached selection is cleared, the badge goes away, and nothing reconnects until the next session or a working-directory change.
 
 Known boundaries:
 
-- **Several windows on one workspace.** Both lock files match, and the client takes the matches in port order, so a manually started TUI can land on the other window's server. A session the extension launched is not exposed to that choice: its own server is named by the environment and dialed first.
-- **A stall longer than the window.** About ten seconds is a fixed budget; a slow enough machine can still spend the session without a channel, and the retry is not unbounded.
+- **Several windows on one workspace.** Both lock files match, and the client takes the matches in port order, so a manually started TUI can land on the other window's server. A session the extension launched dials its own window's server first, because the environment names it; when that candidate fails it still falls back to the lock scan, so in the extreme it can still land on another window of the same workspace.
+- **A stall longer than the window.** About 12.5 seconds is a fixed upper bound; a slow enough machine can still spend the session without a channel, and the retry is not unbounded.
 - **A selection that is already stale.** The server can only replay what it last heard (see below), so an editor that closed without pushing an empty selection leaves that memory behind.
 
 ## What gets pushed
