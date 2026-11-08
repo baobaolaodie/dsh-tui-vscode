@@ -521,7 +521,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * that side quest from ever affecting the launch itself.
    *
    * The handler is async because it first waits for the IDE selection server to
-   * finish binding (ADR-008). That server hands out its DSH_TUI_IDE_PORT/TOKEN
+   * finish binding. That server hands out its DSH_TUI_IDE_PORT/TOKEN
    * pair only after 'listen' resolves, and a click that itself triggers
    * activation (onCommand:dsh-tui-vscode.open) reaches this handler before that
    * point — reading the env pair early would open a terminal whose TUI has to
@@ -531,12 +531,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * resolves here too and the terminal is still created (silent degradation).
    */
   async function runCommand(resume: boolean, resumeSession?: string): Promise<void> {
-    // ADR-008 / DESIGN D5 (REVIEW R-04): the wait is the FIRST statement of this
-    // launch — before readSettings and before any call at all, so no helper can
-    // read the env pair or create a terminal ahead of it. The startup promise is
-    // already caught at startup, so a failed server resolves here too and the
-    // terminal is still created (silent degradation). All three launch branches
-    // below share this single wait.
+    // The wait is the FIRST statement of this launch — before readSettings and
+    // before any call at all, so no helper can read the env pair or create a
+    // terminal ahead of it. Anything placed above it would be able to observe the
+    // server as unbound, which is the race this ordering exists to close. The
+    // startup promise is already caught at startup, so a failed server resolves
+    // here too and the terminal is still created (silent degradation). All three
+    // launch branches below share this single wait.
     await ideServerStartup
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
@@ -608,7 +609,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     sendTextWhenReady(terminal, parts.join(' ') + targetArg)
   }
 
-  const register = (id: string, fn: (...args: unknown[]) => void): void => {
+  // The handler type is `unknown`, not `void`, on purpose: an async command
+  // returns a promise, and VS Code awaits that result and reports a rejection.
+  // Typing the callback as `void` would suggest the value is dropped, which is
+  // how a launch failure turns into an unhandled rejection in the host.
+  const register = (id: string, fn: (...args: unknown[]) => unknown): void => {
     context.subscriptions.push(vscode.commands.registerCommand(id, fn))
   }
   register('dsh-tui-vscode.open', () => runCommand(false))
@@ -621,7 +626,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     } else {
       // Return the promise: a rejected launch (e.g. createTerminal throwing)
       // must reach VS Code's command runner instead of becoming an unhandled
-      // rejection in the extension host (REVIEW R-08).
+      // rejection in the extension host.
       return runCommand(false)
     }
   })
@@ -685,11 +690,6 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   {
     let lastInserted: string | undefined
     let postpone: ReturnType<typeof setTimeout> | undefined
-    // The last document whose selection we told the server about. Closing that
-    // editor must retract it: otherwise the server keeps the frame and a client
-    // that connects later attaches code from a file the user already closed
-    // (review S1 / CodeRabbit).
-    let lastPushedPath: string | undefined
     const isEnabled = (): boolean =>
       vscode.workspace
         .getConfiguration('dsh-tui-vscode')
@@ -757,7 +757,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
           // 帧只构造一次:推送与「已键入」的补推抑制必须指同一个编辑器状态
           // (path + 行区间 + documentVersion);分两次读会抑制到另一帧,或者
-          // 让真正被敲过的帧照旧被补推(ADR-009 D7:抑制只对同一帧生效)。
+          // 让真正被敲过的帧照旧被补推——抑制只对同一帧生效。
           const frame: SelectionBroadcast = {
             path: normalizeMentionPath(editor.document.uri.fsPath),
             startLine: range.startLine,
@@ -769,7 +769,6 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             text: capSelectionText(editor.document.getText(selection)),
             documentVersion: editor.document.version,
           }
-          lastPushedPath = frame.path
           if (broadcastSelection(frame)) {
             lastInserted = mention
             return
@@ -784,7 +783,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           terminal.sendText(mention, false)
           // 这句话**真的**敲进了输入框:通道随后连上时,服务器若补推同一帧,
           // 提交的消息里会同时出现 mention 文本与 attached-file 块(两份上下文)。
-          // 只抑制这一帧的指纹——不同选区照常补推(AC-8 / ADR-009 D7)。
+          // 只抑制这一帧的指纹——不同选区照常补推。
           ideServer.markReplaySuppressed(selectionFingerprint(frame))
           lastInserted = mention
         }, 300)
@@ -795,28 +794,20 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         },
       },
     )
-    // Closing the editor must retract the remembered frame. VS Code emits no
-    // selection change for that, so without this the server replays a closed
-    // file's selection to the next client (review S1 / CodeRabbit C2).
+    // Closing the editor must retract the remembered frame: VS Code emits no
+    // selection change for a close, so without this the server would hand a
+    // closed file's lines to the next client that connects. The server decides
+    // whether the frame on record is the one being closed — the extension does
+    // not track that itself, so two split editors cannot overwrite each other.
     context.subscriptions.push(
       vscode.workspace.onDidCloseTextDocument(document => {
         if (document.uri.scheme !== 'file') return
-        const closed = normalizeMentionPath(document.uri.fsPath)
-        if (lastPushedPath === undefined || lastPushedPath !== closed) return
-        lastPushedPath = undefined
         if (postpone !== undefined) {
           clearTimeout(postpone)
           postpone = undefined
         }
         lastInserted = undefined
-        void broadcastSelection({
-          path: closed,
-          startLine: 0,
-          endLine: 0,
-          isEmpty: true,
-          text: '',
-          documentVersion: 0,
-        })
+        ideServer.retractSelection(normalizeMentionPath(document.uri.fsPath))
       }),
     )
     // 配置由开→关时补推一次 isEmpty(issue #21 第 2 条)。TUI 只在收到 isEmpty
@@ -855,7 +846,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
     if (typeof sessionId !== 'string' || !sessionId) return
     // Same rule as the focus handler: return the launch promise so a failure
-    // surfaces to the command runner, never as an unhandled rejection (R-08).
+    // surfaces to the command runner, never as an unhandled rejection.
     return runCommand(true, sessionId)
   })
   /**
