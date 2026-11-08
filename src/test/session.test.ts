@@ -1072,3 +1072,114 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
     'the failure path must arm the in-window retry state, or a stale persisted marker can silence the next session start',
   )
 })
+
+// ---- AC-4:扩展创建终端前必须等 IDE 服务器就绪 -------------------------------
+// `IdeServer.start()` 要在 listen 落定后才把「端口 + token」交给 envForTerminal()
+// (此前是 {})。窗口刚打开时点击鲸鱼按钮本身就是激活事件(onCommand:dsh-tui-vscode.open),
+// 命令处理器可能先于绑定完成执行 ⇒ 终端丢掉 DSH_TUI_IDE_PORT/TOKEN、TUI 退化为
+// lock 扫描,同一工作区双窗口时按端口序连错窗口(ADR-008)。反方向的错法同样成立:
+// 把 env 求值提前到 await 之前、或把 await 藏进嵌套 async 回调——形状上「有等待」,
+// env 仍是空的。因此四个条件必须同时成立:
+//   ① runCommand 是 async;
+//   ② 它自身作用域(非嵌套函数/回调)内有 `await ideServerStartup`;
+//   ③ 该 await 早于它内部每一个 createTerminal(...) 调用;
+//   ④ 也早于每一个 ideEnvPairs() / envForTerminal() 调用——env 必须在等待之后求值。
+// 「恰好一个 await」不是风格偏好:三个启动分支(新开 / --resume / 指定会话)必须共用
+// 同一次等待;每分支各写一份 await 时,漏掉的那个分支正是这条护栏要拦的回归
+// (只写一份在某个分支里,则它晚于其他分支的 createTerminal,③ 也会红)。
+// 锚点(findFunction / createTerminal / env 求值)找不到时显式失败,不静默放行。
+const IDE_SERVER_STARTUP_WAIT = 'ideServerStartup'
+const TERMINAL_ENV_EVALS = ['ideEnvPairs', 'envForTerminal']
+
+/** 函数自身作用域里的节点:遇到嵌套函数 / 回调即停止下探(那是另一层异步)。 */
+function ownScopeNodes(fn: ts.FunctionDeclaration): ts.Node[] {
+  const nodes: ts.Node[] = []
+  const visit = (node: ts.Node): void => {
+    // isFunctionLike 覆盖函数声明/表达式、箭头、方法、构造器与访问器:新出现的
+    // 函数作用域语法不必再手工补进白名单(漏一种就让「藏进回调」骗过条件②)。
+    if (ts.isFunctionLike(node)) return
+    nodes.push(node)
+    node.forEachChild(visit)
+  }
+  if (fn.body !== undefined) visit(fn.body)
+  return nodes
+}
+
+/** 表达式最左侧的标识符——`await ideServerStartup` 与 `await ideServerStartup.then(...)` 都算。 */
+function leftmostIdentifier(expression: ts.Expression): ts.Identifier | undefined {
+  let current: ts.Node = expression
+  while (
+    ts.isPropertyAccessExpression(current) ||
+    ts.isCallExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+  return ts.isIdentifier(current) ? current : undefined
+}
+
+/** 调用点的被调名(`x()` 与 `x.y()` 都取最后一段)。 */
+function calledName(call: ts.CallExpression): string | undefined {
+  const callee = call.expression
+  if (ts.isIdentifier(callee)) return callee.text
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text
+  return undefined
+}
+
+test('runCommand waits for the IDE server before creating a terminal or reading its env (AC-4)', () => {
+  const runCommand = findFunction(extensionFile, 'runCommand')
+  if (runCommand === undefined) {
+    assert.fail(`${extensionSourcePath} must declare runCommand (AC-4 / ADR-008)`)
+  }
+  const ownScope = ownScopeNodes(runCommand)
+  // ① 同步处理器不可能等待:它构造 env 时服务器还没绑定
+  assert.ok(
+    (ts.getCombinedModifierFlags(runCommand) & ts.ModifierFlags.Async) !== 0,
+    'runCommand must be async: a synchronous handler reads the IDE env before the server has bound (ADR-008)',
+  )
+  // ② 等待必须在这一层作用域里,不能藏进嵌套 async 回调
+  const waits = ownScope.filter(
+    (node): node is ts.AwaitExpression =>
+      ts.isAwaitExpression(node) &&
+      leftmostIdentifier(node.expression)?.text === IDE_SERVER_STARTUP_WAIT,
+  )
+  assert.equal(
+    waits.length,
+    1,
+    `expected exactly one \`await ${IDE_SERVER_STARTUP_WAIT}\` in runCommand's own scope, got ${waits.length}` +
+      ' — all three launch branches must share that single wait',
+  )
+  const wait = waits[0]
+  if (wait === undefined) assert.fail('unreachable: the await count was asserted above')
+  const waitAt = wait.getStart(extensionFile)
+  // ③ 每一个终端都在等待之后创建
+  const terminalCalls = ownScope.filter(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) && calledName(node) === 'createTerminal',
+  )
+  assert.ok(terminalCalls.length >= 1, 'guard anchor: runCommand must call createTerminal')
+  assert.deepEqual(
+    terminalCalls
+      .filter(call => call.getStart(extensionFile) < waitAt)
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'every createTerminal() must come after the wait, or the terminal loses DSH_TUI_IDE_PORT/TOKEN',
+  )
+  // ④ env 也在等待之后求值——否则「先读 env、再 await」能骗过 ③
+  const envEvals = ownScope.filter(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) && TERMINAL_ENV_EVALS.includes(calledName(node) ?? ''),
+  )
+  assert.ok(
+    envEvals.length >= 1,
+    `guard anchor: runCommand must evaluate ${TERMINAL_ENV_EVALS.join(' / ')}`,
+  )
+  assert.deepEqual(
+    envEvals
+      .filter(call => call.getStart(extensionFile) < waitAt)
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env must be read after the wait: evaluating it earlier is the exact race this guard exists for',
+  )
+})

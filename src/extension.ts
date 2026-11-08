@@ -38,7 +38,7 @@ import {
   decideAutoInsert,
   shouldBroadcastSelection,
 } from './auto-mention'
-import { IdeServer, selectionLineRange } from './ide/server'
+import { IdeServer, selectionFingerprint, selectionLineRange, type SelectionBroadcast } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -519,8 +519,18 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * wanted, then create the terminal and hand the launch command to the
    * send-once gate. The offer is deliberately fire-and-forget: DESIGN D5 keeps
    * that side quest from ever affecting the launch itself.
+   *
+   * The handler is async because it first waits for the IDE selection server to
+   * finish binding (ADR-008). That server hands out its DSH_TUI_IDE_PORT/TOKEN
+   * pair only after 'listen' resolves, and a click that itself triggers
+   * activation (onCommand:dsh-tui-vscode.open) reaches this handler before that
+   * point — reading the env pair early would open a terminal whose TUI has to
+   * fall back to lock scanning, where the same workspace open in two windows
+   * makes it pick by port order and possibly seize another window's server. The
+   * startup promise is already caught, so a server that failed to start
+   * resolves here too and the terminal is still created (silent degradation).
    */
-  function runCommand(resume: boolean, resumeSession?: string): void {
+  async function runCommand(resume: boolean, resumeSession?: string): Promise<void> {
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
     // let that side quest affect the launch itself. The offer comes from the
@@ -557,6 +567,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       shellKind,
     )
+
+    // ADR-008 / DESIGN D5: wait for the IDE server BEFORE reading its env pair
+    // and creating the terminal, and once for ALL three launch branches below.
+    // The startup promise is already caught at startup, so a failed server
+    // resolves here as well — the terminal is created exactly as before.
+    await ideServerStartup
 
     const existing = findTerminal()
     if (resumeSession) {
@@ -730,19 +746,21 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约;
           // 协议 v2 同时携带编辑器缓冲区自己的选区文本(含未保存修改),
           // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
-          if (
-            broadcastSelection({
-              path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: range.startLine,
-              endLine: range.endLine,
-              isEmpty: false,
-              // 封顶：不让无上限的编辑器缓冲区内容整段推出去。**这不是断链
-              // 防线**——实测 2MB 的帧仍能完整抵达（ws 默认上限 100 MiB）。
-              // 取值依据与边界见 auto-mention.ts 的 MAX_PUSHED_SELECTION_CHARS。
-              text: capSelectionText(editor.document.getText(selection)),
-              documentVersion: editor.document.version,
-            })
-          ) {
+          // 帧只构造一次:推送与「已键入」的补推抑制必须指同一个编辑器状态
+          // (path + 行区间 + documentVersion);分两次读会抑制到另一帧,或者
+          // 让真正被敲过的帧照旧被补推(ADR-009 D7:抑制只对同一帧生效)。
+          const frame: SelectionBroadcast = {
+            path: normalizeMentionPath(editor.document.uri.fsPath),
+            startLine: range.startLine,
+            endLine: range.endLine,
+            isEmpty: false,
+            // 封顶：不让无上限的编辑器缓冲区内容整段推出去。**这不是断链
+            // 防线**——实测 2MB 的帧仍能完整抵达（ws 默认上限 100 MiB）。
+            // 取值依据与边界见 auto-mention.ts 的 MAX_PUSHED_SELECTION_CHARS。
+            text: capSelectionText(editor.document.getText(selection)),
+            documentVersion: editor.document.version,
+          }
+          if (broadcastSelection(frame)) {
             lastInserted = mention
             return
           }
@@ -754,6 +772,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (!terminal) return
           terminal.show()
           terminal.sendText(mention, false)
+          // 这句话**真的**敲进了输入框:通道随后连上时,服务器若补推同一帧,
+          // 提交的消息里会同时出现 mention 文本与 attached-file 块(两份上下文)。
+          // 只抑制这一帧的指纹——不同选区照常补推(AC-8 / ADR-009 D7)。
+          ideServer.markReplaySuppressed(selectionFingerprint(frame))
           lastInserted = mention
         }, 300)
       }),
