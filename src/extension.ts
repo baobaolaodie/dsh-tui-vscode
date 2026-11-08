@@ -531,6 +531,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * resolves here too and the terminal is still created (silent degradation).
    */
   async function runCommand(resume: boolean, resumeSession?: string): Promise<void> {
+    // ADR-008 / DESIGN D5 (REVIEW R-04): the wait is the FIRST statement of this
+    // launch — before readSettings and before any call at all, so no helper can
+    // read the env pair or create a terminal ahead of it. The startup promise is
+    // already caught at startup, so a failed server resolves here too and the
+    // terminal is still created (silent degradation). All three launch branches
+    // below share this single wait.
+    await ideServerStartup
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
     // let that side quest affect the launch itself. The offer comes from the
@@ -567,12 +574,6 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       shellKind,
     )
-
-    // ADR-008 / DESIGN D5: wait for the IDE server BEFORE reading its env pair
-    // and creating the terminal, and once for ALL three launch branches below.
-    // The startup promise is already caught at startup, so a failed server
-    // resolves here as well — the terminal is created exactly as before.
-    await ideServerStartup
 
     const existing = findTerminal()
     if (resumeSession) {
@@ -618,7 +619,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (terminal) {
       terminal.show()
     } else {
-      runCommand(false)
+      // Return the promise: a rejected launch (e.g. createTerminal throwing)
+      // must reach VS Code's command runner instead of becoming an unhandled
+      // rejection in the extension host (REVIEW R-08).
+      return runCommand(false)
     }
   })
   register('dsh-tui-vscode.kill', () => {
@@ -820,7 +824,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   })
   register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
     if (typeof sessionId !== 'string' || !sessionId) return
-    runCommand(true, sessionId)
+    // Same rule as the focus handler: return the launch promise so a failure
+    // surfaces to the command runner, never as an unhandled rejection (R-08).
+    return runCommand(true, sessionId)
   })
   /**
    * Session identity from a view/item/context command argument. Verified

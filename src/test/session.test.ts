@@ -1082,7 +1082,8 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
 // env 仍是空的。因此四个条件必须同时成立:
 //   ① runCommand 是 async;
 //   ② 它自身作用域(非嵌套函数/回调)内有 `await ideServerStartup`,且它是函数体
-//      的一级语句——藏在某个启动分支里时,其他分支就没有等待;
+//      的**第一条语句**——等待之前不可能有任何语句,因此也不可能借外部 helper
+//      把 env 求值或建终端提前;
 //   ③ 该 await 早于它内部每一个 createTerminal(...) 调用;
 //   ④ 也早于每一个 ideEnvPairs() / envForTerminal() 调用——env 必须在等待之后求值。
 // 「恰好一个」与「一级语句」都不是风格偏好:三个启动分支(新开 / --resume / 指定
@@ -1090,6 +1091,10 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
 // createTerminal」退化成跨分支的文本比较(先执行的 await 在文本上照样更靠前);
 // 只写一份却写进第一个 if 分支时,后续分支的 createTerminal 在文件里更靠后,条件
 // ③ 同样沉默。只有「函数体的一级语句」能保证这次等待支配所有分支。
+// 「一级语句」还不够(REVIEW R-04):在 await 之前调用一个外部 helper,把
+// readSettings / env 求值 / createTerminal 藏进 helper 体内,条件②③④ 只看
+// runCommand 自身作用域,照样全绿——这正是 ADR-008 要防的回归换了个写法。
+// 首语句判据让「await 之前」连一条语句都不存在,helper 也就无处安放。
 // 锚点(findFunction / createTerminal / env 求值)找不到时显式失败,不静默放行。
 const IDE_SERVER_STARTUP_WAIT = 'ideServerStartup'
 const TERMINAL_ENV_EVALS = ['ideEnvPairs', 'envForTerminal']
@@ -1164,6 +1169,19 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
       ts.isExpressionStatement(waitStatement) &&
       waitStatement.parent === runCommand.body,
     'the wait must be a top-level runCommand statement: nested in one launch branch it leaves the other branches unguarded',
+  )
+  // ② 的最终判据(REVIEW R-04):必须是函数体的第一条语句。只要求「一级语句」时,
+  // 在 await 之前调用一个外部 helper 仍能通过——护栏只看 runCommand 自身作用域,
+  // helper 体内的 env 求值与 createTerminal 在另一处,条件③④ 看不见。首语句
+  // 判据把「await 之前」压成空集:没有语句,就没有可以提前求值的地方。
+  const firstStatement = runCommand.body?.statements[0]
+  // 用 assert.ok 而不是 assert.equal:后者失败时会把两个 AST 节点整棵 diff 出来,
+  // 上千行对象转储会淹没真正的判据。失败信息只报「首语句在第几行」。
+  assert.ok(
+    firstStatement !== undefined && waitStatement === firstStatement,
+    'the wait must be the FIRST statement of runCommand, but the first statement is at ' +
+      (firstStatement === undefined ? '<none>' : `line ${lineOf(extensionFile, firstStatement)}`) +
+      ': any statement before it (a helper call included) can read the env or create the terminal before the server has bound (ADR-008 / R-04)',
   )
   const waitAt = wait.getStart(extensionFile)
   // ③ 每一个终端都在等待之后创建
