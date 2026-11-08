@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.7.6-4D6BFE?style=flat" alt="版本 0.7.6" />
+  <img src="https://img.shields.io/badge/version-0.7.7-4D6BFE?style=flat" alt="版本 0.7.7" />
   <img src="https://img.shields.io/badge/VS_Code-%5E1.90.0-007ACC?style=flat&logo=visualstudiocode&logoColor=white" alt="需要 VS Code 1.90 或更新版本" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4D6BFE?style=flat" alt="MIT 许可" /></a>
 </p>
