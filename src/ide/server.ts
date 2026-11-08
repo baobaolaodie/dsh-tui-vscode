@@ -113,14 +113,33 @@ export function buildSelectionChanged(selection: SelectionBroadcast): {
 /**
  * Stable identity of one selection frame — the key used for replay suppression.
  *
- * `text` and `isEmpty` are deliberately excluded: the same path + line range +
- * document version is the same editor state even if a re-broadcast carries
- * different (e.g. re-capped) text. Format: `path|startLine|endLine|documentVersion`.
+ * `text` participates through a cheap digest rather than verbatim: suppressing
+ * replay is a promise about *this* selection, and two selections that share a
+ * path / line range / document version can still carry different text (a
+ * re-selection inside the same lines, an edit that kept the version stale).
+ * Leaving text out made those compare equal and silently suppressed the newer
+ * one (review S5 / CodeRabbit). `isEmpty` stays out — an empty frame has no text
+ * and clears the memory instead of being suppressed.
+ * Format: `path|startLine|endLine|documentVersion|textLength|textDigest`.
  */
 export function selectionFingerprint(
-  selection: Pick<SelectionBroadcast, 'path' | 'startLine' | 'endLine' | 'documentVersion'>,
+  selection: Pick<SelectionBroadcast, 'path' | 'startLine' | 'endLine' | 'documentVersion' | 'text'>,
 ): string {
-  return [selection.path, selection.startLine, selection.endLine, selection.documentVersion].join('|')
+  const text = selection.text ?? ''
+  // FNV-1a over the selection text: stable across runs, cheap on large blocks.
+  let digest = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    digest ^= text.charCodeAt(i)
+    digest = Math.imul(digest, 0x01000193) >>> 0
+  }
+  return [
+    selection.path,
+    selection.startLine,
+    selection.endLine,
+    selection.documentVersion,
+    text.length,
+    digest.toString(16),
+  ].join('|')
 }
 
 /** Terminal env pair injected when the extension spawns the TUI itself. */
@@ -262,6 +281,16 @@ export class IdeServer {
     // empty frame means "nothing selected" and clears the memory; the delivery
     // semantics below are unchanged.
     this.lastSelection = selection.isEmpty ? null : { ...selection }
+    // A suppression is a statement about ONE frame. Once the editor moves to a
+    // different frame (new lines, different text, or an empty selection), the
+    // typed fallback no longer describes the current state, so the next
+    // handshake must replay it again (review S6). A re-broadcast of the SAME
+    // frame keeps the suppression — that is the duplicate case the suppression
+    // exists for (review S3).
+    if (this.suppressedFingerprint !== null) {
+      const current = selection.isEmpty ? null : selectionFingerprint(selection)
+      if (current !== this.suppressedFingerprint) this.suppressedFingerprint = null
+    }
     if (this.sockets.size === 0) return false
     let delivered = false
     const frame = JSON.stringify(buildSelectionChanged(selection))

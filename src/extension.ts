@@ -685,6 +685,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   {
     let lastInserted: string | undefined
     let postpone: ReturnType<typeof setTimeout> | undefined
+    // The last document whose selection we told the server about. Closing that
+    // editor must retract it: otherwise the server keeps the frame and a client
+    // that connects later attaches code from a file the user already closed
+    // (review S1 / CodeRabbit).
+    let lastPushedPath: string | undefined
     const isEnabled = (): boolean =>
       vscode.workspace
         .getConfiguration('dsh-tui-vscode')
@@ -764,6 +769,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             text: capSelectionText(editor.document.getText(selection)),
             documentVersion: editor.document.version,
           }
+          lastPushedPath = frame.path
           if (broadcastSelection(frame)) {
             lastInserted = mention
             return
@@ -788,6 +794,30 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (postpone !== undefined) clearTimeout(postpone)
         },
       },
+    )
+    // Closing the editor must retract the remembered frame. VS Code emits no
+    // selection change for that, so without this the server replays a closed
+    // file's selection to the next client (review S1 / CodeRabbit C2).
+    context.subscriptions.push(
+      vscode.workspace.onDidCloseTextDocument(document => {
+        if (document.uri.scheme !== 'file') return
+        const closed = normalizeMentionPath(document.uri.fsPath)
+        if (lastPushedPath === undefined || lastPushedPath !== closed) return
+        lastPushedPath = undefined
+        if (postpone !== undefined) {
+          clearTimeout(postpone)
+          postpone = undefined
+        }
+        lastInserted = undefined
+        void broadcastSelection({
+          path: closed,
+          startLine: 0,
+          endLine: 0,
+          isEmpty: true,
+          text: '',
+          documentVersion: 0,
+        })
+      }),
     )
     // 配置由开→关时补推一次 isEmpty(issue #21 第 2 条)。TUI 只在收到 isEmpty
     // 时清掉选区快照——实测(两端真实实现联调):停止推送但连接仍在(禁用配置的

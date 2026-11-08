@@ -1160,6 +1160,19 @@ test('runCommand waits for the IDE server before creating a terminal or reading 
   )
   const wait = waits[0]
   if (wait === undefined) assert.fail('unreachable: the await count was asserted above')
+  // ②b `await ideServerStartup.then` 也算进 ② 的「最左标识符」判据,但它 await 的是
+  // **函数值**而不是那个 promise——非 thenable 会立即 resolve,服务器仍在绑定,env
+  // 照样是空的。所以被 await 的表达式必须是**裸标识符**本身(允许括号/非空断言包裹),
+  // 不得再取属性或调用(review C5 / CodeRabbit)。
+  let awaited: ts.Expression = wait.expression
+  while (ts.isParenthesizedExpression(awaited) || ts.isNonNullExpression(awaited)) {
+    awaited = awaited.expression
+  }
+  assert.ok(
+    ts.isIdentifier(awaited) && awaited.text === IDE_SERVER_STARTUP_WAIT,
+    'the awaited expression must be exactly ' + IDE_SERVER_STARTUP_WAIT +
+      ' — awaiting a member of it (e.g. .then) awaits a function value and resolves immediately (AC-4)',
+  )
   // ② 的加强:等待必须是函数体的一级语句。藏在某个启动分支里时,后续分支的
   // createTerminal 在文件中更靠后,条件③的文本比较看不出「其他分支没有等待」。
   // await 的直接父节点是 ExpressionStatement,所以要看「语句」是不是函数体的一级。
