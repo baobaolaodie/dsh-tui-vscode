@@ -19,6 +19,10 @@
  *   startLine, endLine, isEmpty, text, documentVersion}}` — coordinates are
  *   0-based and `text` is the editor buffer's own selection text (unsaved
  *   edits included); the TUI attaches it verbatim.
+ * - Replay: after a successful hello_ack the server may immediately push the
+ *   last non-empty selection_changed frame to that client (same v2 fields, no
+ *   protocol change). The extension suppresses the replay of a frame it already
+ *   typed as an `@path#L…` fallback via markReplaySuppressed().
  * - Env keys: DSH_TUI_IDE_PORT / DSH_TUI_IDE_TOKEN.
  */
 
@@ -106,6 +110,41 @@ export function buildSelectionChanged(selection: SelectionBroadcast): {
   return { method: SELECTION_METHOD, params: selection }
 }
 
+/**
+ * Frame key used to decide whether a replay is suppressed.
+ *
+ * `text` participates through a cheap digest rather than verbatim: two
+ * selections can share a path, a line range and a document version and still
+ * carry different text (a re-selection inside the same lines, or an edit that
+ * left the version stale). Leaving the text out made those compare equal and
+ * silently suppressed the newer one. A digest collision is harmless in the same
+ * direction: two different frames would look the same and the replay would be
+ * skipped, which loses a badge rather than duplicating context.
+ *
+ * `isEmpty` stays out — an empty frame carries no text and means "retract",
+ * which clears the memory instead of being suppressed.
+ * Format: `path|startLine|endLine|documentVersion|textLength|textDigest`.
+ */
+export function selectionFingerprint(
+  selection: Pick<SelectionBroadcast, 'path' | 'startLine' | 'endLine' | 'documentVersion' | 'text'>,
+): string {
+  const text = selection.text ?? ''
+  // FNV-1a over the selection text: stable across runs, cheap on large blocks.
+  let digest = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    digest ^= text.charCodeAt(i)
+    digest = Math.imul(digest, 0x01000193) >>> 0
+  }
+  return [
+    selection.path,
+    selection.startLine,
+    selection.endLine,
+    selection.documentVersion,
+    text.length,
+    digest.toString(16),
+  ].join('|')
+}
+
 /** Terminal env pair injected when the extension spawns the TUI itself. */
 export function envForSession(config: { port: number; token: string }): Record<string, string> {
   return {
@@ -154,6 +193,10 @@ export class IdeServer {
   private readonly handshakeTimeoutMs: number
   private wss: WebSocketServer | null = null
   private sockets = new Set<WsSocket>()
+  /** Latest non-empty frame, replayed to clients that connect later. */
+  private lastSelection: SelectionBroadcast | null = null
+  /** Fingerprint of the frame already typed as a mention fallback. */
+  private suppressedFingerprint: string | null = null
   private env: Record<string, string> | null = null
   private lockPath: string | null = null
 
@@ -209,6 +252,11 @@ export class IdeServer {
 
   /** Remove the lock and close the server. Safe in every state. */
   async stop(): Promise<void> {
+    // Replay state belongs to the running instance: a restarted server must not
+    // replay a frame from the previous one, and a suppression must not outlive
+    // the frame it was recorded for.
+    this.lastSelection = null
+    this.suppressedFingerprint = null
     this.clearLock()
     this.env = null
     const wss = this.wss
@@ -231,6 +279,17 @@ export class IdeServer {
    * @returns True when at least one client received the frame.
    */
   broadcastSelection(selection: SelectionBroadcast): boolean {
+    // Remember the latest NON-empty frame even with no client connected: a
+    // client that completes the handshake later must still get it. An empty
+    // frame means "retract" and clears the memory; the delivery semantics below
+    // are unchanged.
+    this.lastSelection = selection.isEmpty ? null : { ...selection }
+    // A suppression says "this frame is already in the terminal input". Moving
+    // the selection elsewhere does not take that text back out of the input, so
+    // only a retraction (or a restart) ends it. Clearing it whenever the
+    // selection moved would replay the typed frame the moment the user selects
+    // the same lines again — the duplicate this suppression exists to prevent.
+    if (selection.isEmpty) this.suppressedFingerprint = null
     if (this.sockets.size === 0) return false
     let delivered = false
     const frame = JSON.stringify(buildSelectionChanged(selection))
@@ -246,6 +305,43 @@ export class IdeServer {
       }
     }
     return delivered
+  }
+
+  /**
+   * Suppress replay of one specific frame.
+   *
+   * The extension calls this after it actually typed the `@path#L…` fallback
+   * for that frame: replaying the same frame on the later handshake would give
+   * the TUI two copies of the same context (mention text + attached-file
+   * block). Only that exact fingerprint is suppressed — another frame still
+   * replays on connect.
+   */
+  markReplaySuppressed(fingerprint: string): void {
+    this.suppressedFingerprint = fingerprint
+  }
+
+  /**
+   * Forget the remembered frame if it came from `path`.
+   *
+   * Closing an editor produces no selection change, so without this the server
+   * keeps handing a closed file's lines to the next client that connects. The
+   * path guard is what makes it safe to call on every close: the server only
+   * remembers one frame, and a close of some other file must not retract it.
+   * Connected clients still receive the empty frame, so a badge for that file
+   * clears too.
+   *
+   * @returns True when the frame was retracted and a client received it.
+   */
+  retractSelection(path: string): boolean {
+    if (this.lastSelection === null || this.lastSelection.path !== path) return false
+    return this.broadcastSelection({
+      path,
+      startLine: 0,
+      endLine: 0,
+      isEmpty: true,
+      text: '',
+      documentVersion: 0,
+    })
   }
 
   private listen(port = 0): Promise<number> {
@@ -335,7 +431,27 @@ export class IdeServer {
       this.sockets.add(socket)
       socket.on('close', () => this.drop(socket))
       socket.on('error', () => this.drop(socket))
+      // The ack was written above: TCP keeps the replay behind it, and the
+      // client only switches to its notification handler after the ack.
+      this.replaySelection(socket)
     })
+  }
+
+  /**
+   * Push the remembered selection to one freshly authenticated client, unless
+   * that exact frame was already delivered as a typed mention fallback.
+   */
+  private replaySelection(socket: WsSocket): void {
+    const selection = this.lastSelection
+    if (selection === null) return
+    if (selectionFingerprint(selection) === this.suppressedFingerprint) return
+    try {
+      socket.send(JSON.stringify(buildSelectionChanged(selection)))
+    } catch {
+      // A socket that cannot take the replay is as good as gone.
+      this.drop(socket)
+      socket.terminate()
+    }
   }
 
   private drop(socket: WsSocket): void {

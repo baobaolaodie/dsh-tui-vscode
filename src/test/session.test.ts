@@ -1072,3 +1072,263 @@ test('extension.ts arms the retry on a failed write through the memory gate (Sou
     'the failure path must arm the in-window retry state, or a stale persisted marker can silence the next session start',
   )
 })
+
+// ---- AC-4:扩展创建终端前必须等 IDE 服务器就绪 -------------------------------
+// `IdeServer.start()` 要在 listen 落定后才把「端口 + token」交给 envForTerminal()
+// (此前是 {})。窗口刚打开时点击鲸鱼按钮本身就是激活事件(onCommand:dsh-tui-vscode.open),
+// 命令处理器可能先于绑定完成执行 ⇒ 终端丢掉 DSH_TUI_IDE_PORT/TOKEN、TUI 退化为
+// lock 扫描,同一工作区双窗口时按端口序连错窗口(ADR-008)。反方向的错法同样成立:
+// 把 env 求值提前到 await 之前、或把 await 藏进嵌套 async 回调——形状上「有等待」,
+// env 仍是空的。因此四个条件必须同时成立:
+//   ① runCommand 是 async;
+//   ② 它自身作用域(非嵌套函数/回调)内有 `await ideServerStartup`,且它是函数体
+//      的**第一条语句**——等待之前不可能有任何语句,因此也不可能借外部 helper
+//      把 env 求值或建终端提前;
+//   ③ 该 await 早于它内部每一个 createTerminal(...) 调用;
+//   ④ 也早于每一个 ideEnvPairs() / envForTerminal() 调用——env 必须在等待之后求值。
+// 「恰好一个」与「一级语句」都不是风格偏好:三个启动分支(新开 / --resume / 指定
+// 会话)必须共用同一次等待。每个分支各写一份 await,会让「早于每一个
+// createTerminal」退化成跨分支的文本比较(先执行的 await 在文本上照样更靠前);
+// 只写一份却写进第一个 if 分支时,后续分支的 createTerminal 在文件里更靠后,条件
+// ③ 同样沉默。只有「函数体的一级语句」能保证这次等待支配所有分支。
+// 「一级语句」还不够:在 await 之前调用一个外部 helper,把
+// readSettings / env 求值 / createTerminal 藏进 helper 体内,条件②③④ 只看
+// runCommand 自身作用域,照样全绿——这正是 ADR-008 要防的回归换了个写法。
+// 首语句判据让「await 之前」连一条语句都不存在,helper 也就无处安放。
+// 锚点(findFunction / createTerminal / env 求值)找不到时显式失败,不静默放行。
+const IDE_SERVER_STARTUP_WAIT = 'ideServerStartup'
+const TERMINAL_ENV_EVALS = ['ideEnvPairs', 'envForTerminal']
+
+/** 函数自身作用域里的节点:遇到嵌套函数 / 回调即停止下探(那是另一层异步)。 */
+function ownScopeNodes(fn: ts.FunctionDeclaration): ts.Node[] {
+  const nodes: ts.Node[] = []
+  const visit = (node: ts.Node): void => {
+    // isFunctionLike 覆盖函数声明/表达式、箭头、方法、构造器与访问器:新出现的
+    // 函数作用域语法不必再手工补进白名单(漏一种就让「藏进回调」骗过条件②)。
+    if (ts.isFunctionLike(node)) return
+    nodes.push(node)
+    node.forEachChild(visit)
+  }
+  if (fn.body !== undefined) visit(fn.body)
+  return nodes
+}
+
+/** 表达式最左侧的标识符——`await ideServerStartup` 与 `await ideServerStartup.then(...)` 都算。 */
+function leftmostIdentifier(expression: ts.Expression): ts.Identifier | undefined {
+  let current: ts.Node = expression
+  while (
+    ts.isPropertyAccessExpression(current) ||
+    ts.isCallExpression(current) ||
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+  return ts.isIdentifier(current) ? current : undefined
+}
+
+/** 调用点的被调名(`x()` 与 `x.y()` 都取最后一段)。 */
+function calledName(call: ts.CallExpression): string | undefined {
+  const callee = call.expression
+  if (ts.isIdentifier(callee)) return callee.text
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text
+  return undefined
+}
+
+test('runCommand waits for the IDE server before creating a terminal or reading its env (AC-4)', () => {
+  const runCommand = findFunction(extensionFile, 'runCommand')
+  if (runCommand === undefined) {
+    assert.fail(`${extensionSourcePath} must declare runCommand (AC-4 / ADR-008)`)
+  }
+  const ownScope = ownScopeNodes(runCommand)
+  // ① 同步处理器不可能等待:它构造 env 时服务器还没绑定
+  assert.ok(
+    (ts.getCombinedModifierFlags(runCommand) & ts.ModifierFlags.Async) !== 0,
+    'runCommand must be async: a synchronous handler reads the IDE env before the server has bound (ADR-008)',
+  )
+  // ② 等待必须在这一层作用域里,不能藏进嵌套 async 回调
+  const waits = ownScope.filter(
+    (node): node is ts.AwaitExpression =>
+      ts.isAwaitExpression(node) &&
+      leftmostIdentifier(node.expression)?.text === IDE_SERVER_STARTUP_WAIT,
+  )
+  assert.equal(
+    waits.length,
+    1,
+    `expected exactly one \`await ${IDE_SERVER_STARTUP_WAIT}\` in runCommand's own scope, got ${waits.length}` +
+      ' — all three launch branches must share that single wait',
+  )
+  const wait = waits[0]
+  if (wait === undefined) assert.fail('unreachable: the await count was asserted above')
+  // ②b `await ideServerStartup.then` 也算进 ② 的「最左标识符」判据,但它 await 的是
+  // **函数值**而不是那个 promise——非 thenable 会立即 resolve,服务器仍在绑定,env
+  // 照样是空的。所以被 await 的表达式必须是**裸标识符**本身(允许括号/非空断言包裹),
+  // 不得再取属性或调用。
+  let awaited: ts.Expression = wait.expression
+  while (ts.isParenthesizedExpression(awaited) || ts.isNonNullExpression(awaited)) {
+    awaited = awaited.expression
+  }
+  assert.ok(
+    ts.isIdentifier(awaited) && awaited.text === IDE_SERVER_STARTUP_WAIT,
+    'the awaited expression must be exactly ' + IDE_SERVER_STARTUP_WAIT +
+      ' — awaiting a member of it (e.g. .then) awaits a function value and resolves immediately (AC-4)',
+  )
+  // ② 的加强:等待必须是函数体的一级语句。藏在某个启动分支里时,后续分支的
+  // createTerminal 在文件中更靠后,条件③的文本比较看不出「其他分支没有等待」。
+  // await 的直接父节点是 ExpressionStatement,所以要看「语句」是不是函数体的一级。
+  const waitStatement = wait.parent
+  assert.ok(
+    waitStatement !== undefined &&
+      ts.isExpressionStatement(waitStatement) &&
+      waitStatement.parent === runCommand.body,
+    'the wait must be a top-level runCommand statement: nested in one launch branch it leaves the other branches unguarded',
+  )
+  // ② 的最终判据:必须是函数体的第一条语句。只要求「一级语句」时,
+  // 在 await 之前调用一个外部 helper 仍能通过——护栏只看 runCommand 自身作用域,
+  // helper 体内的 env 求值与 createTerminal 在另一处,条件③④ 看不见。首语句
+  // 判据把「await 之前」压成空集:没有语句,就没有可以提前求值的地方。
+  const firstStatement = runCommand.body?.statements[0]
+  // 用 assert.ok 而不是 assert.equal:后者失败时会把两个 AST 节点整棵 diff 出来,
+  // 上千行对象转储会淹没真正的判据。失败信息只报「首语句在第几行」。
+  assert.ok(
+    firstStatement !== undefined && waitStatement === firstStatement,
+    'the wait must be the FIRST statement of runCommand, but the first statement is at ' +
+      (firstStatement === undefined ? '<none>' : `line ${lineOf(extensionFile, firstStatement)}`) +
+      ': any statement before it (a helper call included) can read the env or create the terminal before the server has bound (ADR-008 / R-04)',
+  )
+  const waitAt = wait.getStart(extensionFile)
+  // ③ 每一个终端都在等待之后创建
+  const terminalCalls = ownScope.filter(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) && calledName(node) === 'createTerminal',
+  )
+  assert.ok(terminalCalls.length >= 1, 'guard anchor: runCommand must call createTerminal')
+  assert.deepEqual(
+    terminalCalls
+      .filter(call => call.getStart(extensionFile) < waitAt)
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'every createTerminal() must come after the wait, or the terminal loses DSH_TUI_IDE_PORT/TOKEN',
+  )
+  // ④ env 也在等待之后求值——否则「先读 env、再 await」能骗过 ③
+  const envEvals = ownScope.filter(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) && TERMINAL_ENV_EVALS.includes(calledName(node) ?? ''),
+  )
+  assert.ok(
+    envEvals.length >= 1,
+    `guard anchor: runCommand must evaluate ${TERMINAL_ENV_EVALS.join(' / ')}`,
+  )
+  assert.deepEqual(
+    envEvals
+      .filter(call => call.getStart(extensionFile) < waitAt)
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env must be read after the wait: evaluating it earlier is the exact race this guard exists for',
+  )
+  // ⑤ 默认参数在函数体之前求值 —— 包括 await 之前。把 env 调用写进形参默认值，
+  // 只要还有一个分支留着内联调用，②③④ 就全部满足，而默认参数里的那份恒为空。
+  const parameterDefaults = runCommand.parameters.flatMap(parameter =>
+    parameter.initializer === undefined ? [] : [parameter.initializer],
+  )
+  assert.deepEqual(
+    parameterDefaults
+      .filter(initializer => /Env|Startup/.test(initializer.getText(extensionFile)))
+      .map(initializer => lineOf(extensionFile, initializer)),
+    [],
+    'a default parameter is evaluated BEFORE the body, so the IDE env must never be read there',
+  )
+  // ⑥ 读到的 env 必须真的被用掉。`void ideEnvPairs()` 这种丢弃式调用能满足
+  // ③④ 的位置判据，真正送进终端的那份却可以来自 await 之前。
+  assert.deepEqual(
+    ownScope
+      .filter(node => ts.isVoidExpression(node) && /Env|Startup/.test(node.getText(extensionFile)))
+      .map(node => lineOf(extensionFile, node)),
+    [],
+    'a discarded env read satisfies the position checks without doing anything',
+  )
+  // ⑦ env 求值必须是 buildEnv(...) 的实参（允许被对象字面量/展开包裹）。
+  // 否则「先存到变量、再交给 buildEnv」能绕过 ④ 的位置判据。
+  const feedsBuildEnv = (call: ts.CallExpression): boolean => {
+    let node: ts.Node = call
+    while (node.parent !== undefined) {
+      const parent: ts.Node = node.parent
+      if (ts.isCallExpression(parent)) return calledName(parent) === 'buildEnv'
+      if (
+        ts.isExpressionStatement(parent) ||
+        ts.isVariableStatement(parent) ||
+        ts.isReturnStatement(parent) ||
+        ts.isBlock(parent) ||
+        ts.isFunctionLike(parent) ||
+        ts.isSourceFile(parent)
+      ) {
+        return false
+      }
+      node = parent
+    }
+    return false
+  }
+  assert.deepEqual(
+    envEvals.filter(call => !feedsBuildEnv(call)).map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env must be passed straight into buildEnv(), not stored and forwarded',
+  )
+  // ⑧ 整个文件里，env 只允许在 runCommand 的等待之后读一次。把
+  // `ideServer.envForTerminal()` 挪到 activate() 期捕获，runCommand 里看不到它，
+  // ②-⑦ 全部满足，而那份值在服务器绑定前就已确定为空。
+  const ownScopeSet = new Set<ts.Node>(ownScope)
+  // `ideEnvPairs` 只是 `ideServer.envForTerminal()` 的一行包装，它自己当然要在
+  // 模块作用域里定义——所以「允许的位置」= runCommand 自己的作用域 + 这个包装体。
+  const nearestFunction = (node: ts.Node): ts.Node | undefined => {
+    let current: ts.Node | undefined = node.parent
+    while (current !== undefined) {
+      if (ts.isFunctionLike(current)) return current
+      current = current.parent
+    }
+    return undefined
+  }
+  const isEnvWrapperBody = (call: ts.CallExpression): boolean => {
+    const enclosing = nearestFunction(call)
+    if (enclosing === undefined) return false
+    const parent: ts.Node | undefined = enclosing.parent
+    return (
+      parent !== undefined &&
+      ts.isVariableDeclaration(parent) &&
+      ts.isIdentifier(parent.name) &&
+      parent.name.text === 'ideEnvPairs'
+    )
+  }
+  const envCallsEverywhere: ts.CallExpression[] = []
+  const collectEnvCalls = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && TERMINAL_ENV_EVALS.includes(calledName(node) ?? '')) {
+      envCallsEverywhere.push(node)
+    }
+    node.forEachChild(collectEnvCalls)
+  }
+  collectEnvCalls(extensionFile)
+  assert.deepEqual(
+    envCallsEverywhere
+      .filter(call => !ownScopeSet.has(call) && !isEnvWrapperBody(call))
+      .map(call => lineOf(extensionFile, call)),
+    [],
+    'the IDE env may only be read inside runCommand after the wait — a value captured anywhere else is stale by construction',
+  )
+  // ⑨ 被等待的那个 promise 必须是服务器自己的 start()。换成 Promise.resolve()
+  // 之类的「已完成」占位，②-⑧ 全绿，等待形同虚设。
+  const startupDeclarations = new Map<string, ts.VariableDeclaration>()
+  const collectDeclarations = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      startupDeclarations.set(node.name.text, node)
+    }
+    node.forEachChild(collectDeclarations)
+  }
+  collectDeclarations(extensionFile)
+  const startupDeclaration = startupDeclarations.get(IDE_SERVER_STARTUP_WAIT)
+  assert.ok(startupDeclaration !== undefined, `${IDE_SERVER_STARTUP_WAIT} must be declared at module scope`)
+  const startupInitText = (startupDeclaration?.initializer?.getText(extensionFile) ?? '')
+    .split(' ').join('').split('\n').join('').split('\r').join('')
+  assert.ok(
+    startupInitText.includes('ideServer.start('),
+    `${IDE_SERVER_STARTUP_WAIT} must be the result of ideServer.start(): a placeholder that is already resolved makes the wait a no-op`,
+  )
+})

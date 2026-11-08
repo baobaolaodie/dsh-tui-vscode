@@ -38,7 +38,7 @@ import {
   decideAutoInsert,
   shouldBroadcastSelection,
 } from './auto-mention'
-import { IdeServer, selectionLineRange } from './ide/server'
+import { IdeServer, selectionFingerprint, selectionLineRange, type SelectionBroadcast } from './ide/server'
 
 const TERMINAL_NAME = 'DeepSeek'
 
@@ -519,8 +519,26 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
    * wanted, then create the terminal and hand the launch command to the
    * send-once gate. The offer is deliberately fire-and-forget: DESIGN D5 keeps
    * that side quest from ever affecting the launch itself.
+   *
+   * The handler is async because it first waits for the IDE selection server to
+   * finish binding. That server hands out its DSH_TUI_IDE_PORT/TOKEN
+   * pair only after 'listen' resolves, and a click that itself triggers
+   * activation (onCommand:dsh-tui-vscode.open) reaches this handler before that
+   * point — reading the env pair early would open a terminal whose TUI has to
+   * fall back to lock scanning, where the same workspace open in two windows
+   * makes it pick by port order and possibly seize another window's server. The
+   * startup promise is already caught, so a server that failed to start
+   * resolves here too and the terminal is still created (silent degradation).
    */
-  function runCommand(resume: boolean, resumeSession?: string): void {
+  async function runCommand(resume: boolean, resumeSession?: string): Promise<void> {
+    // The wait is the FIRST statement of this launch — before readSettings and
+    // before any call at all, so no helper can read the env pair or create a
+    // terminal ahead of it. Anything placed above it would be able to observe the
+    // server as unbound, which is the race this ordering exists to close. The
+    // startup promise is already caught at startup, so a failed server resolves
+    // here too and the terminal is still created (silent degradation). All three
+    // launch branches below share this single wait.
+    await ideServerStartup
     const cfg = readSettings()
     // DESIGN D5: offer the terminal-images setup on session start, and never
     // let that side quest affect the launch itself. The offer comes from the
@@ -591,7 +609,11 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     sendTextWhenReady(terminal, parts.join(' ') + targetArg)
   }
 
-  const register = (id: string, fn: (...args: unknown[]) => void): void => {
+  // The handler type is `unknown`, not `void`, on purpose: an async command
+  // returns a promise, and VS Code awaits that result and reports a rejection.
+  // Typing the callback as `void` would suggest the value is dropped, which is
+  // how a launch failure turns into an unhandled rejection in the host.
+  const register = (id: string, fn: (...args: unknown[]) => unknown): void => {
     context.subscriptions.push(vscode.commands.registerCommand(id, fn))
   }
   register('dsh-tui-vscode.open', () => runCommand(false))
@@ -602,7 +624,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     if (terminal) {
       terminal.show()
     } else {
-      runCommand(false)
+      // Return the promise: a rejected launch (e.g. createTerminal throwing)
+      // must reach VS Code's command runner instead of becoming an unhandled
+      // rejection in the extension host.
+      return runCommand(false)
     }
   })
   register('dsh-tui-vscode.kill', () => {
@@ -730,19 +755,21 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           // path 是纯文件路径(正斜杠归一化),坐标 0-based —— 协议契约;
           // 协议 v2 同时携带编辑器缓冲区自己的选区文本(含未保存修改),
           // TUI 端原样附加,不再从磁盘读可能与屏幕不一致的旧版本。
-          if (
-            broadcastSelection({
-              path: normalizeMentionPath(editor.document.uri.fsPath),
-              startLine: range.startLine,
-              endLine: range.endLine,
-              isEmpty: false,
-              // 封顶：不让无上限的编辑器缓冲区内容整段推出去。**这不是断链
-              // 防线**——实测 2MB 的帧仍能完整抵达（ws 默认上限 100 MiB）。
-              // 取值依据与边界见 auto-mention.ts 的 MAX_PUSHED_SELECTION_CHARS。
-              text: capSelectionText(editor.document.getText(selection)),
-              documentVersion: editor.document.version,
-            })
-          ) {
+          // 帧只构造一次:推送与「已键入」的补推抑制必须指同一个编辑器状态
+          // (path + 行区间 + documentVersion);分两次读会抑制到另一帧,或者
+          // 让真正被敲过的帧照旧被补推——抑制只对同一帧生效。
+          const frame: SelectionBroadcast = {
+            path: normalizeMentionPath(editor.document.uri.fsPath),
+            startLine: range.startLine,
+            endLine: range.endLine,
+            isEmpty: false,
+            // 封顶：不让无上限的编辑器缓冲区内容整段推出去。**这不是断链
+            // 防线**——实测 2MB 的帧仍能完整抵达（ws 默认上限 100 MiB）。
+            // 取值依据与边界见 auto-mention.ts 的 MAX_PUSHED_SELECTION_CHARS。
+            text: capSelectionText(editor.document.getText(selection)),
+            documentVersion: editor.document.version,
+          }
+          if (broadcastSelection(frame)) {
             lastInserted = mention
             return
           }
@@ -754,6 +781,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (!terminal) return
           terminal.show()
           terminal.sendText(mention, false)
+          // 这句话**真的**敲进了输入框:通道随后连上时,服务器若补推同一帧,
+          // 提交的消息里会同时出现 mention 文本与 attached-file 块(两份上下文)。
+          // 只抑制这一帧的指纹——不同选区照常补推。
+          ideServer.markReplaySuppressed(selectionFingerprint(frame))
           lastInserted = mention
         }, 300)
       }),
@@ -762,6 +793,22 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           if (postpone !== undefined) clearTimeout(postpone)
         },
       },
+    )
+    // Closing the editor must retract the remembered frame: VS Code emits no
+    // selection change for a close, so without this the server would hand a
+    // closed file's lines to the next client that connects. The server decides
+    // whether the frame on record is the one being closed — the extension does
+    // not track that itself, so two split editors cannot overwrite each other.
+    context.subscriptions.push(
+      vscode.workspace.onDidCloseTextDocument(document => {
+        if (document.uri.scheme !== 'file') return
+        if (postpone !== undefined) {
+          clearTimeout(postpone)
+          postpone = undefined
+        }
+        lastInserted = undefined
+        ideServer.retractSelection(normalizeMentionPath(document.uri.fsPath))
+      }),
     )
     // 配置由开→关时补推一次 isEmpty(issue #21 第 2 条)。TUI 只在收到 isEmpty
     // 时清掉选区快照——实测(两端真实实现联调):停止推送但连接仍在(禁用配置的
@@ -798,7 +845,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   })
   register('dsh-tui-vscode.resumeSession', (sessionId: unknown) => {
     if (typeof sessionId !== 'string' || !sessionId) return
-    runCommand(true, sessionId)
+    // Same rule as the focus handler: return the launch promise so a failure
+    // surfaces to the command runner, never as an unhandled rejection.
+    return runCommand(true, sessionId)
   })
   /**
    * Session identity from a view/item/context command argument. Verified

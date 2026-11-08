@@ -1364,9 +1364,13 @@ const readProdLock = (): ProdLock | undefined => {
  * Wait until the ACTIVATION-time IdeServer has bound its socket and written
  * its lock. activate() fires `start()` without awaiting it, so a session
  * launched immediately after activation would race the bind and spawn with
- * an empty envForTerminal() — exactly what a real user cannot hit (window
- * open → first click is seconds apart) but an e2e command chain can. The
- * resolved lock doubles as the authoritative discovery source for the tests.
+ * an empty envForTerminal(). This race used to be dismissed here as "exactly
+ * what a real user cannot hit (window open → first click is seconds apart)",
+ * but real extension-host logs refuted that: the first click IS the activation
+ * event (onCommand:dsh-tui-vscode.open), so the handler runs before the bind
+ * lands (ADR-008). The product now awaits the startup promise first thing in
+ * runCommand; this wait remains e2e setup only — the resolved lock is the
+ * authoritative discovery source for the tests, not a stand-in for the fix.
  */
 async function waitForProductionLock(timeoutMs = 10000): Promise<ProdLock> {
   const lock = await poll(() => readProdLock(), timeoutMs, 100)
@@ -1505,14 +1509,28 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
           text: 'line1\nline2\nline3',
           documentVersion: doc.version,
         }
-        await poll(() => (received.length > 0 ? true : undefined), 10000)
-        assert.equal(received.length, 1, `exactly one notification expected, got ${JSON.stringify(received)}`)
-        assert.equal(received[0].method, SELECTION_METHOD)
-        assert.deepEqual(received[0].params, expectedParams)
+        // Baseline-relative counting (DESIGN D8 / R2): with replay armed, a
+        // client may receive a frame the moment it says hello — a selection an
+        // EARLIER case left in the server — so an absolute "exactly one frame"
+        // would quietly depend on test order. Let the handshake's own frames
+        // land first (the ack and any replay are pushed back-to-back over
+        // loopback), then count only what THIS case's selection change adds.
+        await sleep(250)
+        const baseline = received.length
+        await poll(() => (received.length > baseline ? true : undefined), 10000)
+        const ownFrames = received.slice(baseline)
+        assert.equal(
+          ownFrames.length,
+          1,
+          `this case's selection change must produce exactly one notification, got ${JSON.stringify(ownFrames)}`,
+        )
+        assert.equal(ownFrames[0].method, SELECTION_METHOD)
+        assert.deepEqual(ownFrames[0].params, expectedParams)
         // 协议 v2 键集合契约：坐标 + 文本 + 文档版本，且不得有其它键
-        // （与单测同一断言）。
+        // （与单测同一断言）。断言落在本用例自己的帧上——基线之前的帧
+        // 可能是更早用例留下的补推，不属于这里。
         assert.deepEqual(
-          Object.keys(received[0].params as Record<string, unknown>).sort(),
+          Object.keys(ownFrames[0].params as Record<string, unknown>).sort(),
           ['documentVersion', 'endLine', 'isEmpty', 'path', 'startLine', 'text'],
         )
         // 清空选区 → 必须广播一次 isEmpty:true，TUI 才能清掉徽标/停止附加。
@@ -1563,6 +1581,206 @@ test('IDE channel: a WS client completes the v2 handshake and receives selection
     }
   } finally {
     socket.close()
+  }
+})
+
+test('IDE channel: a client that connects after the selection gets it replayed right after hello_ack', async () => {
+  const { SELECTION_METHOD, IDE_PROTOCOL_VERSION } = await loadIdeModule()
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const file = join(WS, 'e2e-ide-replay.ts')
+  try {
+    // The replay must be the frame NOBODY typed: with an extension terminal
+    // alive, the no-client fallback types the mention and marks that exact
+    // frame as suppressed (AC-8 / D7) — the replay would be skipped for the
+    // right reason. Dropping the terminal keeps the broadcast-only path.
+    for (const t of [...vscode.window.terminals]) if (t.name === TERMINAL_NAME) t.dispose()
+    await poll(() => (findTuiTerminal() ? undefined : true), 8000)
+    await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+
+    writeFileSync(file, 'line0\nline1\nline2\nline3\nline4\n')
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+    const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+    editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
+    const expectedParams = {
+      path: normalizeWsPath(file),
+      startLine: 1,
+      endLine: 3,
+      isEmpty: false,
+      text: 'line1\nline2\nline3',
+      documentVersion: doc.version,
+    }
+    // The 300 ms debounce must COMPLETE before a client exists: a frame
+    // broadcast to a live client proves nothing about replay (the socket
+    // would have received it live). From here the frame can only reach a
+    // client through the connect-time replay.
+    await sleep(700)
+
+    const prod = await waitForProductionLock()
+    // Connect exactly like a manually launched dsh-tui: loopback WS + hello.
+    const WebSocket = (await import('ws')).WebSocket
+    const socket = new WebSocket('ws://127.0.0.1:' + prod.port)
+    const received: Array<Record<string, unknown>> = []
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.on('open', resolve)
+        socket.on('error', reject)
+      })
+      socket.on('message', raw => received.push(JSON.parse(String(raw)) as Record<string, unknown>))
+      socket.send(JSON.stringify({
+        method: 'ide/hello',
+        params: { token: prod.token, protocolVersion: IDE_PROTOCOL_VERSION },
+      }))
+      // AC-7 order: the ack FIRST, the remembered selection immediately after.
+      let replayed: Record<string, unknown> | undefined
+      try {
+        replayed = await poll(() => (received.length >= 2 ? received[1] : undefined), 10000)
+      } catch {
+        throw new Error('no frame after hello_ack — replay missing? received=' + JSON.stringify(received))
+      }
+      assert.equal(
+        received[0].method,
+        'ide/hello_ack',
+        'the handshake ack must be the first frame, got ' + JSON.stringify(received[0]),
+      )
+      assert.equal(
+        replayed!.method,
+        SELECTION_METHOD,
+        'the frame right after hello_ack must be the replayed selection, got ' + JSON.stringify(replayed),
+      )
+      assert.deepEqual(replayed!.params, expectedParams, 'the replay must carry the pre-connection selection')
+      console.log('[e2e] PASS IDE replay: hello_ack then the pre-connection selection frame')
+    } finally {
+      socket.close()
+    }
+  } finally {
+    rmSync(file, { force: true })
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+    // Restore the terminal state this case dropped, so the suite does not end
+    // in a shape no earlier case asked for.
+    await vscode.commands.executeCommand('dsh-tui-vscode.start')
+    await poll(() => (findTuiTerminal() ? true : undefined), 10000)
+  }
+})
+
+/**
+ * 固定窗（沿用上游 verify-fixed-window 的标签约定）：没有可等待的完成条件时，
+ * 只能等一段固定墙钟。`墙钟` = 等的是被观察机制本身的窗口（防抖 / 终端往返），
+ * `探针` = 断言「状态不得改变」的观察窗。标签让后来者一眼看出这是有意的等待，
+ * 而不是随手 sleep。
+ */
+async function fixedWindow(tag: '墙钟' | '探针' | 'pacing', label: string, ms: number): Promise<void> {
+  console.log(`[e2e] 固定窗:${tag} ${label} — 等 ${ms}ms`)
+  await sleep(ms)
+}
+
+test('IDE channel: a selection already typed as a fallback is NOT replayed after hello_ack (AC-8)', async () => {
+  const { SELECTION_METHOD, IDE_PROTOCOL_VERSION } = await loadIdeModule()
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const file = join(WS, 'e2e-ide-ac8.ts')
+  const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
+  try {
+    // Precondition: an extension-owned terminal must be ALIVE, because the
+    // fallback (type the mention into the running TUI input) only exists with
+    // one. The replay case above disposes every terminal to stay on the
+    // broadcast-only path — that is exactly why AC-8 had no automatic evidence
+    // (REVIEW R-02): deleting markReplaySuppressed() left the whole suite green.
+    // Start a FRESH one (the auto-insert case's pattern) rather than reusing
+    // whatever the previous case left: only a launcher whose own env-out write
+    // we can observe is guaranteed to have a child attached to stdin, which is
+    // what makes the typed mention observable below.
+    rmSync(ENV_OUT, { force: true })
+    await vscode.commands.executeCommand('dsh-tui-vscode.start')
+    await poll(() => (findTuiTerminal() ? true : undefined), 10000)
+    await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+    await fixedWindow('pacing', 'fake child 挂上 stdin，再敲字', 750)
+    await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+    // Give the config-change handler time to arm the selection listener.
+    await fixedWindow('pacing', '配置变更 → 选区监听器生效', 400)
+
+    writeFileSync(file, 'line0\nline1\nline2\nline3\nline4\n')
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+    const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+    const { normalizeMentionPath, relativeToWorkspace } =
+      await import('../at-mention.js') as typeof import('../at-mention.js')
+    const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+    const expected = '@' + relativeToWorkspace(normalizeMentionPath(file), wsRoot) + '#L2-4'
+    rmSync(STDIN_OUT, { force: true })
+    editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
+
+    // NO client may be connected while the debounce fires. With none,
+    // broadcastSelection() returns false and the extension takes the fallback:
+    // it types the mention and marks THAT frame as replay-suppressed (AC-8 /
+    // ADR-009 D7). The previous case's socket was closed in its `finally`, and
+    // the awaits above span well over a second — loopback close handshakes have
+    // long landed. The typed mention is the positive precondition: had a client
+    // still been attached, nothing would be typed and this poll would fail
+    // instead of the replay assertion passing vacuously.
+    await fixedWindow('墙钟', '> 300ms 防抖 + 终端往返，让键入落地', 700)
+    api.sendInput('\r') // 把已敲进终端缓冲的行交给子进程，便于观察
+    let typed = false
+    try {
+      await poll(() => (readFile(STDIN_OUT)?.includes(expected) ? true : undefined), 10000)
+      typed = true
+    } finally {
+      if (!typed) {
+        const stdin = readFile(STDIN_OUT) ?? '<empty>'
+        console.log(
+          `[e2e] AC-8 diagnostic: expected=[${expected}] stdin=[${stdin.slice(0, 200)}] terminals=[${vscode.window.terminals.map(t => t.name).join(',')}]`,
+        )
+      }
+    }
+    assert.ok(
+      typed,
+      'the no-client fallback must have typed the mention before a client connects (AC-8 precondition)',
+    )
+
+    // Only NOW connect: from here the frame can reach a client only through the
+    // connect-time replay.
+    const prod = await waitForProductionLock()
+    const WebSocket = (await import('ws')).WebSocket
+    const socket = new WebSocket('ws://127.0.0.1:' + prod.port)
+    const received: Array<Record<string, unknown>> = []
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.on('open', resolve)
+        socket.on('error', reject)
+      })
+      socket.on('message', raw => received.push(JSON.parse(String(raw)) as Record<string, unknown>))
+      socket.send(JSON.stringify({
+        method: 'ide/hello',
+        params: { token: prod.token, protocolVersion: IDE_PROTOCOL_VERSION },
+      }))
+      await poll(() => (received.length >= 1 ? received : undefined), 10000)
+      // The ack proves the socket was authenticated; without it the negative
+      // assertion below would pass vacuously on a rejected handshake.
+      assert.equal(
+        received[0]?.method,
+        'ide/hello_ack',
+        'the handshake ack must still be the first frame: ' + JSON.stringify(received),
+      )
+      // Negative assertion: the already-typed frame must never come back. There
+      // is no completion condition for "nothing happened", so a labelled fixed
+      // window is the honest instrument — and it is far longer than a same-tick
+      // replay needs over loopback.
+      await fixedWindow('探针', 'AC-8 已键入的选区不得补推', 700)
+      const selectionFrames = received.filter(frame => frame.method === SELECTION_METHOD)
+      assert.equal(
+        selectionFrames.length,
+        0,
+        'a frame already typed as the @mention fallback must not be replayed (AC-8 / ADR-009 D7); got ' +
+          JSON.stringify(selectionFrames),
+      )
+      console.log('[e2e] PASS IDE AC-8: the typed fallback frame is not replayed after hello_ack')
+    } finally {
+      socket.close()
+    }
+  } finally {
+    rmSync(file, { force: true })
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
 })
 
