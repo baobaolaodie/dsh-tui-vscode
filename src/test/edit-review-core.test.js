@@ -395,3 +395,30 @@ test('load clamps a corrupt persisted seq', () => {
     const entry = led.record('/w/g', 'modify', 'a', false, 'b');
     assert.match(entry.id, /^e\d+$/);
 });
+
+test('list orders same-millisecond entries by mint order', () => {
+    const led = new EditLedger();
+    led.load({ version: 1, entries: [
+        { id: 'e1', path: '/w/a', kind: 'modify', before: 'a', after: 'b', firstTs: 5, lastTs: 9 },
+        { id: 'e2', path: '/w/b', kind: 'modify', before: 'a', after: 'b', firstTs: 5, lastTs: 9 },
+    ] });
+    assert.deepEqual(led.list().map(item => item.id), ['e2', 'e1']);
+});
+
+test('load migrates a legacy delete without a captured baseline', () => {
+    const led = new EditLedger();
+    led.load({ version: 1, entries: [{ path: '/w/d', kind: 'modify', before: null, after: null, beforeMissing: true }] });
+    assert.equal(led.size, 1);
+    const entry = led.get('/w/d');
+    assert.equal(entry.kind, 'delete');
+    assert.equal(entry.beforeMissing, true);
+    assert.deepEqual(planUndo(entry, false, null), { action: 'blocked', reason: 'missing-baseline' });
+});
+
+test('load remints an id past the counter cap', () => {
+    const led = new EditLedger();
+    led.load({ version: 1, entries: [{ id: 'e2000000000', path: '/w/a', kind: 'modify', before: 'a', after: 'b' }] });
+    const entry = led.get('/w/a');
+    assert.match(entry.id, /^e\d+$/);
+    assert.ok(Number(entry.id.slice(1)) <= 1e9 + 1);
+});

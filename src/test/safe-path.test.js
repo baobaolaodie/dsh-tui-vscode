@@ -221,3 +221,17 @@ test('default globs match UNC paths', () => {
     assert.equal(excluded('\\\\server\\share\\ws\\dist\\app.js'), true);
     assert.equal(excluded('\\\\server\\share\\ws\\src\\index.ts'), false);
 });
+
+test('a hard-linked target is refused', async (t) => {
+    const { root } = await fixture(t);
+    const original = path.join(root, 'a.txt');
+    const linked = path.join(root, 'hardlink.txt');
+    try {
+        await fsp.link(original, linked);
+    }
+    catch (error) {
+        if (['EPERM', 'EACCES', 'ENOSYS', 'EXDEV', 'EINVAL'].includes(error.code)) return t.skip('hard links unavailable');
+        throw error;
+    }
+    await assertCode(assertInside(original, [root]), 'hard-link');
+});

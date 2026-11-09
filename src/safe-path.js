@@ -198,7 +198,12 @@ async function realTargetPath(target) {
  * one of `roots`, resolved against the real filesystem (a directory link is
  * followed but must stay inside the workspace; the file itself may not be a
  * link), outside `PROTECTED_DIRS` and version-control metadata (directory or
- * `.git`-style file).
+ * `.git`-style file), and not hard-linked to another file (writing a
+ * hard-linked target would also modify the outside copy).
+ *
+ * This is a best-effort check: Node exposes no `openat`-style primitive, so
+ * the host must write immediately after validation, through the returned
+ * `requested` path, and re-validate if it had to wait or re-open.
  *
  * @param {string} target absolute path to inspect
  * @param {string[]} roots absolute workspace folder paths
@@ -210,7 +215,8 @@ async function realTargetPath(target) {
  *   not silently rewrite a path through a symlinked directory).
  * @throws {SafePathError} with `code`:
  *   `not-absolute` | `no-workspace-root` | `outside-workspace` |
- *   `symbolic-link` | `not-a-file` | `protected-directory` | `unreadable`
+ *   `symbolic-link` | `not-a-file` | `hard-link` | `protected-directory` |
+ *   `unreadable`
  */
 async function assertInside(target, roots) {
     const resolved = requireAbsolute(target, 'target');
@@ -235,6 +241,11 @@ async function assertInside(target, roots) {
     }
     if (stat && !stat.isFile()) {
         throw new SafePathError('not-a-file', 'review only writes regular files');
+    }
+    // A hard link shares the inode with another path: rewriting this file would
+    // rewrite the outside copy through a link the realpath check cannot see.
+    if (stat && stat.nlink > 1) {
+        throw new SafePathError('hard-link', 'review cannot write a hard-linked file');
     }
 
     const resolvedTarget = await realTargetPath(resolved);

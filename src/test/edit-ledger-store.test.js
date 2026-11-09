@@ -700,3 +700,54 @@ test('keepHunk refuses a folded baseline past the text contract and keeps flags'
     assert.equal(store.get('/w/f').userTouched, true);
     assert.equal(store.get('/w/f').conflict, 'overlap-or-external');
 });
+
+// ---- automated-review follow-ups -------------------------------------------
+test('a BOM entry is carried, but its undos are refused', () => {
+    const before = '\uFEFFold\n';
+    const after = '\uFEFFnew\n';
+    const store = new EditLedgerStore();
+    store.record({ path: '/w/f', before, after });
+    assert.equal(store.get('/w/f').kind, 'modify');
+    assert.deepEqual(store.planUndo('/w/f', true, after), { action: 'blocked', reason: 'bom-unsupported' });
+    const entry = store.get('/w/f');
+    const hunks = precise.reviewDiff(before, after).hunks;
+    assert.equal(store.resolveHunk('/w/f', precise.changeHint(entry, hunks[0]), after), null);
+});
+
+test('an explicit hunk decision clears a conflict marker without the touched flag', () => {
+    const before = 'a\nb\nc\nd\n';
+    const after = 'a\nB\nc\nD\n';
+    const store = new EditLedgerStore();
+    store.record({ path: '/w/f', before, after });
+    store.update('/w/f', { userTouched: false, conflict: 'transaction-before-mismatch' });
+    const entry = store.get('/w/f');
+    const hunk = precise.reviewDiff(before, after).hunks[0];
+    const result = store.keepHunk('/w/f', precise.changeHint(entry, hunk), after);
+    assert.equal(result.status, 'kept');
+    assert.equal('conflict' in store.get('/w/f'), false);
+    assert.equal(store.get('/w/f').userTouched, false);
+});
+
+test('overlapping write marks count down instead of clearing early', () => {
+    const store = new EditLedgerStore();
+    store.markWriting('/w/f');
+    store.markWriting('/w/f');
+    store.clearWriting('/w/f');
+    assert.equal(store.isWriting('/w/f'), true);
+    store.clearWriting('/w/f');
+    assert.equal(store.isWriting('/w/f'), false);
+});
+
+test('a create cannot claim a missing before image', () => {
+    const store = new EditLedgerStore();
+    assert.throws(() => store.record({ path: '/w/f', kind: 'create', after: 'x', beforeMissing: true }), TypeError);
+});
+
+test('fromJSON remints an over-cap persisted id', () => {
+    const store = new EditLedgerStore();
+    store.fromJSON({ version: 1, entries: [{ id: 'e2000000000', path: '/w/f', kind: 'modify', before: 'a', after: 'b' }] });
+    const entry = store.get('/w/f');
+    assert.match(entry.id, /^e\d+$/);
+    const next = store.record({ path: '/w/g', before: 'a', after: 'b' });
+    assert.notEqual(next.id, entry.id);
+});

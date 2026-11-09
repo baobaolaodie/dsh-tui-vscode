@@ -213,6 +213,11 @@ function diffLines(beforeText, afterText) {
 function formatCounts(added, removed) {
     return `+${added} \u2212${removed}`;
 }
+/** Numeric part of a minted entry id (`e42` -> 42); 0 for anything else. */
+function entryOrdinal(entry) {
+    const match = typeof entry.id === 'string' ? /^e(\d+)$/.exec(entry.id) : null;
+    return match === null ? 0 : Number(match[1]);
+}
 const MAX_DIFF_WORD_DP = 600;
 /**
  * Word-level comparison of one changed line pair — the inner-changes pass of
@@ -572,7 +577,11 @@ class EditLedger {
         return this.entries.get(canonicalPathKey(path)) ?? null;
     }
     list() {
-        return [...this.entries.values()].sort((x, y) => y.lastTs - x.lastTs);
+        return [...this.entries.values()].sort((x, y) => {
+            if (y.lastTs !== x.lastTs) return y.lastTs - x.lastTs;
+            // Same-millisecond touches: the entry minted last is the newer one.
+            return entryOrdinal(y) - entryOrdinal(x);
+        });
     }
     /**
      * Record one AI change. Merge rules when the file is already pending:
@@ -705,21 +714,26 @@ class EditLedger {
             const before = typeof rec.before === 'string' ? rec.before : null;
             const after = typeof rec.after === 'string' ? rec.after : null;
             // Older snapshots stored a removed file as modify + after:null (the
-            // reviewed host called the ledger with that shape); migrate it.
-            const kind = rec.kind === 'modify' && after === null && before !== null ? 'delete' : rec.kind;
+            // reviewed host called the ledger with that shape); migrate it, even
+            // when the pre-edit original was never captured.
+            const legacyDelete = rec.kind === 'modify' && after === null && (before !== null || rec.beforeMissing === true);
+            const kind = legacyDelete ? 'delete' : rec.kind;
             const beforeMissing = kind !== 'create' && (rec.beforeMissing === true || before === null);
             // Shape rules: a create has no before image, a delete has no after
             // image, and a modify needs its after image (its before may be the
             // one that was never captured).
-            if (kind === 'create' && before !== null) continue;
+            if (kind === 'create' && (before !== null || beforeMissing)) continue;
             if (kind === 'delete' && after !== null) continue;
             if (kind !== 'delete' && after === null) continue;
             if (kind === 'modify' && before === null && !beforeMissing) continue;
             // A pending review whose images are identical is not a review.
             if (before !== null && after !== null && before === after) continue;
             const match = typeof rec.id === 'string' ? /^e(\d+)$/.exec(rec.id) : null;
-            if (match) maxSeq = Math.max(maxSeq, Math.min(Number(match[1]), MAX_LEDGER_SEQ));
-            records.push({ rec, kind, before, after, beforeMissing, id: match ? rec.id : null });
+            const parsedId = match === null ? null : Number(match[1]);
+            // An id past the counter cap cannot be continued safely: remint it.
+            const keepId = parsedId !== null && parsedId <= MAX_LEDGER_SEQ;
+            if (keepId) maxSeq = Math.max(maxSeq, parsedId);
+            records.push({ rec, kind, before, after, beforeMissing, id: keepId ? rec.id : null });
         }
         // Two passes: collect the largest id first, then mint ids for records
         // that carry none — an id must never be handed out twice.

@@ -25,18 +25,32 @@ function textByteLength(text) {
     return Buffer.byteLength(text, 'utf8');
 }
 
+/** True when `text` contains an unpaired UTF-16 surrogate. */
+function hasUnpairedSurrogate(text) {
+    for (let index = 0; index < text.length; index++) {
+        const code = text.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+            const next = text.charCodeAt(index + 1);
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+            index++;
+        }
+        else if (code >= 0xdc00 && code <= 0xdfff) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * True when `text` may live in the ledger: a string of bounded UTF-8 size
- * without NUL bytes (a NUL means binary and cannot be reviewed).
+ * without NUL bytes (a NUL means binary and cannot be reviewed) and without
+ * unpaired surrogates (they cannot survive the UTF-8 round trip).
  */
 function isReviewableText(text) {
     if (typeof text !== 'string') return false;
     if (text.includes(NUL)) return false;
     if (textByteLength(text) > MAX_FILE_BYTES) return false;
-    // A lone surrogate cannot survive the UTF-8 round trip: the text read
-    // back from disk would be U+FFFD and never match the stored image.
-    if (typeof text.isWellFormed === 'function' && !text.isWellFormed()) return false;
-    return true;
+    return !hasUnpairedSurrogate(text);
 }
 
 /**

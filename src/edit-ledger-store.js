@@ -38,13 +38,19 @@ const MUTABLE_FIELDS = Object.freeze(['userTouched', 'conflict']);
 /** Conflict marker for "an upstream edit started from a different baseline". */
 const BASELINE_CONFLICT = 'transaction-before-mismatch';
 
+/** True when either image carries a UTF-8 encoding BOM (review-text keeps it). */
+function hasBom(entry) {
+    return (typeof entry.before === 'string' && entry.before.startsWith('\uFEFF'))
+        || (typeof entry.after === 'string' && entry.after.startsWith('\uFEFF'));
+}
+
 class EditLedgerStore {
     #ledger;
 
     constructor() {
         /** @type {EditLedger} the pure model; use the wrapper methods instead. */
         this.#ledger = new EditLedger();
-        this.writing = new Set();
+        this.writing = new Map();
     }
 
     // ---- custody -----------------------------------------------------------
@@ -113,6 +119,7 @@ class EditLedgerStore {
             // A merge into an existing entry may carry the operation's own
             // before image; the ledger keeps the entry's original one.
             if (effectiveBefore !== null && !existing) throw new TypeError('record(): a create has no before image');
+            if (beforeMissing) throw new TypeError('record(): a create cannot be missing its before image');
             if (typeof after !== 'string') throw new TypeError('record(): a create needs its after image');
         }
         else if (kind === 'delete') {
@@ -206,16 +213,21 @@ class EditLedgerStore {
     /**
      * Mark `path` as being written by the host right now.
      *
-     * The host MUST clear it in a `finally` block: a leaked mark silences the
-     * file's user-edit trail for the rest of the session.
+     * Overlapping writes to one path are counted: call it once per write and
+     * pair every call with `clearWriting()` in a `finally` block. A leaked mark
+     * silences the file's user-edit trail for the rest of the session.
      */
     markWriting(path) {
-        this.writing.add(canonicalPathKey(path));
+        const key = canonicalPathKey(path);
+        this.writing.set(key, (this.writing.get(key) ?? 0) + 1);
     }
 
-    /** Clear the in-flight mark for `path` (always pair with markWriting). */
+    /** Clear one in-flight mark for `path` (pair with markWriting). */
     clearWriting(path) {
-        this.writing.delete(canonicalPathKey(path));
+        const key = canonicalPathKey(path);
+        const remaining = (this.writing.get(key) ?? 0) - 1;
+        if (remaining > 0) this.writing.set(key, remaining);
+        else this.writing.delete(key);
     }
 
     /** True while the host is writing `path` (its fs events are not user edits). */
@@ -226,11 +238,16 @@ class EditLedgerStore {
     // ---- decisions (pure; the host supplies text and performs writes) ------
     /**
      * Whole-file Undo plan (restore / delete / drop / confirm / blocked).
+     *
+     * BOM-prefixed images are blocked here: the editor model omits the UTF-8
+     * BOM, so restoring through it would either lose the preamble or double it.
      * @returns one of the `planUndo()` actions, or null when there is no entry.
      */
     planUndo(path, currentExists, currentText) {
         const entry = this.#ledger.get(path);
-        return entry ? planUndo(entry, currentExists, currentText) : null;
+        if (!entry) return null;
+        if (hasBom(entry)) return { action: 'blocked', reason: 'bom-unsupported' };
+        return planUndo(entry, currentExists, currentText);
     }
 
     /**
@@ -299,6 +316,9 @@ class EditLedgerStore {
         const entry = this.#ledger.get(path);
         if (!entry || entry.beforeMissing || entry.kind === 'delete') return null;
         if (entry.conflict === 'save-participant') return null;
+        // A BOM file is recognized so its Undo can be refused, not written
+        // through a model that drops the preamble (or writes it twice).
+        if (hasBom(entry)) return null;
         if (typeof current !== 'string') return null;
         return precise.resolveChange(entry, current, hint);
     }
@@ -324,9 +344,8 @@ class EditLedgerStore {
             return { status: 'kept', before, done };
         }
         // Resolving the hint already proved `current === entry.after`, so a
-        // leftover "user touched it" flag is stale: clear it (same rule as the
-        // old safeCurrent()).
-        if (entry.userTouched) {
+        // leftover flag is stale: an explicit hunk decision resolves it.
+        if (entry.userTouched || entry.conflict) {
             entry.userTouched = false;
             delete entry.conflict;
         }
@@ -337,6 +356,11 @@ class EditLedgerStore {
     /**
      * Plan one hunk undo. Pure: the host writes `text`, then calls
      * `commitHunkUndo()` only if the write succeeded.
+     *
+     * The host must keep plan → write → commit as one queued operation for the
+     * path: the plan binds to the entry through the hint, and `commitHunkUndo`
+     * publishes the text it is given. Data-layer methods cannot make the host's
+     * I/O atomic; PR-2 owns that queue.
      * @returns {{status: 'planned', text: string, done: boolean}|{status: 'stale'}}
      *   `done` means the file is back to its pre-edit content (the entry can go).
      */
@@ -369,7 +393,8 @@ class EditLedgerStore {
         // The host normally passed text through review-text; reject anything
         // else instead of persisting an image the editor can never match.
         if (!isReviewableText(text)) throw new TypeError('commitHunkUndo(): unreviewable after image');
-        if (entry.userTouched) {
+        // An explicit hunk decision resolves a stale flag, whatever its code.
+        if (entry.userTouched || entry.conflict) {
             entry.userTouched = false;
             delete entry.conflict;
         }
@@ -472,7 +497,10 @@ class EditLedgerStore {
             for (const rec of raw.entries) {
                 if (!rec || typeof rec !== 'object') continue;
                 const match = typeof rec.id === 'string' ? /^e(\d+)$/.exec(rec.id) : null;
-                if (match) maxId = Math.max(maxId, Math.min(Number(match[1]), MAX_LEDGER_SEQ));
+                if (match) {
+                    const idNumber = Number(match[1]);
+                    if (idNumber <= MAX_LEDGER_SEQ) maxId = Math.max(maxId, idNumber);
+                }
                 const validBefore = rec.before === null || rec.before === undefined || isReviewableText(rec.before);
                 const validAfter = rec.after === null || rec.after === undefined || isReviewableText(rec.after);
                 if (validBefore && validAfter) kept.push(rec);
