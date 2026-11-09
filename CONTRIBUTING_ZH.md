@@ -30,7 +30,7 @@ dsh-tui-vscode/
 │   ├── auto-mention.ts      # 选区推送决策
 │   ├── status.ts            # 状态栏项
 │   ├── ide/server.ts        # 回环 IDE 选区通道服务端
-│   ├── test/                # node:test 单测（session、sessions、at-mention、auto-mention、ide-server、session-watchers、relative-time）
+│   ├── test/                # node:test 单测（session、sessions、at-mention、auto-mention、ide-server、session-watchers、relative-time、edit-review-core、precise-review-core、edit-ledger-store、safe-path、review-text）
 │   └── test-suite/          # 真实扩展宿主 e2e（@vscode/test-electron）
 ├── media/                   # 图标与 README 图片（会打进 vsix）
 ├── l10n/                    # vscode.l10n 运行时文案

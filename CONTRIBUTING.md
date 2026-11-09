@@ -30,7 +30,7 @@ dsh-tui-vscode/
 │   ├── auto-mention.ts      # Selection-push decisions
 │   ├── status.ts            # Status-bar item
 │   ├── ide/server.ts        # Loopback IDE selection-channel server
-│   ├── test/                # node:test unit tests (session, sessions, at-mention, auto-mention, ide-server, session-watchers, relative-time)
+│   ├── test/                # node:test unit tests (session, sessions, at-mention, auto-mention, ide-server, session-watchers, relative-time, edit-review-core, precise-review-core, edit-ledger-store, safe-path, review-text)
 │   └── test-suite/          # Real extension-host e2e (@vscode/test-electron)
 ├── media/                   # Icons and README imagery (packaged into the vsix)
 ├── l10n/                    # Runtime strings for vscode.l10n
