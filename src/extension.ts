@@ -676,15 +676,17 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.l10n.t('Copied {0}. Paste it into the dsh-tui input box', mention),
     )
   })
-  // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
+  // 选区变化自动推送(默认开,对齐官方 Claude Code 的选区体验):官方语义是
   // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
   // 把选区坐标**与编辑器缓冲区自己的选区文本**(含未保存修改,协议 v2)推送给
   // 运行中的 dsh-tui(其提交时原样附加该文本并在 footer 实时显示 ⧉ 徽标;
   // server 回退路径仍按坐标读盘——协议 v2 的 selection_changed 消费)。
-  // server 缺席(启动失败/旧版 dsh-tui)时回退旧的敲字近似:把
+  // server 缺席(启动失败/旧版 dsh-tui)时保留旧的敲字近似:把
   // `@相对路径#L起-止` 键入运行中的输入框(workspaceRoot 同 insertAtMention:
-  // 根内相对化,根外兜底绝对)。也因此必须:仅在有运行中会话时注入、
-  // 对同一选区去重,避免抢占输入框/刷屏。推送分支无此副作用——不碰输入框。
+  // 根内相对化,根外兜底绝对)。这条回退是 opt-in:autoInsertMentionFallback
+  // 默认关,推送失败且未开启时静默(门控见下方 setTimeout 回调);开启后仍须:
+  // 仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。推送分支
+  // 无此副作用——不碰输入框。
   // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
   {
@@ -694,6 +696,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.workspace
         .getConfiguration('dsh-tui-vscode')
         .get<boolean>('autoInsertMention', true)
+    // 键入回退默认关(实验性/不推荐)。主开关只决定「推不推」,
+    // 这个设置只在推送失败后决定「敲不敲」——分开读,不把产品策略混进推送判定。
+    const isFallbackEnabled = (): boolean =>
+      vscode.workspace
+        .getConfiguration('dsh-tui-vscode')
+        .get<boolean>('autoInsertMentionFallback', false)
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
         if (!isEnabled()) return
@@ -773,6 +781,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             lastInserted = mention
             return
           }
+          // 通道无客户端时的键入回退已改为 opt-in:先看回退开关,关着就静默
+          // 返回——不碰输入框,也不留下补推抑制状态(下一次选区变化照常判定)。
+          if (!isFallbackEnabled()) return
           // 回退:旧行为——键入运行中的 dsh-tui 输入框。只有 insert 才值得敲:
           // duplicate(与上次相同)与 no-terminal(手动启动的会话没有扩展终端)
           // 都只该挡住这条回退,推送已在上面成功或此处被 action 收口。
@@ -816,8 +827,16 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // 事件里判断:用户禁用后可能不再动编辑器,那条路径永远不会触发。
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(event => {
-        if (!event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')) return
-        if (isEnabled()) return
+        const masterAffected = event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')
+        const fallbackAffected = event.affectsConfiguration(
+          'dsh-tui-vscode.autoInsertMentionFallback',
+        )
+        if (!masterAffected && !fallbackAffected) return
+        // 回退由关→开:清掉上一次键入的去重值,否则用户刚打开回退、再选同一段
+        // 代码时会被旧值判成 duplicate 而静默不敲(通道掉线后尤其像“功能坏了”)。
+        // 只清扩展侧的记忆,不发 isEmpty——推送路径没有变化。
+        if (fallbackAffected && isFallbackEnabled()) lastInserted = undefined
+        if (!masterAffected || isEnabled()) return
         // 先撤掉已排定的推送：否则「选区变化 → 300ms 内禁用」时，那颗定时器
         // 会补推一帧**非空**选区，刚清掉的快照又被装回 TUI（CodeRabbit 与独立
         // 审查各自指出同一处）。
