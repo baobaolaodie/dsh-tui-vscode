@@ -1258,6 +1258,59 @@ test('autoInsertMentionFallback defaults to off (no typing)', async () => {
   }
 })
 
+test('re-enabling the fallback keeps an already typed mention deduped', async () => {
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
+  await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
+  try {
+    await sleep(400)
+    await startFakeSession()
+
+    const file = join(WS, 'e2e-reenable-dedupe.ts')
+    writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+      const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+      editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
+      const expected = await expectedMentionFor(editor.document.uri.fsPath, 0, 2)
+
+      // First pass: the fallback really types (no client is connected).
+      await fixedWindow('墙钟', '> 300ms 防抖 + 终端往返，让键入落地', 700)
+      api.sendInput('\r')
+      await poll(() => (readFile(STDIN_OUT)?.includes(expected) ? true : undefined), 10000)
+      rmSync(STDIN_OUT, { force: true })
+
+      // Toggle the fallback off/on. The typed mention must stay deduped: clearing
+      // it here would make the same selection type a second copy below.
+      await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+      await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
+      await fixedWindow('pacing', '配置变更 → 去重状态更新', 400)
+
+      // Same line range, different columns: the mention is identical, but the
+      // selection event is still real (VS Code does not emit for an unchanged one).
+      editor.selection = new vscode.Selection(new vscode.Position(0, 1), new vscode.Position(2, 4))
+      await fixedWindow('探针', '重新开启回退后同一选区不得重复键入', 1000)
+      api.sendInput('\r')
+      const delivered = await poll(() => {
+        const content = readFile(STDIN_OUT)
+        return content !== undefined && content.length > 0 ? content : undefined
+      }, 10000)
+      assert.ok(
+        !delivered.includes(expected),
+        `re-enabling the fallback must not duplicate the typed mention; stdin=[${delivered.slice(0, 200)}]`,
+      )
+    } finally {
+      rmSync(file, { force: true })
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    }
+  } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+  }
+})
+
 test('insertAtMention relativizes against the opened workspace root, not the git crawl root (subdirectory workspace)', async () => {
   // The suite workspace now lives INSIDE a git repository (see
   // run-tests.ts) — exactly the shape that used to break @mentions. The TUI
