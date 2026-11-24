@@ -692,16 +692,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   {
     let lastInserted: string | undefined
     let postpone: ReturnType<typeof setTimeout> | undefined
-    const isEnabled = (): boolean =>
-      vscode.workspace
-        .getConfiguration('dsh-tui-vscode')
-        .get<boolean>('autoInsertMention', true)
-    // 键入回退默认关(实验性/不推荐)。主开关只决定「推不推」,
-    // 这个设置只在推送失败后决定「敲不敲」——分开读,不把产品策略混进推送判定。
+    // 同一命名空间的两个布尔设置；抽一层只为让默认值只出现一次。
+    const readBooleanSetting = (key: string, fallback: boolean): boolean =>
+      vscode.workspace.getConfiguration('dsh-tui-vscode').get<boolean>(key, fallback)
+    // 主开关只决定「推不推」。
+    const isEnabled = (): boolean => readBooleanSetting('autoInsertMention', true)
+    // 回退默认关(实验性/不推荐)，只在推送失败后决定「敲不敲」——不混进推送判定。
     const isFallbackEnabled = (): boolean =>
-      vscode.workspace
-        .getConfiguration('dsh-tui-vscode')
-        .get<boolean>('autoInsertMentionFallback', false)
+      readBooleanSetting('autoInsertMentionFallback', false)
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
         if (!isEnabled()) return
