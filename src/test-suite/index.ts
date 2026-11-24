@@ -1135,10 +1135,13 @@ test('insertAtMention types the @-mention into the running session input', async
   }
 })
 
-test('autoInsertMention (experimental) auto-types the mention on selection change', async () => {
+test('autoInsertMentionFallback (opt-in) auto-types the mention on selection change', async () => {
   await configureFakeLauncher()
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  // 键入回退默认关：只开主开关不再写输入框，必须显式开回退。
+  // 同一装置只差这一个开关；本用例证明装置确实会键入，负向用例才有判别力。
   await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
   try {
     // Give the config-change handler time to arm the selection listener.
     await sleep(400)
@@ -1188,6 +1191,62 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
     }
   } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+  }
+})
+
+test('autoInsertMentionFallback defaults to off (no typing)', async () => {
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  // 默认组合：主开关开、回退关。与上一条 opt-in 用例共用同一装置，
+  // 只差这一个开关；上一条通过是这条负向用例有判别力的前提。
+  await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  // 清掉用户级值，让 package.json 的 default 真正接管：默认被改成 true 时本用例必须红。
+  await cfg.update('autoInsertMentionFallback', undefined, vscode.ConfigurationTarget.Global)
+  try {
+    // Give the config-change handler time to arm the selection listener.
+    await sleep(400)
+    rmSync(ENV_OUT, { force: true })
+    rmSync(STDIN_OUT, { force: true })
+    await vscode.commands.executeCommand('dsh-tui-vscode.start')
+    await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+    await sleep(750) // 让 fake child 挂上 stdin，后面那次 Enter 才能被观察到
+
+    const file = join(WS, 'e2e-auto-insert-off.ts')
+    writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+      const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+      editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
+      const { normalizeMentionPath, relativeToWorkspace } = await import('../at-mention.js') as typeof import('../at-mention.js')
+      const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+      const expected =
+        '@' + relativeToWorkspace(normalizeMentionPath(editor.document.uri.fsPath), wsRoot) + '#L1-3'
+
+      // 「什么都没发生」没有完成条件，只能用带标签的固定窗（探针）：窗口覆盖
+      // 300ms 防抖 + 终端往返，与上一条正向用例的等待同量级（700ms）。
+      await fixedWindow('探针', '默认关 + 无客户端 → 选区变化不得键入', 700)
+      // 关键：按下用户会按的 Enter。不按的话，即使扩展真的忽略门控敲了字，
+      // 那一行也留在终端缓冲里、子进程 stdin 收不到——负向断言会因「观察不到」
+      // 假绿。按下后 stdin-out 一旦出现任何字节，就说明这一行已完成投递，
+      // 随行的 mention（若有）必然在同一批数据里。
+      ;(vscode.extensions.getExtension(EXT_ID)!.exports as Api).sendInput('\r')
+      const delivered = await poll(() => {
+        const content = readFile(STDIN_OUT)
+        return content !== undefined && content.length > 0 ? content : undefined
+      }, 10000)
+      assert.ok(
+        !delivered.includes(expected),
+        `the default-off fallback must not type the mention; stdin=[${delivered.slice(0, 200)}]`,
+      )
+      console.log('[e2e] PASS auto-insert fallback: default off leaves the terminal input untouched')
+    } finally {
+      rmSync(file, { force: true })
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    }
+  } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
     await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
 })
@@ -1696,7 +1755,10 @@ test('IDE channel: a selection already typed as a fallback is NOT replayed after
     await poll(() => (findTuiTerminal() ? true : undefined), 10000)
     await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
     await fixedWindow('pacing', 'fake child 挂上 stdin，再敲字', 750)
+    // 回退默认关：抑制机制只在「真的键入过」时才有意义，所以本
+    // 用例必须显式开回退；只开主开关时不会有键入，下面的前置就不成立。
     await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
     // Give the config-change handler time to arm the selection listener.
     await fixedWindow('pacing', '配置变更 → 选区监听器生效', 400)
 
@@ -1780,6 +1842,7 @@ test('IDE channel: a selection already typed as a fallback is NOT replayed after
   } finally {
     rmSync(file, { force: true })
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
     await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
 })
