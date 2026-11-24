@@ -36,7 +36,7 @@ test('capSelectionText bounds the pushed text, staying above the TUI’s own cap
   )
 })
 
-// ---------- 门控:默认关闭 ----------
+// ---------- 门控:主开关关闭 ----------
 test('disabled setting always skips, even with selection and terminal', () => {
   const result = decideAutoInsert({
     enabled: false,

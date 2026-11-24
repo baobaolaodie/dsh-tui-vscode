@@ -97,6 +97,8 @@ npm run install:local
 
 除了最低版本，dsh-tui 可以自由前进：上面这两个接口已针对 0.15.0 复核过，自上述版本以来没有变化。
 
+键入回退默认关闭，因此通道首次拨号失败的会话不会得到自动选区上下文——在已发布的 dsh-tui 上，这个会话全程如此。请按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`）自行插入引用，或显式开启实验性的 `dsh-tui-vscode.autoInsertMentionFallback`。
+
 ## 工作方式
 
 <p align="center">
@@ -138,7 +140,8 @@ npm run install:local
 | `dsh-tui-vscode.injectEditor` | `true` | 当扩展宿主看到的环境里 `$VISUAL` 与 `$EDITOR` 都未设置时导出 `$VISUAL` |
 | `dsh-tui-vscode.editorCommand` | `code -w` | 导出为 `$VISUAL` 的值 |
 | `dsh-tui-vscode.dshHome` | `""` | 为会话覆盖 `$DSH_HOME`（空 = 继承） |
-| `dsh-tui-vscode.autoInsertMention` | `true` | 把编辑器选区推送给运行中的 TUI（300ms 防抖） |
+| `dsh-tui-vscode.autoInsertMention` | `true` | 把编辑器选区推送给运行中的 TUI（300ms 防抖）。它只控制推送：通道没有客户端时默认什么都不键入。 |
+| `dsh-tui-vscode.autoInsertMentionFallback` | `false` | **实验性 / 不推荐。** 当 IDE 选区通道没有客户端时，把 `@相对路径#L起-止` 键入由本扩展创建的 dsh-tui 终端。仅在 `autoInsertMention` 开启时生效；建议优先按 `Ctrl+Alt+K`（macOS 为 `Cmd+Alt+K`）手动插入引用。 |
 
 会话拿到的环境变量不止这些：`DSH_TUI_IMAGE_PROTOCOL`（除非 `imageProtocol` 为 `auto`——那会移除它），选区通道可用时还有 `DSH_TUI_IDE_PORT` 与 `DSH_TUI_IDE_TOKEN`，恢复指定会话时还有 `DSH_TUI_RESUME_SESSION`（以及 `DSH_CC_RESUME_SESSION`）。
 

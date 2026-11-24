@@ -6,8 +6,13 @@
  * 一条输入通道,因此通道不可用时只能做「降级近似」:监听选区变化 → 防抖后把
  * `@相对路径#L起-止` 自动键入运行中的 dsh-tui 输入框。
  *
+ * 这条键入回退是 opt-in:`dsh-tui-vscode.autoInsertMentionFallback` 默认
+ * `false`(实验性/不推荐),由 extension.ts 在通道推送失败后读取;主开关
+ * `autoInsertMention` 只决定推送。默认通道不可用 = 静默,手动 Ctrl+Alt+K
+ * 仍是替代路径。
+ *
  * 因为这是实打实地往终端输入框敲字(不是独立的上下文注入),该回退路径必须
- * 克制:仅在有运行中会话时注入、对同一选区去重;本模块只做决策(是否插 /
+ * 克制:仅在存在本扩展创建的运行中会话时注入、对同一选区去重;本模块只做决策(是否插 /
  * 插什么),计时与实际 `sendText` 由 extension.ts 接线负责——决策保持纯函数,
  * 便于全量单测。
  */
@@ -25,7 +30,7 @@ export interface SelectionSnapshot {
 }
 
 export interface AutoMentionGates {
-  /** dsh-tui-vscode.autoInsertMention(experimental)是否开启。 */
+  /** dsh-tui-vscode.autoInsertMention(主开关)是否开启;键入回退另由 autoInsertMentionFallback 控制(默认 false)。 */
   enabled: boolean
   /** 编辑器当前是否有非空选区。 */
   hasSelection: boolean

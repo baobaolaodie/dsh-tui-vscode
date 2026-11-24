@@ -97,6 +97,8 @@ The extension is a thin companion; the features below live in dsh-tui itself, so
 
 Beyond its minimum, dsh-tui is free to move: these two interfaces were re-checked against 0.15.0 and had not changed since the versions above.
 
+With the typing fallback off by default, a session whose first channel dial fails has no automatic selection context — on a released dsh-tui that is the whole session. Press `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) to insert the reference yourself, or opt in to the experimental `dsh-tui-vscode.autoInsertMentionFallback`.
+
 ## How it works
 
 <p align="center">
@@ -138,7 +140,8 @@ Command Palette entries are grouped under **`dsh-tui`**. Titles follow your VS C
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when neither `$VISUAL` nor `$EDITOR` is set in the environment the extension host sees |
 | `dsh-tui-vscode.editorCommand` | `code -w` | The value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | Override `$DSH_HOME` for sessions (empty inherits it) |
-| `dsh-tui-vscode.autoInsertMention` | `true` | Push the editor selection to the running TUI (300 ms debounce) |
+| `dsh-tui-vscode.autoInsertMention` | `true` | Push the editor selection to the running TUI (300 ms debounce). It only controls pushing: when the channel has no client, nothing is typed by default. |
+| `dsh-tui-vscode.autoInsertMentionFallback` | `false` | **Experimental, not recommended.** When the IDE selection channel has no client, type `@relative/path#Lstart-end` into a dsh-tui terminal created by this extension. Only takes effect while `autoInsertMention` is on; prefer `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) for a manual reference. |
 
 Sessions get more than these: `DSH_TUI_IMAGE_PROTOCOL` unless `imageProtocol` is `auto` (which removes it), `DSH_TUI_IDE_PORT` and `DSH_TUI_IDE_TOKEN` while the selection channel is up, and `DSH_TUI_RESUME_SESSION` (plus `DSH_CC_RESUME_SESSION`) when resuming a specific session.
 

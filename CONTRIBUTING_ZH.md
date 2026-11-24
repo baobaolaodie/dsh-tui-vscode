@@ -27,7 +27,7 @@ dsh-tui-vscode/
 │   ├── session-watchers.ts  # 会话根目录的 fs.watch
 │   ├── relative-time.ts     # 紧凑相对时间
 │   ├── at-mention.ts        # @ 引用文本生成
-│   ├── auto-mention.ts      # 选区推送决策
+│   ├── auto-mention.ts      # 选区推送与 opt-in 键入回退决策
 │   ├── status.ts            # 状态栏项
 │   ├── ide/server.ts        # 回环 IDE 选区通道服务端
 │   ├── test/                # node:test 单测（session、sessions、at-mention、auto-mention、ide-server、session-watchers、relative-time）

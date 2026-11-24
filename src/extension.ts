@@ -676,24 +676,33 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       vscode.l10n.t('Copied {0}. Paste it into the dsh-tui input box', mention),
     )
   })
-  // 选区变化自动引用(默认开,对齐官方 Claude Code 的选区体验):官方语义是
+  // 选区变化自动推送(默认开,对齐官方 Claude Code 的选区体验):官方语义是
   // 「编辑器选区实时出现在会话引用」——本扩展经 IDE 选区通道(ide/server.ts)
   // 把选区坐标**与编辑器缓冲区自己的选区文本**(含未保存修改,协议 v2)推送给
   // 运行中的 dsh-tui(其提交时原样附加该文本并在 footer 实时显示 ⧉ 徽标;
   // server 回退路径仍按坐标读盘——协议 v2 的 selection_changed 消费)。
-  // server 缺席(启动失败/旧版 dsh-tui)时回退旧的敲字近似:把
+  // server 缺席(启动失败/旧版 dsh-tui)时保留旧的敲字近似:把
   // `@相对路径#L起-止` 键入运行中的输入框(workspaceRoot 同 insertAtMention:
-  // 根内相对化,根外兜底绝对)。也因此必须:仅在有运行中会话时注入、
-  // 对同一选区去重,避免抢占输入框/刷屏。推送分支无此副作用——不碰输入框。
+  // 根内相对化,根外兜底绝对)。这条回退是 opt-in:autoInsertMentionFallback
+  // 默认关,推送失败且未开启时静默(门控见下方 setTimeout 回调);开启后仍须:
+  // 仅在有运行中会话时注入、对同一选区去重,避免抢占输入框/刷屏。推送分支
+  // 无此副作用——不碰输入框。
   // 监听器始终注册,回调内实时读配置(用户/E2E 改配置立即生效,无 attach
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
   {
     let lastInserted: string | undefined
+    // 记住上一次去重值是「推送」留下的还是「真的键入」留下的：重新开启回退时
+    // 只清推送的那份，否则同一选区会被再敲一遍，输入框出现两份相同引用。
+    let lastInsertedWasTyped = false
     let postpone: ReturnType<typeof setTimeout> | undefined
-    const isEnabled = (): boolean =>
-      vscode.workspace
-        .getConfiguration('dsh-tui-vscode')
-        .get<boolean>('autoInsertMention', true)
+    // 同一命名空间的两个布尔设置；抽一层只为让默认值只出现一次。
+    const readBooleanSetting = (key: string, fallback: boolean): boolean =>
+      vscode.workspace.getConfiguration('dsh-tui-vscode').get<boolean>(key, fallback)
+    // 主开关只决定「推不推」。
+    const isEnabled = (): boolean => readBooleanSetting('autoInsertMention', true)
+    // 回退默认关(实验性/不推荐)，只在推送失败后决定「敲不敲」——不混进推送判定。
+    const isFallbackEnabled = (): boolean =>
+      readBooleanSetting('autoInsertMentionFallback', false)
     context.subscriptions.push(
       vscode.window.onDidChangeTextEditorSelection(event => {
         if (!isEnabled()) return
@@ -723,6 +732,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               documentVersion: editor.document.version,
             })
             lastInserted = undefined
+            lastInsertedWasTyped = false
           }, 300)
           return
         }
@@ -770,9 +780,17 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             documentVersion: editor.document.version,
           }
           if (broadcastSelection(frame)) {
-            lastInserted = mention
+            // 同一 mention 若此前已经键入过，保留「typed」标记：重新开启回退时
+            // 不能把它当推送值清掉，否则同一选区会被再敲一遍。
+            if (lastInserted !== mention) {
+              lastInserted = mention
+              lastInsertedWasTyped = false
+            }
             return
           }
+          // 通道无客户端时的键入回退已改为 opt-in:先看回退开关,关着就静默
+          // 返回——不碰输入框,也不留下补推抑制状态(下一次选区变化照常判定)。
+          if (!isFallbackEnabled()) return
           // 回退:旧行为——键入运行中的 dsh-tui 输入框。只有 insert 才值得敲:
           // duplicate(与上次相同)与 no-terminal(手动启动的会话没有扩展终端)
           // 都只该挡住这条回退,推送已在上面成功或此处被 action 收口。
@@ -786,6 +804,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           // 只抑制这一帧的指纹——不同选区照常补推。
           ideServer.markReplaySuppressed(selectionFingerprint(frame))
           lastInserted = mention
+          lastInsertedWasTyped = true
         }, 300)
       }),
       {
@@ -807,6 +826,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           postpone = undefined
         }
         lastInserted = undefined
+        lastInsertedWasTyped = false
         ideServer.retractSelection(normalizeMentionPath(document.uri.fsPath))
       }),
     )
@@ -816,8 +836,19 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     // 事件里判断:用户禁用后可能不再动编辑器,那条路径永远不会触发。
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(event => {
-        if (!event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')) return
-        if (isEnabled()) return
+        const masterAffected = event.affectsConfiguration('dsh-tui-vscode.autoInsertMention')
+        const fallbackAffected = event.affectsConfiguration(
+          'dsh-tui-vscode.autoInsertMentionFallback',
+        )
+        if (!masterAffected && !fallbackAffected) return
+        // 回退由关→开:清掉上一次「推送」留下的去重值,否则用户刚打开回退、再选
+        // 同一段代码时会被旧值判成 duplicate 而静默不敲(通道掉线后尤其像“功能坏了”)。
+        // 若上一次是真的键入过,必须保留:输入框里已经有那份引用,再敲就是重复。
+        // 只清扩展侧的记忆,不发 isEmpty——推送路径没有变化。
+        if (fallbackAffected && isFallbackEnabled() && !lastInsertedWasTyped) {
+          lastInserted = undefined
+        }
+        if (!masterAffected || isEnabled()) return
         // 先撤掉已排定的推送：否则「选区变化 → 300ms 内禁用」时，那颗定时器
         // 会补推一帧**非空**选区，刚清掉的快照又被装回 TUI（CodeRabbit 与独立
         // 审查各自指出同一处）。

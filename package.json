@@ -243,6 +243,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.dsh-tui-vscode.autoInsertMention.description%"
+        },
+        "dsh-tui-vscode.autoInsertMentionFallback": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%config.dsh-tui-vscode.autoInsertMentionFallback.description%"
         }
       }
     }

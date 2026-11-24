@@ -133,6 +133,27 @@ async function withFakeLauncherOnPath<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Start one fake-launcher session and wait until its child is attached. */
+async function startFakeSession(pacingLabel?: string): Promise<void> {
+  rmSync(ENV_OUT, { force: true })
+  rmSync(STDIN_OUT, { force: true })
+  await vscode.commands.executeCommand('dsh-tui-vscode.start')
+  await poll(() => (findTuiTerminal() ? true : undefined), 10000)
+  await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
+  if (pacingLabel) await fixedWindow('pacing', pacingLabel, 750)
+  else await sleep(750)
+}
+
+/** Build the @-mention the extension types for a 0-based inclusive line range. */
+async function expectedMentionFor(file: string, startLine: number, endLine: number): Promise<string> {
+  const { normalizeMentionPath, relativeToWorkspace } =
+    await import('../at-mention.js') as typeof import('../at-mention.js')
+  const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
+  const range = startLine === endLine ? `#L${startLine + 1}` : `#L${startLine + 1}-${endLine + 1}`
+  return '@' + relativeToWorkspace(normalizeMentionPath(file), wsRoot) + range
+}
+
+
 const tests: Array<[string, () => Promise<void>]> = []
 function test(name: string, fn: () => Promise<void>): void {
   tests.push([name, fn])
@@ -1135,18 +1156,17 @@ test('insertAtMention types the @-mention into the running session input', async
   }
 })
 
-test('autoInsertMention (experimental) auto-types the mention on selection change', async () => {
+test('autoInsertMentionFallback (opt-in) auto-types the mention on selection change', async () => {
   await configureFakeLauncher()
   const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  // 键入回退默认关：只开主开关不再写输入框，必须显式开回退。
+  // 同一装置只差这一个开关；本用例证明装置确实会键入，负向用例才有判别力。
   await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
   try {
     // Give the config-change handler time to arm the selection listener.
     await sleep(400)
-    rmSync(ENV_OUT, { force: true })
-    rmSync(STDIN_OUT, { force: true })
-    await vscode.commands.executeCommand('dsh-tui-vscode.start')
-    await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
-    await sleep(750)
+    await startFakeSession()
 
     const file = join(WS, 'e2e-auto-insert.ts')
     writeFileSync(file, 'line0\nline1\nline2\nline3\n')
@@ -1156,11 +1176,8 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
       // A real selection change (non-empty) after arming — this is what the
       // user "selecting code" produces; must auto-type after the debounce.
       editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
-      const { normalizeMentionPath, relativeToWorkspace } = await import('../at-mention.js') as typeof import('../at-mention.js')
       // 新契约：工作区内相对路径 + #L 行区间；相对化基准 = 工作区根。
-      const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
-      const expected =
-        '@' + relativeToWorkspace(normalizeMentionPath(editor.document.uri.fsPath), wsRoot) + '#L1-3'
+      const expected = await expectedMentionFor(editor.document.uri.fsPath, 0, 2)
 
       // Auto-inject fires after the 300ms debounce, WITHOUT any Enter — the
       // mention stays in the dsh-tui input (exactly like manual insertAtMention:
@@ -1188,6 +1205,108 @@ test('autoInsertMention (experimental) auto-types the mention on selection chang
       await vscode.commands.executeCommand('workbench.action.closeAllEditors')
     }
   } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+  }
+})
+
+test('autoInsertMentionFallback defaults to off (no typing)', async () => {
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  // 默认组合：主开关开、回退关。与上一条 opt-in 用例共用同一装置，
+  // 只差这一个开关；上一条通过是这条负向用例有判别力的前提。
+  await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  // 清掉用户级值，让 package.json 的 default 真正接管：默认被改成 true 时本用例必须红。
+  await cfg.update('autoInsertMentionFallback', undefined, vscode.ConfigurationTarget.Global)
+  try {
+    // Give the config-change handler time to arm the selection listener.
+    await sleep(400)
+    await startFakeSession()
+
+    const file = join(WS, 'e2e-auto-insert-off.ts')
+    writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+      const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+      editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
+      const expected = await expectedMentionFor(editor.document.uri.fsPath, 0, 2)
+
+      // 「什么都没发生」没有完成条件，只能用带标签的固定窗（探针）：窗口覆盖
+      // 300ms 防抖 + 终端往返；上一条正向用例的 700ms 已足够，这里取 1s 对齐 AC 文案。
+      await fixedWindow('探针', '默认关 + 无客户端 → 选区变化不得键入', 1000)
+      // 关键：按下用户会按的 Enter。不按的话，即使扩展真的忽略门控敲了字，
+      // 那一行也留在终端缓冲里、子进程 stdin 收不到——负向断言会因「观察不到」
+      // 假绿。按下后 stdin-out 一旦出现任何字节，就说明这一行已完成投递，
+      // 随行的 mention（若有）必然在同一批数据里。
+      ;(vscode.extensions.getExtension(EXT_ID)!.exports as Api).sendInput('\r')
+      const delivered = await poll(() => {
+        const content = readFile(STDIN_OUT)
+        return content !== undefined && content.length > 0 ? content : undefined
+      }, 10000)
+      assert.ok(
+        !delivered.includes(expected),
+        `the default-off fallback must not type the mention; stdin=[${delivered.slice(0, 200)}]`,
+      )
+      console.log('[e2e] PASS auto-insert fallback: default off leaves the terminal input untouched')
+    } finally {
+      rmSync(file, { force: true })
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    }
+  } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
+  }
+})
+
+test('re-enabling the fallback keeps an already typed mention deduped', async () => {
+  await configureFakeLauncher()
+  const cfg = vscode.workspace.getConfiguration('dsh-tui-vscode')
+  const api = vscode.extensions.getExtension(EXT_ID)!.exports as Api
+  await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+  await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
+  try {
+    await sleep(400)
+    await startFakeSession()
+
+    const file = join(WS, 'e2e-reenable-dedupe.ts')
+    writeFileSync(file, 'line0\nline1\nline2\nline3\n')
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
+      const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
+      editor.selection = new vscode.Selection(new vscode.Position(0, 0), new vscode.Position(2, 5))
+      const expected = await expectedMentionFor(editor.document.uri.fsPath, 0, 2)
+
+      // First pass: the fallback really types (no client is connected).
+      await fixedWindow('墙钟', '> 300ms 防抖 + 终端往返，让键入落地', 700)
+      api.sendInput('\r')
+      await poll(() => (readFile(STDIN_OUT)?.includes(expected) ? true : undefined), 10000)
+      rmSync(STDIN_OUT, { force: true })
+
+      // Toggle the fallback off/on. The typed mention must stay deduped: clearing
+      // it here would make the same selection type a second copy below.
+      await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
+      await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
+      await fixedWindow('pacing', '配置变更 → 去重状态更新', 400)
+
+      // Same line range, different columns: the mention is identical, but the
+      // selection event is still real (VS Code does not emit for an unchanged one).
+      editor.selection = new vscode.Selection(new vscode.Position(0, 1), new vscode.Position(2, 4))
+      await fixedWindow('探针', '重新开启回退后同一选区不得重复键入', 1000)
+      api.sendInput('\r')
+      const delivered = await poll(() => {
+        const content = readFile(STDIN_OUT)
+        return content !== undefined && content.length > 0 ? content : undefined
+      }, 10000)
+      assert.ok(
+        !delivered.includes(expected),
+        `re-enabling the fallback must not duplicate the typed mention; stdin=[${delivered.slice(0, 200)}]`,
+      )
+    } finally {
+      rmSync(file, { force: true })
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    }
+  } finally {
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
     await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
 })
@@ -1691,22 +1810,18 @@ test('IDE channel: a selection already typed as a fallback is NOT replayed after
     // whatever the previous case left: only a launcher whose own env-out write
     // we can observe is guaranteed to have a child attached to stdin, which is
     // what makes the typed mention observable below.
-    rmSync(ENV_OUT, { force: true })
-    await vscode.commands.executeCommand('dsh-tui-vscode.start')
-    await poll(() => (findTuiTerminal() ? true : undefined), 10000)
-    await poll(() => (readFile(ENV_OUT)?.includes('FAKE_LAUNCHER_RAN') ? true : undefined), 20000)
-    await fixedWindow('pacing', 'fake child 挂上 stdin，再敲字', 750)
+    await startFakeSession('fake child 挂上 stdin，再敲字')
+    // 回退默认关：抑制机制只在「真的键入过」时才有意义，所以本
+    // 用例必须显式开回退；只开主开关时不会有键入，下面的前置就不成立。
     await cfg.update('autoInsertMention', true, vscode.ConfigurationTarget.Global)
+    await cfg.update('autoInsertMentionFallback', true, vscode.ConfigurationTarget.Global)
     // Give the config-change handler time to arm the selection listener.
     await fixedWindow('pacing', '配置变更 → 选区监听器生效', 400)
 
     writeFileSync(file, 'line0\nline1\nline2\nline3\nline4\n')
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file))
     const editor = await vscode.window.showTextDocument(doc, { preserveFocus: false })
-    const { normalizeMentionPath, relativeToWorkspace } =
-      await import('../at-mention.js') as typeof import('../at-mention.js')
-    const wsRoot = vscode.workspace.workspaceFolders![0]!.uri.fsPath
-    const expected = '@' + relativeToWorkspace(normalizeMentionPath(file), wsRoot) + '#L2-4'
+    const expected = await expectedMentionFor(file, 1, 3)
     rmSync(STDIN_OUT, { force: true })
     editor.selection = new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(3, 5))
 
@@ -1780,6 +1895,7 @@ test('IDE channel: a selection already typed as a fallback is NOT replayed after
   } finally {
     rmSync(file, { force: true })
     await vscode.commands.executeCommand('workbench.action.closeAllEditors')
+    await cfg.update('autoInsertMentionFallback', false, vscode.ConfigurationTarget.Global)
     await cfg.update('autoInsertMention', false, vscode.ConfigurationTarget.Global)
   }
 })
