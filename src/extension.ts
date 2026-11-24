@@ -691,6 +691,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // 时序依赖 —— 也避免了「改配置后监听器未挂上」的竞态)。
   {
     let lastInserted: string | undefined
+    // 记住上一次去重值是「推送」留下的还是「真的键入」留下的：重新开启回退时
+    // 只清推送的那份，否则同一选区会被再敲一遍，输入框出现两份相同引用。
+    let lastInsertedWasTyped = false
     let postpone: ReturnType<typeof setTimeout> | undefined
     // 同一命名空间的两个布尔设置；抽一层只为让默认值只出现一次。
     const readBooleanSetting = (key: string, fallback: boolean): boolean =>
@@ -729,6 +732,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
               documentVersion: editor.document.version,
             })
             lastInserted = undefined
+            lastInsertedWasTyped = false
           }, 300)
           return
         }
@@ -776,7 +780,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
             documentVersion: editor.document.version,
           }
           if (broadcastSelection(frame)) {
-            lastInserted = mention
+            // 同一 mention 若此前已经键入过，保留「typed」标记：重新开启回退时
+            // 不能把它当推送值清掉，否则同一选区会被再敲一遍。
+            if (lastInserted !== mention) {
+              lastInserted = mention
+              lastInsertedWasTyped = false
+            }
             return
           }
           // 通道无客户端时的键入回退已改为 opt-in:先看回退开关,关着就静默
@@ -795,6 +804,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           // 只抑制这一帧的指纹——不同选区照常补推。
           ideServer.markReplaySuppressed(selectionFingerprint(frame))
           lastInserted = mention
+          lastInsertedWasTyped = true
         }, 300)
       }),
       {
@@ -816,6 +826,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           postpone = undefined
         }
         lastInserted = undefined
+        lastInsertedWasTyped = false
         ideServer.retractSelection(normalizeMentionPath(document.uri.fsPath))
       }),
     )
@@ -830,10 +841,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
           'dsh-tui-vscode.autoInsertMentionFallback',
         )
         if (!masterAffected && !fallbackAffected) return
-        // 回退由关→开:清掉上一次键入的去重值,否则用户刚打开回退、再选同一段
-        // 代码时会被旧值判成 duplicate 而静默不敲(通道掉线后尤其像“功能坏了”)。
+        // 回退由关→开:清掉上一次「推送」留下的去重值,否则用户刚打开回退、再选
+        // 同一段代码时会被旧值判成 duplicate 而静默不敲(通道掉线后尤其像“功能坏了”)。
+        // 若上一次是真的键入过,必须保留:输入框里已经有那份引用,再敲就是重复。
         // 只清扩展侧的记忆,不发 isEmpty——推送路径没有变化。
-        if (fallbackAffected && isFallbackEnabled()) lastInserted = undefined
+        if (fallbackAffected && isFallbackEnabled() && !lastInsertedWasTyped) {
+          lastInserted = undefined
+        }
         if (!masterAffected || isEnabled()) return
         // 先撤掉已排定的推送：否则「选区变化 → 300ms 内禁用」时，那颗定时器
         // 会补推一帧**非空**选区，刚清掉的快照又被装回 TUI（CodeRabbit 与独立
