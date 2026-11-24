@@ -55,7 +55,7 @@ A client that connects later does not have to wait for the next selection change
 
 ## When the channel is unavailable
 
-Nothing is typed by default. The extension used to fall back to typing `@relative/path#Lstart-end` into the running session's terminal; that typing fallback is now an **experimental, opt-in** setting, `dsh-tui-vscode.autoInsertMentionFallback` (default `false`, and it only applies while `autoInsertMention` is on). Even then it has a precondition: an extension-owned session terminal must exist. The terminal is matched by name, so it still counts after dsh-tui has exited inside it — the reference goes to the terminal rather than to the clipboard, and a shell sitting at a prompt simply receives the text. With neither a client nor a terminal, nothing is typed either way. The substitute recommended instead of the fallback is `Ctrl+Alt+K`: it types the same `@…` reference on demand, independent of the channel and of both settings.
+Nothing is typed by default. The extension used to fall back to typing `@relative/path#Lstart-end` into the running session's terminal; that typing fallback is now an **experimental, opt-in** setting, `dsh-tui-vscode.autoInsertMentionFallback` (default `false`, and it only applies while `autoInsertMention` is on). Even then it has a precondition: an extension-owned session terminal must exist. The terminal is matched by name, so it still counts after dsh-tui has exited inside it — the reference goes to the terminal rather than to the clipboard, and a shell sitting at a prompt simply receives the text. With neither a client nor a terminal, nothing is typed either way. The substitute recommended instead of the fallback is `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS): it types the same `@…` reference on demand, independent of the channel and of both settings.
 
 ## Lifecycle
 
@@ -65,6 +65,6 @@ Server startup failure degrades silently — everything else in the extension ke
 
 Both sides of the handshake arrived in **dsh-tui 0.11.0**; dsh-tui 0.10.x has no `ide-channel` module at all. `IDE_PROTOCOL_VERSION` is still `2` in 0.15.0, and the extension-side half — speaking protocol v2 — arrived in **dsh-tui-vscode 0.7.0**.
 
-The connect-phase retry is newer than both gates and needs a dsh-tui build that carries the upstream fix; **no released dsh-tui has it yet**. Without that build, a first dial that fails still costs the session its channel; with the typing fallback off by default, that session also gets no automatic selection context, and `Ctrl+Alt+K` remains the substitute.
+The connect-phase retry is newer than both gates and needs a dsh-tui build that carries the upstream fix; **no released dsh-tui has it yet**. Without that build, a first dial that fails still costs the session its channel; with the typing fallback off by default, that session also gets no automatic selection context, and `Ctrl+Alt+K` (`Cmd+Alt+K` on macOS) remains the substitute.
 
 The earlier design note in [at-mention-design.md](at-mention-design.md) is a **0.6.2–0.6.3 snapshot** and describes the pre-channel behaviour, including the absolute-path form of mentions; treat it as history.
