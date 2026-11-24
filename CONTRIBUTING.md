@@ -27,7 +27,7 @@ dsh-tui-vscode/
 │   ├── session-watchers.ts  # fs.watch over the session roots
 │   ├── relative-time.ts     # Compact relative timestamps
 │   ├── at-mention.ts        # @-mention text generation
-│   ├── auto-mention.ts      # Selection-push decisions
+│   ├── auto-mention.ts      # Selection-push and opt-in typing-fallback decisions
 │   ├── status.ts            # Status-bar item
 │   ├── ide/server.ts        # Loopback IDE selection-channel server
 │   ├── test/                # node:test unit tests (session, sessions, at-mention, auto-mention, ide-server, session-watchers, relative-time)

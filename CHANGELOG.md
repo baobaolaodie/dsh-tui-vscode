@@ -14,7 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+- **New setting `dsh-tui-vscode.autoInsertMentionFallback` (experimental, `false` by default)**: restores the typing fallback for the IDE selection channel. When the channel has no client, it types `@relative/path#Lstart-end` into a dsh-tui terminal the extension created. It only applies while `autoInsertMention` is on, and a connected channel still only pushes. Not recommended because it writes into the input box instead of delivering separate context — `Ctrl+Alt+K` inserts the same reference on demand.
+
 ### Changed
+
+- **Automatic typing when the IDE selection channel is unavailable is now opt-in**: with `autoInsertMention` on and no client connected, the extension used to type the `@…` reference into the session terminal on every selection. It now does nothing unless `autoInsertMentionFallback` is enabled. Pushing, the replay suppression for a frame that was actually typed, the empty-selection push on disabling `autoInsertMention`, and the manual `Ctrl+Alt+K` path are unchanged.
 
 ### Fixed
 

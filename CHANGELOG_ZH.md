@@ -12,7 +12,11 @@
 
 ### Added
 
+- **新增设置 `dsh-tui-vscode.autoInsertMentionFallback`（实验性，默认 `false`）**：恢复 IDE 选区通道的键入回退。通道没有客户端时，把 `@相对路径#L起-止` 键入由本扩展创建的 dsh-tui 终端。仅在 `autoInsertMention` 开启时生效；通道连接正常时仍只推送。不推荐开启：它直接写输入框而不是投递独立上下文——建议按 `Ctrl+Alt+K` 按需插入同样的引用。
+
 ### Changed
+
+- **通道不可用时的自动键入改为 opt-in**：此前 `autoInsertMention` 开启且没有客户端连接时，扩展会在每次选区变化后把 `@…` 引用键入会话终端；现在除非开启 `autoInsertMentionFallback`，否则什么都不做。推送、对确实键入过的那一帧的补推抑制、关闭 `autoInsertMention` 时推送空选区、以及手动 `Ctrl+Alt+K` 路径均未改变。
 
 ### Fixed
 
