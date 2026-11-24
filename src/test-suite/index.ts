@@ -1225,8 +1225,8 @@ test('autoInsertMentionFallback defaults to off (no typing)', async () => {
         '@' + relativeToWorkspace(normalizeMentionPath(editor.document.uri.fsPath), wsRoot) + '#L1-3'
 
       // 「什么都没发生」没有完成条件，只能用带标签的固定窗（探针）：窗口覆盖
-      // 300ms 防抖 + 终端往返，与上一条正向用例的等待同量级（700ms）。
-      await fixedWindow('探针', '默认关 + 无客户端 → 选区变化不得键入', 700)
+      // 300ms 防抖 + 终端往返；上一条正向用例的 700ms 已足够，这里取 1s 对齐 AC 文案。
+      await fixedWindow('探针', '默认关 + 无客户端 → 选区变化不得键入', 1000)
       // 关键：按下用户会按的 Enter。不按的话，即使扩展真的忽略门控敲了字，
       // 那一行也留在终端缓冲里、子进程 stdin 收不到——负向断言会因「观察不到」
       // 假绿。按下后 stdin-out 一旦出现任何字节，就说明这一行已完成投递，
