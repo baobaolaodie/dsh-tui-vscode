@@ -4,6 +4,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # 打 tag 也要跑：release-consistency 的 refs/tags/ 分支原本是死条件
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -298,6 +300,14 @@ jobs:
               /direct-push/{if (ver) has[ver]=1}
               END{for (v in has) if (!has[v]) {print file " version section missing PR link: " v; exit 1}}' "$f"
           done
+      # 只在 tag 上跑：没有这一步，tag 触发只是把 main 已经跑过的同一份提交再跑一遍，什么也证明不了
+      - name: 'tag 与版本一致 / Tag matches the version'
+        if: github.ref_type == 'tag'
+        run: |
+          V=$(node -p "require('./package.json').version")
+          [ "v$V" = "$GITHUB_REF_NAME" ] \
+            || { echo "tag $GITHUB_REF_NAME 与 package.json 的版本 $V 不一致 / tag does not match the package version"; exit 1; }
+          echo "tag $GITHUB_REF_NAME matches version $V"
 
   # ── 敏感信息扫描：HEAD 级增量防线 / Security scan ──
   # 注意：CI 只覆盖当前 HEAD；全历史深度扫描用本地审计（推送前必做）
