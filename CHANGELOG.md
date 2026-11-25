@@ -14,6 +14,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.7.8] - 2026-11-25
+
+> via PR [#52](https://github.com/baobaolaodie/dsh-tui-vscode/pull/52)
+
+### Added
+
 - **New setting `dsh-tui-vscode.autoInsertMentionFallback` (experimental, `false` by default)**: restores the typing fallback for the IDE selection channel. When the channel has no client, it types `@relative/path#Lstart-end` into a dsh-tui terminal the extension created. It only applies while `autoInsertMention` is on, and a connected channel still only pushes. Not recommended because it writes into the input box instead of delivering separate context — `Ctrl+Alt+K` inserts the same reference on demand.
 
 ### Changed
