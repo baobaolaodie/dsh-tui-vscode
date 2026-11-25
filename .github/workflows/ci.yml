@@ -274,14 +274,18 @@ jobs:
           fetch-depth: 0
       - name: '版本一致性 / Version consistency'
         run: |
-          # package.json / README.md-README_ZH.md 徽章 / CHANGELOG.md-CHANGELOG_ZH.md 首版本段 五处一致
+          # package.json / README.md-README_ZH.md 徽章 / CHANGELOG.md-CHANGELOG_ZH.md 首版本段 / package-lock.json 根版本（一处两值） 六处共七个值一致
+          # 锁文件两处版本 npm ci 既不校验也不回写（0.7.2-0.7.8 七个版本一路漂移），只能在这里守
           V1=$(node -p "require('./package.json').version")
           V2=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1 | sed 's/version-//')
           V3=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' README_ZH.md | head -1 | sed 's/version-//')
           V4=$(grep -m1 '^## \[' CHANGELOG.md | sed -E 's/## \[([0-9.]+).*/\1/')
           V5=$(grep -m1 '^## \[' CHANGELOG_ZH.md | sed -E 's/## \[([0-9.]+).*/\1/')
-          echo "version=$V1 README=$V2/$V3 CHANGELOG=$V4/$V5"
+          V6=$(node -p "require('./package-lock.json').version")
+          V7=$(node -p "require('./package-lock.json').packages[''].version")
+          echo "version=$V1 README=$V2/$V3 CHANGELOG=$V4/$V5 lockfile=$V6/$V7"
           [ "$V1" = "$V2" ] && [ "$V1" = "$V3" ] && [ "$V1" = "$V4" ] && [ "$V1" = "$V5" ] \
+            && [ "$V1" = "$V6" ] && [ "$V1" = "$V7" ] \
             || { echo "版本不一致 / version mismatch"; exit 1; }
       - name: 'CHANGELOG 每版本段 PR 链接 / CHANGELOG per-version PR links'
         run: |
