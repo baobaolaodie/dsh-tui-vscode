@@ -120,7 +120,7 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
+`.github/workflows/ci.yml` runs on every push to `main`, on every `v*` tag, and on every pull request:
 
 | Job | What it covers |
 | --- | --- |
@@ -128,7 +128,7 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 | `e2e` | Linux under xvfb: the real extension-host suite, then `npm run package`, then a VSIX smoke test that the `zh-cn` contribution strings and runtime bundle really are inside the package |
 | `quality` | Bilingual mirror symmetry (line counts within 10), the primary↔mirror cross links, a BOM guard, `package.nls*` and `l10n` key parity, `l10n.t` literal coverage, actionlint |
 | `pr-policy` | Conventional Commits in the PR title and in every commit, the branch prefix, the PR template's sections and checkboxes, and the honesty of the CHANGELOG self-check |
-| `release-consistency` | The version match across six places (seven values — `package-lock.json` carries two), plus a PR link (or an explicit direct-push marker) in every version section |
+| `release-consistency` | The version match across six places (seven values — `package-lock.json` carries two), a check that a pushed `v*` tag equals that version, plus a PR link (or an explicit direct-push marker) in every version section |
 | `security-scan` | A credential scan over `HEAD` and a check that no credential-like file is tracked |
 | `docs-links` | A lychee dead-link check over the root documents and `.github/` |
 

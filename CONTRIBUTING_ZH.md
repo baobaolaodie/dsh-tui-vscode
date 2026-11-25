@@ -120,7 +120,7 @@ npm run package          # 编译 + 生成 .vsix
 
 ## 持续集成
 
-`.github/workflows/ci.yml` 在每次推送到 `main` 与每个 PR 上运行：
+`.github/workflows/ci.yml` 在每次推送到 `main`、每个 `v*` tag 与每个 PR 上运行：
 
 | Job | 覆盖什么 |
 | --- | --- |
@@ -128,7 +128,7 @@ npm run package          # 编译 + 生成 .vsix
 | `e2e` | Linux + xvfb：真实扩展宿主套件，随后 `npm run package`，再用 VSIX 冒烟确认 `zh-cn` 贡献点文案与运行时 bundle 确实在包内 |
 | `quality` | 双语镜像对称（行数差 ≤10）、主/镜像互链、BOM 防线、`package.nls*` 与 `l10n` 键一致、`l10n.t` 字面量覆盖、actionlint |
 | `pr-policy` | PR 标题与每个提交的 Conventional Commits、分支前缀、PR 模板的段落与勾选项、CHANGELOG 自查的真实性 |
-| `release-consistency` | 六个位置的版本一致（七个值：`package-lock.json` 一处占两个值），以及每个版本段含 PR 链接（或显式 direct-push 标记） |
+| `release-consistency` | 六个位置的版本一致（七个值：`package-lock.json` 一处占两个值）、推 `v*` tag 时校验 tag 名与该版本相同，以及每个版本段含 PR 链接（或显式 direct-push 标记） |
 | `security-scan` | 对 `HEAD` 做凭据扫描，并检查没有凭据类文件被跟踪 |
 | `docs-links` | 对根级文档与 `.github/` 跑 lychee 死链检查 |
 
