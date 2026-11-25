@@ -148,6 +148,7 @@ The e2e suite covers command registration, terminal creation with environment in
 3. **Six-place sync (seven values)**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) = `package-lock.json` root version, in both its top-level and its `packages[""]` field — verified by CI. The release flow edits `package.json` by hand rather than running `npm version`, and `npm ci` neither validates nor rewrites the lockfile fields, so they drift unless this step updates them too; seven releases drifted before the check was added.
 4. `npm run package` to build the vsix.
 5. **Compare the packaged size with the last release** before uploading: `gh release view <prev-tag> --json assets`. An order-of-magnitude jump means `.vscodeignore` is letting a local tool directory into the package — fix it before uploading.
-6. Upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
-7. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the store version.
-8. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
+6. Create the `v*` tag and a GitHub Release (with the vsix attached), matching the version being published.
+7. Confirm the run the tag started passes — it also checks that the tag name equals the version. Doing this before the upload keeps a mislabeled tag from reaching the store.
+8. Upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).
+9. After the release: reset `Unreleased` to empty; if the version sync touched README/CHANGELOG, push them together with the tag.
