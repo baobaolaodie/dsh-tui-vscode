@@ -128,7 +128,7 @@ Local pre-check: install the pre-commit hook (`node scripts/install-commit-hook.
 | `e2e` | Linux under xvfb: the real extension-host suite, then `npm run package`, then a VSIX smoke test that the `zh-cn` contribution strings and runtime bundle really are inside the package |
 | `quality` | Bilingual mirror symmetry (line counts within 10), the primary↔mirror cross links, a BOM guard, `package.nls*` and `l10n` key parity, `l10n.t` literal coverage, actionlint |
 | `pr-policy` | Conventional Commits in the PR title and in every commit, the branch prefix, the PR template's sections and checkboxes, and the honesty of the CHANGELOG self-check |
-| `release-consistency` | The five-point version match, plus a PR link (or an explicit direct-push marker) in every version section |
+| `release-consistency` | The version match across six places (seven values — `package-lock.json` carries two), plus a PR link (or an explicit direct-push marker) in every version section |
 | `security-scan` | A credential scan over `HEAD` and a check that no credential-like file is tracked |
 | `docs-links` | A lychee dead-link check over the root documents and `.github/` |
 
@@ -137,7 +137,7 @@ The e2e suite covers command registration, terminal creation with environment in
 ## Publishing
 
 - Current publishing flow: `npm run package` to build the vsix, then upload it at https://marketplace.visualstudio.com/manage (the official "manual publish" path — no PAT required).
-- Version flow: bump `package.json` version → sync the README badges and CHANGELOG (the release-consistency CI enforces the five-point match) → create the `v*` tag → upload the new version via the web.
+- Version flow: bump `package.json` version → sync the README badges, CHANGELOG and the `package-lock.json` root version (the release-consistency CI enforces the match across six places) → create the `v*` tag → upload the new version via the web.
 - Note: Azure DevOps global PATs are retired on 2026-12-01; for future CLI/CI automation, switch to Entra ID (`vsce publish --azure-credential`, vsce >= 2.26.1).
 - Never use "Remove": an extension name is permanently reserved after removal and cannot be reused; use "Unpublish" to take it down.
 
@@ -145,7 +145,7 @@ The e2e suite covers command registration, terminal creation with environment in
 
 1. **A new version number is mandatory**: Marketplace versions cannot be overwritten or reused after deletion — every release must use an incremented version number (uploading the same version is rejected).
 2. **CHANGELOG**: move the `Unreleased` content into a version section `## [x.y.z] - date`, linking the PRs merged in this batch (the release-consistency CI requires a PR link or a direct-push marker in every version section).
-3. **Five-point sync**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) — verified by CI.
+3. **Six-place sync (seven values)**: `package.json` version = README badges (zh/en) = first CHANGELOG version section (zh/en) = `package-lock.json` root version, in both its top-level and its `packages[""]` field — verified by CI. The release flow edits `package.json` by hand rather than running `npm version`, and `npm ci` neither validates nor rewrites the lockfile fields, so they drift unless this step updates them too; seven releases drifted before the check was added.
 4. `npm run package` to build the vsix.
 5. **Compare the packaged size with the last release** before uploading: `gh release view <prev-tag> --json assets`. An order-of-magnitude jump means `.vscodeignore` is letting a local tool directory into the package — fix it before uploading.
 6. Upload the new vsix on the manage page (it becomes the extension's new version automatically, keeping install stats).

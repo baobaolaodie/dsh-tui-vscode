@@ -128,7 +128,7 @@ npm run package          # 编译 + 生成 .vsix
 | `e2e` | Linux + xvfb：真实扩展宿主套件，随后 `npm run package`，再用 VSIX 冒烟确认 `zh-cn` 贡献点文案与运行时 bundle 确实在包内 |
 | `quality` | 双语镜像对称（行数差 ≤10）、主/镜像互链、BOM 防线、`package.nls*` 与 `l10n` 键一致、`l10n.t` 字面量覆盖、actionlint |
 | `pr-policy` | PR 标题与每个提交的 Conventional Commits、分支前缀、PR 模板的段落与勾选项、CHANGELOG 自查的真实性 |
-| `release-consistency` | 五处版本一致，以及每个版本段含 PR 链接（或显式 direct-push 标记） |
+| `release-consistency` | 六个位置的版本一致（七个值：`package-lock.json` 一处占两个值），以及每个版本段含 PR 链接（或显式 direct-push 标记） |
 | `security-scan` | 对 `HEAD` 做凭据扫描，并检查没有凭据类文件被跟踪 |
 | `docs-links` | 对根级文档与 `.github/` 跑 lychee 死链检查 |
 
@@ -137,7 +137,7 @@ e2e 覆盖：命令注册、带环境注入的真实终端创建、输入回环�
 ## 发布 / Publishing
 
 - 当前发布方式：`npm run package` 生成 vsix → https://marketplace.visualstudio.com/manage 网页上传（官方"手动发布"路径，无需 PAT）。
-- 版本流程：改 `package.json` version → 同步 README 徽章与 CHANGELOG（release-consistency CI 强制五处一致）→ 打 `v*` tag → 网页上传新版本。
+- 版本流程：改 `package.json` version → 同步 README 徽章、CHANGELOG 与 `package-lock.json` 根版本（release-consistency CI 强制六个位置一致）→ 打 `v*` tag → 网页上传新版本。
 - 注意：Azure DevOps 全局 PAT 将于 2026-12-01 退休；届时如需 CLI/CI 自动化发布，改用 Entra ID（`vsce publish --azure-credential`，vsce ≥ 2.26.1）。
 - 切勿使用"移除（Remove）"：扩展名移除后**永久保留不可复用**；下架请用"Unpublish"。
 
@@ -145,7 +145,7 @@ e2e 覆盖：命令注册、带环境注入的真实终端创建、输入回环�
 
 1. **新版本号强制**：Marketplace 的版本**不可覆盖、删除后不可复用**——每次发布必须用**递增的新版本号**（同版本号网页上传会被拒绝）。
 2. **CHANGELOG**：把 `Unreleased` 内容转为新版本段 `## [x.y.z] - 日期`，段内**链接本批已合并的 PR**（release-consistency CI 强制每版本段含 PR 链接或 direct-push 标记）。
-3. **五处一致**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英），CI 验证。
+3. **六处一致（七个值）**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英）= `package-lock.json` 根版本（顶层与 `packages[""]` 两处），CI 验证。发布流程直接改 `package.json`、不走 `npm version`，而 `npm ci` 既不校验也不回写这两个字段——不同步就会漂移；此前七个版本一路漂移，才补上这道检查。
 4. `npm run package` 生成 vsix。
 5. **上传前把产物大小与上一次发布比对**：`gh release view <prev-tag> --json assets`。数量级跳变说明 `.vscodeignore` 让某个本地工具目录进了包——上传前先修好。
 6. 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
