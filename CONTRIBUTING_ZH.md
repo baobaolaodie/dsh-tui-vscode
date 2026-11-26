@@ -148,6 +148,7 @@ e2e 覆盖：命令注册、带环境注入的真实终端创建、输入回环�
 3. **六处一致（七个值）**：`package.json` version = README 徽章（中/英）= CHANGELOG 首个版本段（中/英）= `package-lock.json` 根版本（顶层与 `packages[""]` 两处），CI 验证。发布流程直接改 `package.json`、不走 `npm version`，而 `npm ci` 既不校验也不回写这两个字段——不同步就会漂移；此前七个版本一路漂移，才补上这道检查。
 4. `npm run package` 生成 vsix。
 5. **上传前把产物大小与上一次发布比对**：`gh release view <prev-tag> --json assets`。数量级跳变说明 `.vscodeignore` 让某个本地工具目录进了包——上传前先修好。
-6. 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
-7. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与商店版本保持一致。
-8. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。
+6. 打 `v*` tag + 创建 GitHub Release（附 vsix 附件），与将要发布的版本号保持一致。
+7. 确认该 tag 触发的那次运行通过——它还会校验 tag 名与版本相同。在上传前完成这一步，标错的 tag 就不会先把版本推到商店。
+8. 在 manage 页面**上传新 vsix**（自动成为该扩展的新版本，保留安装统计）。
+9. 发布后：`Unreleased` 重置为空段；如版本同步中改了 README/CHANGELOG，随 tag 一起推送。
